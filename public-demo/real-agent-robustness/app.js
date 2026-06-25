@@ -20,9 +20,7 @@ main();
 async function main() {
   const response = await fetch("./evidence/lab-snapshot.json", { cache: "no-cache" });
   state.snapshot = await response.json();
-  state.selected =
-    state.snapshot.matrix.find((cell) => cell.status === "failed") ??
-    state.snapshot.matrix[0];
+  state.selected = state.snapshot.matrix.find((cell) => cell.status === "failed") ?? state.snapshot.matrix[0];
   render();
 }
 
@@ -124,13 +122,29 @@ function renderDetail(cell) {
       <span class="badge ${cell.status === "failed" ? "missing" : ""}">${cell.status}</span>
       <h3>${escapeHtml(cell.agentName)} on ${escapeHtml(faultLabels[cell.faultName] ?? cell.faultName)}</h3>
       <p>${escapeHtml(cell.primaryFailure ?? "No failure recorded for this run.")}</p>
-      <p>Final URL: ${escapeHtml(cell.finalUrl ?? "-")}<br>Duration: ${formatDuration(cell.durationMs)} · Steps: ${cell.stepCount ?? "-"}</p>
+      ${renderDivergence(cell.firstDivergence)}
+      <p>Final URL: ${escapeHtml(cell.finalUrl ?? "-")}<br>Duration: ${formatDuration(cell.durationMs)} | Steps: ${cell.stepCount ?? "-"}</p>
       <div class="detail-links">
         ${cell.tracePath ? `<a href="${cell.tracePath}">Trace JSON</a>` : ""}
         ${cell.reportPath ? `<a href="${cell.reportPath}">HTML report</a>` : ""}
         ${cell.screenshotPath ? `<a href="${cell.screenshotPath}">Screenshot</a>` : ""}
+        ${cell.firstDivergence?.domSnapshotPath ? `<a href="${cell.firstDivergence.domSnapshotPath}">Divergence DOM</a>` : ""}
       </div>
     </div>`;
+}
+
+function renderDivergence(divergence) {
+  if (!divergence) {
+    return `<div class="divergence"><strong>First divergence</strong><span>No divergence from the clean trace was recorded.</span></div>`;
+  }
+  return `<div class="divergence">
+    <strong>First divergence: ${escapeHtml(divergence.kind)}${divergence.stepIndex ? ` at step ${divergence.stepIndex}` : ""}</strong>
+    <span>${escapeHtml(divergence.note)}</span>
+    <dl>
+      <div><dt>Clean trace</dt><dd>${escapeHtml(divergence.baseline ?? "-")}</dd></div>
+      <div><dt>This run</dt><dd>${escapeHtml(divergence.current ?? "-")}</dd></div>
+    </dl>
+  </div>`;
 }
 
 function orderedFaults() {

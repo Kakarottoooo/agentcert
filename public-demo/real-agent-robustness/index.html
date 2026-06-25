@@ -55,7 +55,7 @@
       <section class="agent-section" aria-labelledby="agents-title">
         <div class="section-heading">
           <h2 id="agents-title">Agent comparison</h2>
-          <p>Checked-in evidence uses deterministic reference agents. Public open-source agents plug into the same schema when you run their adapter locally.</p>
+          <p>Checked-in evidence uses deterministic Playwright/CDP agents. Public open-source agents plug into the same schema when you run their adapter locally.</p>
         </div>
         <div class="agent-grid" id="agent-grid"></div>
       </section>
@@ -87,12 +87,7 @@
         <pre><code>python -m venv .venv-browser-use
 .\\.venv-browser-use\\Scripts\\python -m pip install --upgrade browser-use
 $env:OPENAI_API_KEY = "&lt;your key&gt;"
-npm --prefix packages/tripwire-ci run build
-node packages/tripwire-ci/dist/cli.js run `
-  -c examples/real-agents/browser-use/tripwire.browser-use.yml `
-  --out .tripwire/browser-use-real-agent `
-  --fail-under 0
-npm run agentcert:lab-build</code></pre>
+npm run tripwire:lab-browser-use</code></pre>
       </section>
     </main>
 

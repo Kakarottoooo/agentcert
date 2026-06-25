@@ -103,9 +103,24 @@
         "stepCount": { "type": "number" },
         "finalUrl": { "type": "string" },
         "primaryFailure": { "type": "string" },
+        "firstDivergence": { "$ref": "#/$defs/firstDivergence" },
         "tracePath": { "type": "string" },
         "reportPath": { "type": "string" },
         "screenshotPath": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "firstDivergence": {
+      "type": "object",
+      "required": ["kind", "note"],
+      "properties": {
+        "kind": { "enum": ["url", "text", "dom", "step-count", "assertion"] },
+        "stepIndex": { "type": "number" },
+        "baseline": { "type": "string" },
+        "current": { "type": "string" },
+        "note": { "type": "string" },
+        "screenshotPath": { "type": "string" },
+        "domSnapshotPath": { "type": "string" }
       },
       "additionalProperties": false
     }

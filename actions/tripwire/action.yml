@@ -1,0 +1,146 @@
+name: AgentCert Tripwire
+description: Run Tripwire browser-agent robustness gates and emit AgentCert evidence.
+inputs:
+  config:
+    description: Tripwire config path in the caller repository.
+    default: tripwire.yml
+  out:
+    description: Tripwire output directory in the caller repository.
+    default: .tripwire/latest
+  fail-under:
+    description: Optional Tripwire pass-rate threshold override from 0 to 1.
+    required: false
+  subject:
+    description: AgentCert subject name. Defaults to the GitHub repository.
+    required: false
+  agentcert-out:
+    description: AgentCert evidence output directory in the caller repository.
+    default: .agentcert/latest
+  install-playwright:
+    description: Install Playwright Chromium before running Tripwire.
+    default: "true"
+  upload-artifact:
+    description: Upload Tripwire and AgentCert artifacts at the end of the job.
+    default: "true"
+  artifact-name:
+    description: Uploaded artifact bundle name.
+    default: agentcert-tripwire
+  fail-on-verdict:
+    description: Fail if the unified AgentCert verdict fails, in addition to the Tripwire gate.
+    default: "false"
+outputs:
+  tripwire-result:
+    description: Path to tripwire-result.json.
+    value: ${{ inputs.out }}/tripwire-result.json
+  tripwire-report:
+    description: Path to tripwire-report.html.
+    value: ${{ inputs.out }}/tripwire-report.html
+  junit:
+    description: Path to Tripwire JUnit XML.
+    value: ${{ inputs.out }}/junit.xml
+  evidence:
+    description: Path to AgentCert evidence bundle.
+    value: ${{ inputs.agentcert-out }}/agentcert-evidence.json
+  badge:
+    description: Path to AgentCert badge SVG.
+    value: ${{ inputs.agentcert-out }}/badge.svg
+runs:
+  using: composite
+  steps:
+    - name: Install AgentCert toolchain
+      shell: bash
+      run: |
+        set -euo pipefail
+        ACTION_ROOT="$(cd "$GITHUB_ACTION_PATH/../.." && pwd)"
+        echo "AGENTCERT_ACTION_ROOT=$ACTION_ROOT" >> "$GITHUB_ENV"
+        npm ci --prefix "$ACTION_ROOT/packages/tripwire-ci"
+        npm ci --prefix "$ACTION_ROOT/packages/agentcert-cli"
+        npm run --prefix "$ACTION_ROOT/packages/tripwire-ci" build
+        npm run --prefix "$ACTION_ROOT/packages/agentcert-cli" build
+
+    - name: Install Playwright Chromium
+      if: ${{ inputs.install-playwright == 'true' }}
+      shell: bash
+      run: npm --prefix "$AGENTCERT_ACTION_ROOT/packages/tripwire-ci" exec -- playwright install chromium
+
+    - name: Run Tripwire
+      shell: bash
+      run: |
+        set +e
+        args=(run -c "${{ inputs.config }}" --out "${{ inputs.out }}")
+        if [ -n "${{ inputs.fail-under }}" ]; then
+          args+=(--fail-under "${{ inputs.fail-under }}")
+        fi
+        node "$AGENTCERT_ACTION_ROOT/packages/tripwire-ci/dist/cli.js" "${args[@]}"
+        tripwire_exit=$?
+        echo "AGENTCERT_TRIPWIRE_EXIT=$tripwire_exit" >> "$GITHUB_ENV"
+        exit 0
+
+    - name: Generate AgentCert evidence
+      if: always()
+      shell: bash
+      run: |
+        set +e
+        subject="${{ inputs.subject }}"
+        if [ -z "$subject" ]; then
+          subject="${GITHUB_REPOSITORY:-agentcert-subject}"
+        fi
+        args=(
+          run
+          --tripwire "${{ inputs.out }}/tripwire-result.json"
+          --out "${{ inputs.agentcert-out }}"
+          --corpus "${{ inputs.agentcert-out }}/corpus.jsonl"
+          --subject "$subject"
+          --replace
+        )
+        if [ "${{ inputs.fail-on-verdict }}" = "true" ]; then
+          args+=(--fail-on-verdict)
+        fi
+        node "$AGENTCERT_ACTION_ROOT/packages/agentcert-cli/dist/cli.js" "${args[@]}"
+        agentcert_exit=$?
+        echo "AGENTCERT_RUN_EXIT=$agentcert_exit" >> "$GITHUB_ENV"
+        exit 0
+
+    - name: Write AgentCert summary
+      if: always()
+      shell: bash
+      run: |
+        if [ -z "${GITHUB_STEP_SUMMARY:-}" ]; then
+          exit 0
+        fi
+        {
+          echo "## AgentCert Tripwire"
+          echo
+          echo "- Tripwire result: \`${{ inputs.out }}/tripwire-result.json\`"
+          echo "- Tripwire report: \`${{ inputs.out }}/tripwire-report.html\`"
+          echo "- JUnit: \`${{ inputs.out }}/junit.xml\`"
+          echo "- Evidence bundle: \`${{ inputs.agentcert-out }}/agentcert-evidence.json\`"
+          echo "- Badge: \`${{ inputs.agentcert-out }}/badge.svg\`"
+        } >> "$GITHUB_STEP_SUMMARY"
+        if [ -f "${{ inputs.agentcert-out }}/agentcert-report.md" ]; then
+          {
+            echo
+            cat "${{ inputs.agentcert-out }}/agentcert-report.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Upload AgentCert artifacts
+      if: ${{ always() && inputs.upload-artifact == 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          ${{ inputs.out }}/
+          ${{ inputs.agentcert-out }}/
+        if-no-files-found: warn
+
+    - name: Apply AgentCert gate
+      if: always()
+      shell: bash
+      run: |
+        if [ "${AGENTCERT_TRIPWIRE_EXIT:-0}" != "0" ]; then
+          exit "$AGENTCERT_TRIPWIRE_EXIT"
+        fi
+        if [ "${AGENTCERT_RUN_EXIT:-0}" != "0" ]; then
+          exit "$AGENTCERT_RUN_EXIT"
+        fi

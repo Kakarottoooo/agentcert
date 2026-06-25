@@ -25,12 +25,15 @@ describe("AgentCert unified runner", () => {
     expect(outcome.bundle.summary.products).toEqual(["mcpbench", "tripwire-ci", "onegent-runtime"]);
     expect(outcome.records).toHaveLength(3);
     expect(outcome.manifest.outputs.evidenceBundle).toBe(slashPath(join(dir, "report", "agentcert-evidence.json")));
+    expect(outcome.manifest.outputs.badge).toBe(slashPath(join(dir, "report", "badge.svg")));
     expect(outcome.manifest.outputs.monitor).toEqual([join(dir, "monitor.json")]);
 
     const report = await readFile(join(dir, "report", "agentcert-report.md"), "utf8");
     expect(report).toContain("- mcpbench: PASS");
     expect(report).toContain("- tripwire-ci: FAIL");
     expect(report).toContain("- onegent-runtime: PASS");
+    const badge = await readFile(join(dir, "report", "badge.svg"), "utf8");
+    expect(badge).toContain("agentcert: fail");
 
     const monitor = JSON.parse(await readFile(join(dir, "monitor.json"), "utf8")) as MonitorSnapshot;
     expect(monitor.summary.totalRecords).toBe(3);

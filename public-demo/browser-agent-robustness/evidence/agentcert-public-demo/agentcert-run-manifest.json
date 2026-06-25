@@ -1,8 +1,8 @@
 {
   "schemaVersion": "1",
   "kind": "agentcert.run_manifest",
-  "runId": "agentcert_run_63a52ecff5c7",
-  "generatedAt": "2026-06-25T18:45:26.604Z",
+  "runId": "agentcert_run_0755ce5c27fc",
+  "generatedAt": "2026-06-25T19:30:13.939Z",
   "subject": {
     "name": "agentcert-public-demo",
     "type": "agent"
@@ -47,6 +47,7 @@
     "reportDir": "public-demo/browser-agent-robustness/evidence/agentcert-public-demo",
     "evidenceBundle": "public-demo/browser-agent-robustness/evidence/agentcert-public-demo/agentcert-evidence.json",
     "markdownReport": "public-demo/browser-agent-robustness/evidence/agentcert-public-demo/agentcert-report.md",
+    "badge": "public-demo/browser-agent-robustness/evidence/agentcert-public-demo/badge.svg",
     "corpus": "public-demo/browser-agent-robustness/evidence/agentcert-corpus.jsonl",
     "manifest": "public-demo/browser-agent-robustness/evidence/agentcert-public-demo/agentcert-run-manifest.json"
   },

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="143" height="20" role="img" aria-label="agentcert: fail 81">
+  <title>agentcert: fail 81</title>
+  <linearGradient id="s" x2="0" y2="100%">
+    <stop offset="0" stop-color="#fff" stop-opacity=".12"/>
+    <stop offset="1" stop-color="#000" stop-opacity=".12"/>
+  </linearGradient>
+  <clipPath id="r"><rect width="143" height="20" rx="3" fill="#fff"/></clipPath>
+  <g clip-path="url(#r)">
+    <rect width="76" height="20" fill="#07172f"/>
+    <rect x="76" width="67" height="20" fill="#cc2431"/>
+    <rect width="143" height="20" fill="url(#s)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">
+    <text x="38" y="15" fill="#010101" fill-opacity=".3">agentcert</text>
+    <text x="38" y="14">agentcert</text>
+    <text x="109.5" y="15" fill="#010101" fill-opacity=".3">fail 81</text>
+    <text x="109.5" y="14">fail 81</text>
+  </g>
+</svg>

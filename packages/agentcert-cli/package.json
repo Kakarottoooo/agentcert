@@ -1,13 +1,19 @@
 {
-  "name": "@agentcert/cli",
+  "name": "agentcert",
   "version": "0.1.0",
   "description": "Unified AgentCert evidence packet and report CLI.",
   "type": "module",
   "bin": {
     "agentcert": "./dist/cli.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "package.json"
+  ],
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "prepack": "npm run build",
     "test": "vitest run tests",
     "demo:report": "node dist/cli.js report --mcpbench ../../examples/reports/passing/results.json --out .agentcert/demo --subject demo-agent"
   },

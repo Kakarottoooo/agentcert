@@ -10,6 +10,7 @@
     "tripwire:e2e": "npm --prefix packages/tripwire-ci run test:e2e",
     "tripwire:demo-public": "npm --prefix packages/tripwire-ci run demo:public",
     "tripwire:lab-reference": "npm --prefix packages/tripwire-ci run lab:reference",
+    "tripwire:lab-browser-use": "npm run tripwire:build && node packages/tripwire-ci/dist/cli.js run -c examples/real-agents/browser-use/tripwire.browser-use.yml --out public-demo/real-agent-robustness/evidence/browser-use --fail-under 0 && npm run agentcert:lab-build",
     "onegent:install": "npm --prefix packages/onegent-runtime ci",
     "onegent:build": "npm --prefix packages/onegent-runtime run build",
     "onegent:test": "npm --prefix packages/onegent-runtime test",

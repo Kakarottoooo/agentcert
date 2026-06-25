@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { renderAgentCertBadge } from "./badge.js";
 import { dirname, join, resolve } from "node:path";
 import { buildEvidenceBundle } from "./bundle.js";
 import { recordsFromAgentCertResult, renderCorpusSummary, summarizeCorpus, type AgentCertCorpusRecord } from "./corpus.js";
@@ -79,6 +80,7 @@ export interface AgentCertRunManifest {
     reportDir?: string;
     evidenceBundle?: string;
     markdownReport?: string;
+    badge?: string;
     corpus?: string;
     monitor: string[];
     manifest?: string;
@@ -278,10 +280,12 @@ export async function runAgentCertProfile(profileInput: AgentCertRunProfile, opt
     await mkdir(resolvedReportDir, { recursive: true });
     await writeFile(`${resolvedReportDir}/agentcert-evidence.json`, `${JSON.stringify(bundle, null, 2)}\n`);
     await writeFile(`${resolvedReportDir}/agentcert-report.md`, renderMarkdownReport(bundle));
+    await writeFile(`${resolvedReportDir}/badge.svg`, renderAgentCertBadge(bundle));
     steps.push({ id: "report", status: "passed", artifactPath: reportDir });
     outputs.reportDir = reportDir;
     outputs.evidenceBundle = artifactPath(reportDir, "agentcert-evidence.json");
     outputs.markdownReport = artifactPath(reportDir, "agentcert-report.md");
+    outputs.badge = artifactPath(reportDir, "badge.svg");
   } else {
     steps.push({ id: "report", status: "skipped", message: "Report output disabled." });
   }

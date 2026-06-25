@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -17,16 +17,56 @@ describe("Real Agent Robustness Lab", () => {
 
   it("summarizes completed and missing agent runs", async () => {
     const resultPath = join(dir, "tripwire-result.json");
+    await mkdir(join(dir, "runs", "refund-form", "clean"), { recursive: true });
+    await mkdir(join(dir, "runs", "refund-form", "modal-overlay"), { recursive: true });
+    await writeFile(
+      join(dir, "runs", "refund-form", "clean", "trace.json"),
+      JSON.stringify({
+        steps: [
+          {
+            stepIndex: 1,
+            url: "http://127.0.0.1/refund",
+            textHash: "clean-text",
+            domHash: "clean-dom",
+            visibleTextSample: "Order ID Reason Submit Cancel",
+            screenshotPath: "screenshots/0001.png",
+            domSnapshotPath: "dom/0001.html",
+          },
+        ],
+      }),
+    );
+    await writeFile(
+      join(dir, "runs", "refund-form", "modal-overlay", "trace.json"),
+      JSON.stringify({
+        steps: [
+          {
+            stepIndex: 1,
+            url: "http://127.0.0.1/refund",
+            textHash: "modal-text",
+            domHash: "modal-dom",
+            visibleTextSample: "Injected modal Order ID Reason Submit Cancel",
+            screenshotPath: "screenshots/0001.png",
+            domSnapshotPath: "dom/0001.html",
+          },
+        ],
+      }),
+    );
     await writeFile(
       resultPath,
       JSON.stringify({
         summary: { totalRuns: 2, passedRuns: 1, failedRuns: 1, overallScore: 0.5 },
         runs: [
-          { scenarioName: "refund-form", faultName: "clean", status: "passed" },
+          {
+            scenarioName: "refund-form",
+            faultName: "clean",
+            status: "passed",
+            tracePath: "runs/refund-form/clean/trace.json",
+          },
           {
             scenarioName: "refund-form",
             faultName: "modal-overlay",
             status: "failed",
+            tracePath: "runs/refund-form/modal-overlay/trace.json",
             assertions: [{ pass: false, message: "Final URL should contain /success" }],
           },
         ],
@@ -73,6 +113,14 @@ describe("Real Agent Robustness Lab", () => {
     expect(snapshot.matrix.find((cell) => cell.faultName === "modal-overlay")).toMatchObject({
       status: "failed",
       primaryFailure: "Final URL should contain /success",
+      firstDivergence: {
+        kind: "text",
+        stepIndex: 1,
+        baseline: "Order ID Reason Submit Cancel",
+        current: "Injected modal Order ID Reason Submit Cancel",
+        screenshotPath: "./evidence/reference/runs/refund-form/modal-overlay/screenshots/0001.png",
+        domSnapshotPath: "./evidence/reference/runs/refund-form/modal-overlay/dom/0001.html",
+      },
     });
   });
 

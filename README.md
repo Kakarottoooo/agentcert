@@ -260,19 +260,29 @@ npm run tripwire:demo-public
 npm run agentcert:monitor-build
 ```
 
-The real public-agent adapter for `browser-use` is in:
+The Real Agent Robustness Lab compares multiple browser-agent runs over the same fault suite. The checked-in evidence currently includes deterministic Playwright/CDP agents and a wired `browser-use` public-agent adapter:
 
 ```text
+public-demo/real-agent-robustness/
 examples/real-agents/browser-use/
 ```
 
-It reads model credentials from the shell, such as `OPENAI_API_KEY`, and does not store secrets in the repository.
+The browser-use adapter reads model credentials from the shell, such as `OPENAI_API_KEY`, and does not store secrets in the repository. AgentCert marks browser-use as missing until you run it locally; it does not fabricate public-agent results.
 
 Build the public robustness lab snapshot:
 
 ```powershell
 npm run tripwire:lab-reference
 npm run agentcert:lab-build
+```
+
+Run browser-use locally when a model key is available:
+
+```powershell
+python -m venv .venv-browser-use
+.\\.venv-browser-use\\Scripts\\python -m pip install --upgrade browser-use
+$env:OPENAI_API_KEY = "<your key>"
+npm run tripwire:lab-browser-use
 ```
 
 The lab snapshot schema is checked in at:
@@ -318,6 +328,32 @@ Outputs:
 - `junit.xml`
 - `runs/<scenario>/<fault>/trace.json`
 - screenshots and DOM snapshots
+
+Use AgentCert's hosted action from another repository:
+
+```yaml
+- uses: Kakarottoooo/agentcert/actions/tripwire@v0
+  with:
+    config: tripwire.yml
+    out: .tripwire/latest
+    fail-under: "0.8"
+    subject: my-browser-agent
+```
+
+The action emits:
+
+- `.tripwire/latest/junit.xml`
+- `.tripwire/latest/tripwire-report.html`
+- `.tripwire/latest/tripwire-result.json`
+- `.agentcert/latest/agentcert-evidence.json`
+- `.agentcert/latest/agentcert-report.md`
+- `.agentcert/latest/badge.svg`
+
+When the npm package is published, the same evidence layer is intended to run with:
+
+```powershell
+npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --out .agentcert/latest --subject my-browser-agent --fail-on-verdict
+```
 
 ## Quickstart: Onegent Runtime
 

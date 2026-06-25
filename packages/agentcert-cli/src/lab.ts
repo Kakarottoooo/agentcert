@@ -86,9 +86,20 @@ export interface LabMatrixCell {
   stepCount?: number;
   finalUrl?: string;
   primaryFailure?: string;
+  firstDivergence?: LabFirstDivergence;
   tracePath?: string;
   reportPath?: string;
   screenshotPath?: string;
+}
+
+export interface LabFirstDivergence {
+  kind: "url" | "text" | "dom" | "step-count" | "assertion";
+  stepIndex?: number;
+  baseline?: string;
+  current?: string;
+  note: string;
+  screenshotPath?: string;
+  domSnapshotPath?: string;
 }
 
 interface TripwireResult {
@@ -102,6 +113,7 @@ interface TripwireResult {
 }
 
 interface TripwireRun {
+  runId?: string;
   scenarioName?: string;
   faultName?: string;
   status?: string;
@@ -113,7 +125,17 @@ interface TripwireRun {
 }
 
 interface TripwireTrace {
-  steps?: Array<{ screenshotPath?: string; stepIndex?: number }>;
+  steps?: TripwireTraceStep[];
+}
+
+interface TripwireTraceStep {
+  stepIndex?: number;
+  url?: string;
+  screenshotPath?: string;
+  domSnapshotPath?: string;
+  domHash?: string;
+  textHash?: string;
+  visibleTextSample?: string;
 }
 
 export async function buildRobustnessLabSnapshot(config: RobustnessLabConfig, cwd = process.cwd()): Promise<RobustnessLabSnapshot> {
@@ -145,6 +167,7 @@ export async function buildRobustnessLabSnapshot(config: RobustnessLabConfig, cw
     }
 
     const runs = result.runs ?? [];
+    const traces = await loadTracesForRuns(agent, cwd, runs);
     const passedRuns = numberValue(result.summary?.passedRuns) ?? runs.filter((run) => run.status === "passed").length;
     const totalRuns = numberValue(result.summary?.totalRuns) ?? runs.length;
     const failedRuns = numberValue(result.summary?.failedRuns) ?? Math.max(0, totalRuns - passedRuns);
@@ -171,19 +194,24 @@ export async function buildRobustnessLabSnapshot(config: RobustnessLabConfig, cw
 
     for (const run of runs) {
       const tracePath = stringValue(run.tracePath);
+      const scenarioName = stringValue(run.scenarioName);
+      const faultName = stringValue(run.faultName) ?? "unknown";
+      const trace = tracePath ? traces.get(traceKey(scenarioName, faultName)) : undefined;
+      const cleanTrace = faultName === "clean" ? undefined : traces.get(traceKey(scenarioName, "clean"));
       matrix.push({
         agentId: agent.id,
         agentName: agent.name,
-        scenarioName: stringValue(run.scenarioName),
-        faultName: stringValue(run.faultName) ?? "unknown",
+        scenarioName,
+        faultName,
         status: run.status === "passed" ? "passed" : "failed",
         durationMs: numberValue(run.durationMs),
         stepCount: numberValue(run.stepCount),
         finalUrl: stringValue(run.finalUrl),
         primaryFailure: firstFailure(run),
+        firstDivergence: firstDivergence(agent, tracePath, trace, cleanTrace, run),
         tracePath: publicArtifactPath(agent, tracePath),
         reportPath: publicArtifactPath(agent, agent.reportPath),
-        screenshotPath: tracePath ? await screenshotPathFor(agent, cwd, tracePath) : undefined,
+        screenshotPath: tracePath ? screenshotPathFor(agent, tracePath, trace) : undefined,
       });
     }
   }
@@ -258,13 +286,95 @@ function summarizeFaults(matrix: LabMatrixCell[]): LabFaultSummary[] {
     .sort((left, right) => left.passRate - right.passRate || left.faultName.localeCompare(right.faultName));
 }
 
-async function screenshotPathFor(agent: LabAgentConfig, cwd: string, tracePath: string): Promise<string | undefined> {
-  if (!agent.resultPath) return undefined;
+async function loadTracesForRuns(agent: LabAgentConfig, cwd: string, runs: TripwireRun[]): Promise<Map<string, TripwireTrace>> {
+  const traces = new Map<string, TripwireTrace>();
+  if (!agent.resultPath) return traces;
   const resultDir = dirname(resolve(cwd, agent.resultPath));
-  const trace = await readJsonIfExists<TripwireTrace>(join(resultDir, tracePath));
+  for (const run of runs) {
+    const scenarioName = stringValue(run.scenarioName);
+    const faultName = stringValue(run.faultName) ?? "unknown";
+    const tracePath = stringValue(run.tracePath);
+    if (!tracePath) continue;
+    const trace = await readJsonIfExists<TripwireTrace>(join(resultDir, tracePath));
+    if (trace) traces.set(traceKey(scenarioName, faultName), trace);
+  }
+  return traces;
+}
+
+function screenshotPathFor(agent: LabAgentConfig, tracePath: string, trace: TripwireTrace | undefined): string | undefined {
   const screenshot = [...(trace?.steps ?? [])].reverse().find((step) => step.screenshotPath)?.screenshotPath;
   if (!screenshot) return undefined;
   return publicArtifactPath(agent, posix.join(posix.dirname(slashPath(tracePath)), slashPath(screenshot)));
+}
+
+function firstDivergence(
+  agent: LabAgentConfig,
+  tracePath: string | undefined,
+  trace: TripwireTrace | undefined,
+  cleanTrace: TripwireTrace | undefined,
+  run: TripwireRun,
+): LabFirstDivergence | undefined {
+  if (tracePath && trace?.steps && cleanTrace?.steps) {
+    const maxSteps = Math.max(trace.steps.length, cleanTrace.steps.length);
+    for (let index = 0; index < maxSteps; index += 1) {
+      const current = trace.steps[index];
+      const baseline = cleanTrace.steps[index];
+      if (!current || !baseline) {
+        return divergence(agent, tracePath, current, baseline, "step-count", "Trace length diverged from the clean run.");
+      }
+      if (current.url !== baseline.url) {
+        return divergence(agent, tracePath, current, baseline, "url", "First observed URL diverged from the clean run.");
+      }
+      if (current.textHash !== baseline.textHash) {
+        return divergence(agent, tracePath, current, baseline, "text", "First visible text snapshot diverged from the clean run.");
+      }
+      if (current.domHash !== baseline.domHash) {
+        return divergence(agent, tracePath, current, baseline, "dom", "First DOM snapshot diverged from the clean run.");
+      }
+    }
+  }
+
+  const failure = firstFailure(run);
+  if (!failure) return undefined;
+  return {
+    kind: "assertion",
+    note: failure,
+  };
+}
+
+function divergence(
+  agent: LabAgentConfig,
+  tracePath: string,
+  current: TripwireTraceStep | undefined,
+  baseline: TripwireTraceStep | undefined,
+  kind: LabFirstDivergence["kind"],
+  note: string,
+): LabFirstDivergence {
+  return {
+    kind,
+    stepIndex: current?.stepIndex ?? baseline?.stepIndex,
+    baseline: divergenceValue(kind, baseline),
+    current: divergenceValue(kind, current),
+    note,
+    screenshotPath: current?.screenshotPath
+      ? publicArtifactPath(agent, posix.join(posix.dirname(slashPath(tracePath)), slashPath(current.screenshotPath)))
+      : undefined,
+    domSnapshotPath: current?.domSnapshotPath
+      ? publicArtifactPath(agent, posix.join(posix.dirname(slashPath(tracePath)), slashPath(current.domSnapshotPath)))
+      : undefined,
+  };
+}
+
+function divergenceValue(kind: LabFirstDivergence["kind"], step: TripwireTraceStep | undefined): string | undefined {
+  if (!step) return undefined;
+  if (kind === "url") return step.url;
+  if (kind === "text") return step.visibleTextSample ?? step.textHash;
+  if (kind === "dom") return step.domHash;
+  return step.stepIndex === undefined ? undefined : `step ${step.stepIndex}`;
+}
+
+function traceKey(scenarioName: string | undefined, faultName: string): string {
+  return `${scenarioName ?? "unknown"}:${faultName}`;
 }
 
 function publicArtifactPath(agent: LabAgentConfig, path: string | undefined): string | undefined {

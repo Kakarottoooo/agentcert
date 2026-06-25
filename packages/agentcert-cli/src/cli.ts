@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { renderAgentCertBadge } from "./badge.js";
 import { buildEvidenceBundle } from "./bundle.js";
 import { recordsFromAgentCertResult, renderCorpusSummary, summarizeCorpus } from "./corpus.js";
 import { openCorpusStore, parseCorpusStoreKind, type CorpusStoreOptions } from "./corpus-store.js";
@@ -47,8 +48,10 @@ if (command === "init") {
   await mkdir(outDir, { recursive: true });
   await writeFile(`${outDir}/agentcert-evidence.json`, `${JSON.stringify(bundle, null, 2)}\n`);
   await writeFile(`${outDir}/agentcert-report.md`, renderMarkdownReport(bundle));
+  await writeFile(`${outDir}/badge.svg`, renderAgentCertBadge(bundle));
   process.stdout.write(`Wrote ${outDir}\\agentcert-evidence.json\n`);
   process.stdout.write(`Wrote ${outDir}\\agentcert-report.md\n`);
+  process.stdout.write(`Wrote ${outDir}\\badge.svg\n`);
   process.exitCode = bundle.verdict.passed ? 0 : 1;
 } else if (command === "corpus") {
   const action = process.argv[3] ?? "help";

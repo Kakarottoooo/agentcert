@@ -1,0 +1,22 @@
+name: AgentCert Tripwire
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  tripwire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: Kakarottoooo/agentcert/actions/tripwire@v0
+        with:
+          config: tripwire.yml
+          out: .tripwire/latest
+          fail-under: "0.8"
+          subject: my-browser-agent
