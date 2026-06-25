@@ -13,7 +13,12 @@
     "onegent:test": "npm --prefix packages/onegent-runtime test",
     "onegent:demo": "npm --prefix packages/onegent-runtime run demo:procurement",
     "onegent:serve": "npm --prefix packages/onegent-runtime run serve",
-    "check": "npm run tripwire:build && npm run tripwire:test && npm run onegent:build && npm run onegent:test"
+    "agentcert:install": "npm --prefix packages/agentcert-cli ci",
+    "agentcert:build": "npm --prefix packages/agentcert-cli run build",
+    "agentcert:test": "npm --prefix packages/agentcert-cli test",
+    "agentcert:init": "npm --prefix packages/agentcert-cli run build && node packages/agentcert-cli/dist/cli.js init",
+    "agentcert:report": "npm --prefix packages/agentcert-cli run build && node packages/agentcert-cli/dist/cli.js report --mcpbench examples/reports/passing/results.json --out .agentcert/latest --subject demo-agent",
+    "check": "npm run tripwire:build && npm run tripwire:test && npm run onegent:build && npm run onegent:test && npm run agentcert:build && npm run agentcert:test"
   },
   "engines": {
     "node": ">=20"

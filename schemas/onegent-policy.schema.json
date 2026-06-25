@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.dev/schemas/onegent-policy.schema.json",
+  "title": "OnegentPolicyConfig",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "rules"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1"
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "description", "actionTypes", "effect", "enabled"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "actionTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["SUBMIT", "PAY", "SEND", "UPDATE"]
+            },
+            "minItems": 1
+          },
+          "effect": {
+            "type": "string",
+            "enum": ["ALLOW", "REQUIRE_APPROVAL", "BLOCK"]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["field", "operator", "value"],
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "operator": {
+                  "type": "string",
+                  "enum": [
+                    "equals",
+                    "notEquals",
+                    "greaterThan",
+                    "greaterThanOrEqual",
+                    "lessThan",
+                    "lessThanOrEqual",
+                    "includes"
+                  ]
+                },
+                "value": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

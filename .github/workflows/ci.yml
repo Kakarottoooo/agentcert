@@ -57,3 +57,19 @@ jobs:
         run: npm --prefix packages/onegent-runtime run build
       - name: Test Onegent Runtime
         run: npm --prefix packages/onegent-runtime test
+
+  agentcert-cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: packages/agentcert-cli/package-lock.json
+      - name: Install AgentCert CLI dependencies
+        run: npm --prefix packages/agentcert-cli ci
+      - name: Build AgentCert CLI
+        run: npm --prefix packages/agentcert-cli run build
+      - name: Test AgentCert CLI
+        run: npm --prefix packages/agentcert-cli test

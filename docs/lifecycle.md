@@ -41,14 +41,15 @@ Production enforcement happens when a real action is about to affect a real syst
 
 ### Onegent Runtime
 
-Onegent Runtime is the planned production action boundary:
+Onegent Runtime is the local runtime action boundary MVP:
 
 - risk scoring for the current action;
 - policy checks;
 - human approval for high-risk actions;
+- local mock execution after approval;
 - result verification;
 - audit logging;
-- rollback or escalation hooks.
+- audit packet export.
 
 It answers:
 
@@ -56,7 +57,7 @@ It answers:
 
 ## Shared Evidence Model
 
-All layers should eventually emit compatible AgentCert evidence:
+All layers emit or can be normalized into compatible AgentCert evidence:
 
 - run metadata;
 - scenario or task identity;
@@ -70,3 +71,14 @@ All layers should eventually emit compatible AgentCert evidence:
 
 This keeps the product cohesive while allowing each runtime engine to stay technically appropriate for its domain.
 
+## Unified Evidence Bundle
+
+The AgentCert CLI combines MCPBench results, Tripwire CI results, and Onegent
+Runtime audit packets into:
+
+- `agentcert-evidence.json`
+- `agentcert-report.md`
+
+This is the portable review artifact for developers, customers, auditors,
+insurance reviewers, and procurement teams. It is an evidence packet, not a
+self-issued guarantee.

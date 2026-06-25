@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "1",
+  "rules": [
+    {
+      "id": "po-over-1000-requires-approval",
+      "name": "Purchase orders over $1,000 require approval",
+      "description": "High-value purchase order submissions must be reviewed before mock execution.",
+      "actionTypes": ["SUBMIT"],
+      "effect": "REQUIRE_APPROVAL",
+      "enabled": true,
+      "conditions": [
+        {
+          "field": "amount",
+          "operator": "greaterThan",
+          "value": 1000
+        }
+      ]
+    },
+    {
+      "id": "demo-production-actions-blocked",
+      "name": "Production actions are blocked in demo mode",
+      "description": "The local demo runtime must not execute production actions.",
+      "actionTypes": ["SUBMIT", "PAY", "SEND", "UPDATE"],
+      "effect": "BLOCK",
+      "enabled": true,
+      "conditions": [
+        {
+          "field": "environment",
+          "operator": "equals",
+          "value": "production"
+        }
+      ]
+    }
+  ]
+}

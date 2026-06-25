@@ -1,4 +1,4 @@
-import { evaluatePolicy, getPolicyRules } from "./policies.js";
+import { DEFAULT_POLICY_RULES, evaluatePolicy, getPolicyRules } from "./policies.js";
 import { assessRisk } from "./risk.js";
 import { nextId, nowIso, store } from "./store.js";
 import { getPurchaseOrder, submitMockPurchaseOrder } from "./mock-procurement.js";
@@ -11,11 +11,16 @@ import type {
   AuditEvent,
   AuditEventType,
   CreateActionIntentInput,
+  PolicyRule,
   VerificationMethod,
   VerificationResult,
 } from "./types.js";
 
-export function captureActionIntent(input: CreateActionIntentInput): ActionReview {
+export interface ActionGatewayOptions {
+  policyRules?: PolicyRule[];
+}
+
+export function captureActionIntent(input: CreateActionIntentInput, options: ActionGatewayOptions = {}): ActionReview {
   const action: ActionIntent = {
     id: nextId("act"),
     workspaceId: input.workspaceId ?? "demo-workspace",
@@ -55,7 +60,11 @@ export function captureActionIntent(input: CreateActionIntentInput): ActionRevie
     riskScore: risk.riskScore,
   });
 
-  const policy = evaluatePolicy(action, risk);
+  const policy = evaluatePolicy(action, risk, options.policyRules);
+  store.policyRulesByAction.set(
+    action.id,
+    getPolicyRules(policy.triggeredPolicies, [...(options.policyRules ?? DEFAULT_POLICY_RULES), ...DEFAULT_POLICY_RULES]),
+  );
   appendAudit(action.id, "POLICY_EVALUATED", "SYSTEM", "onegent-runtime", "Policy evaluation completed.", {
     effect: policy.effect,
     triggeredPolicies: policy.triggeredPolicies,
@@ -235,7 +244,7 @@ export function getActionReview(actionId: string): ActionReview {
   const approvalRequest = store.approvals.get(actionId);
   const verificationResult = store.verifications.get(actionId);
   const auditEvents = store.auditEvents.filter((event) => event.actionIntentId === actionId);
-  const policyRules = getPolicyRules(riskAssessment.triggeredPolicies);
+  const policyRules = store.policyRulesByAction.get(actionId) ?? getPolicyRules(riskAssessment.triggeredPolicies);
 
   return {
     action,

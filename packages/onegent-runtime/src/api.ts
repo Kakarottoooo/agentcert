@@ -10,12 +10,16 @@ import {
 } from "./service.js";
 import { getPurchaseOrder } from "./mock-procurement.js";
 import { renderProcurementWalkthroughHtml, renderPurchaseOrderHtml } from "./ui.js";
-import type { CreateActionIntentInput } from "./types.js";
+import type { CreateActionIntentInput, PolicyRule } from "./types.js";
 
 export interface ActionGatewayRequest {
   method: string;
   path: string;
   body?: unknown;
+}
+
+export interface ActionGatewayApiOptions {
+  policyRules?: PolicyRule[];
 }
 
 export interface ActionGatewayResponse {
@@ -24,7 +28,10 @@ export interface ActionGatewayResponse {
   contentType?: string;
 }
 
-export function handleActionGatewayRequest(request: ActionGatewayRequest): ActionGatewayResponse {
+export function handleActionGatewayRequest(
+  request: ActionGatewayRequest,
+  options: ActionGatewayApiOptions = {},
+): ActionGatewayResponse {
   const method = request.method.toUpperCase();
   const pathname = new URL(request.path, "http://agentcert.local").pathname;
   const segments = pathname.split("/").filter(Boolean);
@@ -35,7 +42,7 @@ export function handleActionGatewayRequest(request: ActionGatewayRequest): Actio
     }
 
     if (method === "POST" && pathname === "/api/action-gateway/actions") {
-      return json(201, captureActionIntent(request.body as CreateActionIntentInput));
+      return json(201, captureActionIntent(request.body as CreateActionIntentInput, options));
     }
 
     if (segments[0] === "api" && segments[1] === "action-gateway" && segments[2] === "actions") {
@@ -47,7 +54,7 @@ export function handleActionGatewayRequest(request: ActionGatewayRequest): Actio
     }
 
     if (method === "POST" && pathname === "/api/action-gateway/demo/procurement/reset") {
-      return json(200, resetProcurementWalkthrough());
+      return json(200, resetProcurementWalkthrough(options.policyRules));
     }
 
     if (method === "POST" && pathname === "/api/action-gateway/demo/procurement/approve") {

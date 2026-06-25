@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1",
+  "subject": {
+    "name": "demo-agent",
+    "type": "agent"
+  },
+  "artifacts": {
+    "mcpbench": "examples/reports/passing/results.json",
+    "tripwire": "packages/tripwire-ci/.tripwire/latest/tripwire-result.json",
+    "onegent": "packages/onegent-runtime/.onegent/procurement/audit-packet.json"
+  },
+  "outputDir": ".agentcert/latest"
+}

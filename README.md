@@ -1,12 +1,13 @@
 # AgentCert
 
-AgentCert is an open-source assurance platform for tool-using agents. It gives teams one workflow for deciding whether an agent should ship, whether its tools are production-ready, and what evidence supports that decision.
+AgentCert is an open-source independent evidence layer for tool-using agents. It gives teams one workflow for proving whether an agent should ship, whether its tools are production-ready, and whether high-risk runtime actions were approved, verified, and audited.
 
 It combines two implemented pre-release engines and one local runtime-action MVP today:
 
 - **MCPBench**: runtime behavior benchmarks for MCP servers and agent-exposed tools.
 - **Tripwire CI**: browser/computer-use agent robustness gates that inject realistic UI and network faults in CI.
 - **Onegent Runtime**: a local Action Gateway MVP for policy, approval, mock execution, verification, and audit packets.
+- **AgentCert CLI**: a unified evidence packet and report generator across the lifecycle.
 
 ## The Lifecycle
 
@@ -18,7 +19,7 @@ AgentCert covers the agent lifecycle in two phases:
 | Before release | Tripwire CI | CI, local browser tests, staging | Does this browser/computer-use agent survive realistic UI drift, popups, prompt injection, latency, and failures? |
 | After release | Onegent Runtime | Production action boundary | Should this specific live action be allowed right now, or does it need approval, rollback, or audit escalation? |
 
-The product goal is one evidence trail: traces, policy violations, scores, reports, badges, and audit artifacts that explain what failed, why it failed, how to reproduce it, and what to fix.
+The product goal is one independent evidence trail: traces, policy violations, scores, reports, badges, runtime approvals, verification records, and audit artifacts that explain what failed, why it failed, how to reproduce it, and what to fix.
 
 ## What This Is
 
@@ -27,6 +28,7 @@ The product goal is one evidence trail: traces, policy violations, scores, repor
 - A chaos and robustness harness for browser/computer-use agents.
 - An AgentCert scoring and reporting layer for maintainers and reviewers.
 - A foundation for production action review, approval, verification, and audit.
+- A portable evidence format that can support audit, procurement, insurance, and customer review workflows.
 
 ## What This Is Not
 
@@ -44,9 +46,12 @@ Static schema linting exists, but the center of the project is runtime behavior:
 src/mcpbench/                 Python MCP/tool benchmark and runtime monitor
 packages/tripwire-ci/         TypeScript Playwright/CDP browser-agent CI gate
 packages/onegent-runtime/     TypeScript local Action Gateway runtime demo
-schemas/                      Shared AgentCert result and evidence schemas
+packages/agentcert-cli/       TypeScript unified evidence/report CLI
+schemas/                      Shared AgentCert result, evidence, and bundle schemas
+scenarios/                    Failure scenario library
+docs/standards/               Standards mapping for agent assurance reviews
 docs/                         Product architecture, lifecycle, policy, observability
-examples/                     MCPBench policies, traces, reports, and quickstarts
+examples/                     MCPBench and AgentCert quickstarts, traces, reports
 .github/actions/              Local CI actions
 ```
 
@@ -77,6 +82,23 @@ Outputs:
 - `results.json`
 - `report.md`
 - `badge.svg`
+
+## Quickstart: AgentCert Evidence
+
+Generate a unified evidence bundle from existing engine artifacts:
+
+```powershell
+npm --prefix packages/agentcert-cli ci
+npm --prefix packages/agentcert-cli run build
+node packages/agentcert-cli/dist/cli.js report --mcpbench examples/reports/passing/results.json --out .agentcert/latest --subject demo-agent
+```
+
+Outputs:
+
+- `.agentcert/latest/agentcert-evidence.json`
+- `.agentcert/latest/agentcert-report.md`
+
+The unified bundle is the review artifact AgentCert is built around. It can include MCPBench results, Tripwire CI results, and Onegent Runtime audit packets.
 
 ## Quickstart: Tripwire CI
 
@@ -147,6 +169,12 @@ Open:
 http://localhost:3310/action-gateway/walkthrough/procurement
 ```
 
+Use policy-as-code:
+
+```powershell
+npm --prefix packages/onegent-runtime run demo:procurement -- --policy onegent.policy.json
+```
+
 ## What Feedback Looks Like
 
 MCPBench report excerpt:
@@ -176,6 +204,17 @@ Policy: Purchase orders over $1,000 require approval
 Approval: APPROVED
 Mock ERP PO: DRAFT -> SUBMITTED
 Verification: passed
+```
+
+AgentCert unified report excerpt:
+
+```text
+Verdict: PASS
+Score: 100
+Results:
+- mcpbench: PASS (100/100, pre-release)
+- onegent-runtime: PASS (100/100, runtime)
+Artifacts: agentcert-evidence.json, agentcert-report.md
 ```
 
 ## CI Usage
@@ -208,6 +247,8 @@ Default tests use benign local synthetic fixtures only. Prompt-injection tests u
 
 Onegent Runtime uses in-memory demo storage and a local mock ERP purchase order. It does not integrate with real payment processors, email providers, vendor portals, or production systems.
 
+AgentCert standards mapping docs are evidence mappings, not official certification claims. AgentCert does not currently certify AIUC-1, NIST, OWASP, or any third-party compliance status.
+
 ## Current Status
 
 Implemented:
@@ -215,13 +256,15 @@ Implemented:
 - MCPBench Python CLI, typed event model, JSONL trace IO, policy parser, sequence monitor, canary tracking, scoring, reports, badges, docs, and tests.
 - Tripwire CI TypeScript CLI, Playwright/CDP browser harness, fault injection, trace capture, deterministic grading, HTML/JUnit reports, diffing, GitHub Action metadata, unit tests, and e2e demo tests.
 - Onegent Runtime TypeScript Action Gateway MVP with risk assessment, policy evaluation, approval, local mock ERP execution, verification, audit packet export, local API routes, demo HTML pages, and tests.
+- AgentCert CLI unified evidence bundle and markdown report generation across MCPBench, Tripwire CI, and Onegent Runtime artifacts.
+- Initial failure scenario library and standards mapping docs.
 
 Planned:
 
-- Shared AgentCert import/export adapters so Tripwire and MCPBench results render into one unified certification report.
 - Real MCP stdio adapter for MCPBench.
 - OpenTelemetry/OpenInference export paths.
 - Production-grade Onegent Runtime adapters behind explicit approval, credential, and integration boundaries.
+- Cryptographic signing and verification for evidence bundles.
 
 ## Development
 
@@ -248,6 +291,14 @@ Onegent Runtime checks:
 npm --prefix packages/onegent-runtime ci
 npm --prefix packages/onegent-runtime run build
 npm --prefix packages/onegent-runtime test
+```
+
+AgentCert CLI checks:
+
+```powershell
+npm --prefix packages/agentcert-cli ci
+npm --prefix packages/agentcert-cli run build
+npm --prefix packages/agentcert-cli test
 ```
 
 Full Tripwire browser e2e:

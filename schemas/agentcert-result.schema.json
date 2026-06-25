@@ -14,6 +14,11 @@
       "type": "string",
       "description": "Engine that produced the result, for example mcpbench or tripwire-ci."
     },
+    "phase": {
+      "type": "string",
+      "enum": ["pre-release", "runtime"],
+      "description": "Lifecycle phase covered by this result."
+    },
     "runId": {
       "type": "string"
     },
@@ -49,4 +54,3 @@
     }
   }
 }
-

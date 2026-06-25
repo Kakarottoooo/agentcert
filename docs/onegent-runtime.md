@@ -10,6 +10,7 @@ Unlike MCPBench and Tripwire CI, it does not ask whether an agent should ship. I
 - supports `SUBMIT`, `PAY`, `SEND`, and `UPDATE` action intents;
 - classifies action risk;
 - evaluates deterministic local policy;
+- supports policy-as-code with `onegent.policy.json`;
 - requires human approval when needed;
 - mock-executes only after approval;
 - verifies expected state against observed local mock state;
@@ -28,6 +29,12 @@ Run the static demo export:
 npm --prefix packages/onegent-runtime ci
 npm --prefix packages/onegent-runtime run build
 npm --prefix packages/onegent-runtime run demo:procurement
+```
+
+Run with an explicit policy file:
+
+```powershell
+npm --prefix packages/onegent-runtime run demo:procurement -- --policy onegent.policy.json
 ```
 
 Run the local server:
@@ -57,6 +64,49 @@ The current project has no web framework, so the MVP exposes framework-free loca
 - `POST /api/action-gateway/demo/procurement/reset`
 - `POST /api/action-gateway/demo/procurement/approve`
 - `GET /mock-systems/procurement/purchase-orders/:id`
+
+## Policy-As-Code
+
+Policy files use a small deterministic JSON format:
+
+```json
+{
+  "schemaVersion": "1",
+  "rules": [
+    {
+      "id": "po-over-1000-requires-approval",
+      "name": "Purchase orders over $1,000 require approval",
+      "description": "High-value purchase order submissions must be reviewed before mock execution.",
+      "actionTypes": ["SUBMIT"],
+      "effect": "REQUIRE_APPROVAL",
+      "enabled": true,
+      "conditions": [
+        {
+          "field": "amount",
+          "operator": "greaterThan",
+          "value": 1000
+        }
+      ]
+    }
+  ]
+}
+```
+
+Supported effects:
+
+- `ALLOW`
+- `REQUIRE_APPROVAL`
+- `BLOCK`
+
+Supported operators:
+
+- `equals`
+- `notEquals`
+- `greaterThan`
+- `greaterThanOrEqual`
+- `lessThan`
+- `lessThanOrEqual`
+- `includes`
 
 ## Non-Goals
 

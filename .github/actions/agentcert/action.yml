@@ -1,0 +1,54 @@
+name: AgentCert Evidence
+description: Generate a unified AgentCert evidence bundle and markdown report.
+inputs:
+  subject:
+    description: Agent, tool, MCP server, or application name.
+    required: false
+    default: agentcert-subject
+  subject-type:
+    description: One of agent, mcp-server, tool, application, unknown.
+    required: false
+    default: agent
+  mcpbench:
+    description: Optional MCPBench results.json path.
+    required: false
+  tripwire:
+    description: Optional Tripwire tripwire-result.json path.
+    required: false
+  onegent:
+    description: Optional Onegent Runtime audit-packet.json path.
+    required: false
+  out:
+    description: Output directory for agentcert-evidence.json and agentcert-report.md.
+    required: false
+    default: .agentcert/latest
+runs:
+  using: composite
+  steps:
+    - name: Install AgentCert CLI dependencies
+      shell: bash
+      working-directory: packages/agentcert-cli
+      run: npm ci
+    - name: Build AgentCert CLI
+      shell: bash
+      working-directory: packages/agentcert-cli
+      run: npm run build
+    - name: Generate AgentCert evidence
+      shell: bash
+      run: |
+        args=(report --out "${{ inputs.out }}" --subject "${{ inputs.subject }}" --subject-type "${{ inputs.subject-type }}")
+        if [ -n "${{ inputs.mcpbench }}" ]; then args+=(--mcpbench "${{ inputs.mcpbench }}"); fi
+        if [ -n "${{ inputs.tripwire }}" ]; then args+=(--tripwire "${{ inputs.tripwire }}"); fi
+        if [ -n "${{ inputs.onegent }}" ]; then args+=(--onegent "${{ inputs.onegent }}"); fi
+        node packages/agentcert-cli/dist/cli.js "${args[@]}"
+    - name: Write summary
+      if: always()
+      shell: bash
+      run: |
+        if [ -n "$GITHUB_STEP_SUMMARY" ] && [ -f "${{ inputs.out }}/agentcert-report.md" ]; then
+          {
+            echo "## AgentCert Evidence"
+            echo
+            cat "${{ inputs.out }}/agentcert-report.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi

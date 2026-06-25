@@ -1,14 +1,17 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { handleActionGatewayRequest } from "./api.js";
+import { handleActionGatewayRequest, type ActionGatewayApiOptions } from "./api.js";
 
-export function startActionGatewayServer(port: number): void {
+export function startActionGatewayServer(port: number, options: ActionGatewayApiOptions = {}): void {
   const server = createServer(async (request, response) => {
     const body = await readJsonBody(request);
-    const result = handleActionGatewayRequest({
-      method: request.method ?? "GET",
-      path: request.url ?? "/",
-      body,
-    });
+    const result = handleActionGatewayRequest(
+      {
+        method: request.method ?? "GET",
+        path: request.url ?? "/",
+        body,
+      },
+      options,
+    );
 
     response.statusCode = result.status;
     response.setHeader("content-type", result.contentType ?? "application/json; charset=utf-8");

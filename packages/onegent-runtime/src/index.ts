@@ -1,6 +1,7 @@
 export * from "./api.js";
 export * from "./mock-procurement.js";
 export * from "./policies.js";
+export * from "./policy-config.js";
 export * from "./procurement-walkthrough.js";
 export * from "./risk.js";
 export * from "./service.js";

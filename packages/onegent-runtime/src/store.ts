@@ -3,6 +3,7 @@ import type {
   ApprovalRequest,
   AuditEvent,
   MockPurchaseOrder,
+  PolicyRule,
   RiskAssessment,
   VerificationResult,
 } from "./types.js";
@@ -14,6 +15,7 @@ export interface ActionGatewayStore {
   verifications: Map<string, VerificationResult>;
   auditEvents: AuditEvent[];
   purchaseOrders: Map<string, MockPurchaseOrder>;
+  policyRulesByAction: Map<string, PolicyRule[]>;
 }
 
 export const store: ActionGatewayStore = {
@@ -23,6 +25,7 @@ export const store: ActionGatewayStore = {
   verifications: new Map(),
   auditEvents: [],
   purchaseOrders: new Map(),
+  policyRulesByAction: new Map(),
 };
 
 let sequence = 0;
@@ -44,4 +47,5 @@ export function resetActionGatewayStore(): void {
   store.verifications.clear();
   store.auditEvents = [];
   store.purchaseOrders.clear();
+  store.policyRulesByAction.clear();
 }

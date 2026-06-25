@@ -93,6 +93,18 @@ export interface PolicyRule {
   actionTypes: ActionType[];
   effect: PolicyEffect;
   enabled: boolean;
+  conditions?: PolicyCondition[];
+}
+
+export interface PolicyCondition {
+  field: string;
+  operator: "equals" | "notEquals" | "greaterThan" | "greaterThanOrEqual" | "lessThan" | "lessThanOrEqual" | "includes";
+  value: unknown;
+}
+
+export interface PolicyConfig {
+  schemaVersion: "1";
+  rules: PolicyRule[];
 }
 
 export interface PolicyEvaluation {

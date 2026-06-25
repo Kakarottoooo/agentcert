@@ -1,6 +1,8 @@
-# GitHub Action
+# GitHub Actions
 
-Use MCPBench in CI by installing the package and running the deterministic offline eval path.
+Use AgentCert in CI as a set of checkpoints plus one unified evidence packet.
+
+## MCPBench Gate
 
 ```yaml
 name: MCPBench
@@ -26,3 +28,38 @@ jobs:
 
 Artifacts include `events.jsonl`, `results.json`, `report.md`, and `badge.svg`.
 
+## Unified Evidence Packet
+
+After one or more engines have produced artifacts, generate a portable
+AgentCert evidence bundle:
+
+```yaml
+name: AgentCert Evidence
+
+on:
+  pull_request:
+
+jobs:
+  agentcert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: ./.github/actions/agentcert
+        with:
+          subject: my-agent
+          subject-type: agent
+          mcpbench: examples/reports/passing/results.json
+          out: .agentcert/latest
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agentcert-evidence
+          path: .agentcert/latest
+```
+
+Artifacts include:
+
+- `agentcert-evidence.json`
+- `agentcert-report.md`

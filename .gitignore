@@ -11,6 +11,7 @@ venv/
 dist/
 build/
 .mcpbench/
+.agentcert/
 .tripwire/
 out/
 node_modules/
@@ -18,5 +19,6 @@ playwright-report/
 test-results/
 packages/*/node_modules/
 packages/*/dist/
+packages/*/.agentcert/
 packages/*/.tripwire/
 packages/*/.onegent/
