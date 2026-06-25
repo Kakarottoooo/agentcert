@@ -1,0 +1,17 @@
+{
+  "name": "agentcert",
+  "private": true,
+  "description": "AgentCert: pre-release benchmarks, browser-agent tripwires, and production runtime assurance for agent tools.",
+  "scripts": {
+    "mcpbench:check": "ruff format --check . && ruff check . && mypy src/mcpbench && pytest",
+    "tripwire:install": "npm --prefix packages/tripwire-ci ci",
+    "tripwire:build": "npm --prefix packages/tripwire-ci run build",
+    "tripwire:test": "npm --prefix packages/tripwire-ci test",
+    "tripwire:e2e": "npm --prefix packages/tripwire-ci run test:e2e",
+    "check": "npm run tripwire:build && npm run tripwire:test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
+

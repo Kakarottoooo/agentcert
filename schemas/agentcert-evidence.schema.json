@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.dev/schemas/agentcert-evidence.schema.json",
+  "title": "AgentCertEvidence",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["id", "kind", "severity", "message"],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "description": "policy_violation, assertion_result, trace_diff, runtime_warning, or audit_event."
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low", "info"]
+    },
+    "message": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "artifactPath": {
+      "type": "string"
+    },
+    "suggestedFix": {
+      "type": "string"
+    }
+  }
+}

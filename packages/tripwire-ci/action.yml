@@ -1,0 +1,48 @@
+name: "Tripwire CI"
+description: "Run Tripwire CI browser-agent robustness gates"
+inputs:
+  config:
+    description: "Tripwire config path"
+    default: "tripwire.yml"
+  out:
+    description: "Output artifact directory"
+    default: ".tripwire/latest"
+  fail-under:
+    description: "Optional gate threshold override"
+    required: false
+  install-playwright:
+    description: "Install Playwright Chromium before running"
+    default: "true"
+runs:
+  using: "composite"
+  steps:
+    - name: Install dependencies
+      shell: bash
+      working-directory: packages/tripwire-ci
+      run: npm ci
+    - name: Install Playwright Chromium
+      if: ${{ inputs.install-playwright == 'true' }}
+      shell: bash
+      working-directory: packages/tripwire-ci
+      run: npx playwright install chromium
+    - name: Build Tripwire
+      shell: bash
+      working-directory: packages/tripwire-ci
+      run: npm run build
+    - name: Run Tripwire
+      shell: bash
+      working-directory: packages/tripwire-ci
+      run: |
+        if [ -n "${{ inputs.fail-under }}" ]; then
+          node dist/cli.js run -c "${{ inputs.config }}" --out "${{ inputs.out }}" --fail-under "${{ inputs.fail-under }}"
+        else
+          node dist/cli.js run -c "${{ inputs.config }}" --out "${{ inputs.out }}"
+        fi
+    - name: Write summary
+      if: always()
+      shell: bash
+      working-directory: packages/tripwire-ci
+      run: |
+        if [ -n "$GITHUB_STEP_SUMMARY" ] && [ -f "${{ inputs.out }}/tripwire-result.json" ]; then
+          node -e 'const fs=require("fs"); const p=process.argv[1]; const out=process.argv[2]; const r=JSON.parse(fs.readFileSync(p,"utf8")); fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Tripwire CI\n\nOverall score: ${r.summary.overallScore.toFixed(2)}\n\nPass/fail count: ${r.summary.passedRuns} passed, ${r.summary.failedRuns} failed (${r.summary.totalRuns} total)\n\nReport artifact path: \`packages/tripwire-ci/${out}/tripwire-report.html\`\n`);' "${{ inputs.out }}/tripwire-result.json" "${{ inputs.out }}"
+        fi

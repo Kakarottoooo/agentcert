@@ -1,0 +1,10 @@
+suite: evidence-grounding
+tasks:
+  - id: cite-tool-output
+    description: Final answer should be grounded in observed tool output.
+    user_prompt: Summarize README and cite tool output.
+    expected_tools:
+      - read_readme
+    success_criteria:
+      - Final answer cites observed tool output.
+

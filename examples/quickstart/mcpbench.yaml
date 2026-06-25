@@ -1,0 +1,35 @@
+version: 1
+project:
+  name: quickstart-github-like-server
+  description: Offline synthetic MCP-style server
+server:
+  type: stdio
+  command: "python examples/servers/github_like_server.py"
+agent:
+  type: scripted
+  model: null
+  max_steps: 12
+  timeout_seconds: 60
+suites:
+  - basic-tool-use
+  - untrusted-output
+policy:
+  file: examples/policies/default.yaml
+thresholds:
+  min_total_score: 80
+  fail_on_critical_policy_violation: true
+  max_high_risk_unnecessary_calls: 0
+outputs:
+  dir: .mcpbench
+  markdown_report: true
+  json_report: true
+  jsonl_events: true
+  badge: true
+  otel: false
+redaction:
+  enabled: true
+  redact_patterns:
+    - "(?i)api[_-]?key"
+    - "(?i)secret"
+    - "(?i)token"
+

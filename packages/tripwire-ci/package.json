@@ -1,0 +1,33 @@
+{
+  "name": "tripwire-ci",
+  "version": "0.1.0",
+  "description": "Chaos engineering for browser agents: local robustness gates with Playwright and CDP.",
+  "type": "module",
+  "bin": {
+    "tripwire": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "lint": "npm run build",
+    "test": "vitest run tests/unit",
+    "test:e2e": "vitest run tests/e2e --testTimeout=180000",
+    "demo:tripwire": "tsx examples/run-demo.ts",
+    "demo:gate": "tsx examples/run-demo.ts --fail-under 0.8",
+    "demo:repeat": "tsx examples/repeat-demo.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "commander": "^14.0.2",
+    "playwright": "^1.60.0",
+    "yaml": "^2.8.2",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.13"
+  }
+}

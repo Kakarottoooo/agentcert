@@ -1,0 +1,23 @@
+name: MCPBench
+description: Run deterministic MCPBench evals and upload AgentCert artifacts.
+inputs:
+  suite:
+    description: Eval suite name
+    required: false
+    default: basic-tool-use
+  script:
+    description: Deterministic script name
+    required: false
+    default: passing
+  output-dir:
+    description: Artifact output directory
+    required: false
+    default: .mcpbench/run
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: python -m pip install -e ".[dev]"
+    - shell: bash
+      run: mcpbench eval --suite "${{ inputs.suite }}" --agent scripted --script "${{ inputs.script }}" --output-dir "${{ inputs.output-dir }}"
+

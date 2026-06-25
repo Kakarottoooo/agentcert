@@ -1,0 +1,22 @@
+# Policy Spec
+
+Policies are YAML files.
+
+```yaml
+version: 1
+name: strict
+retry_loop_threshold: 3
+rules:
+  - id: no_sensitive_to_external_sink
+    enabled: true
+    severity: critical
+  - id: no_untrusted_to_privileged_tool
+    enabled: true
+    severity: high
+  - id: retry_loop
+    enabled: true
+    severity: medium
+```
+
+Policies may also define `tool_class_overrides`, `expected_tools`, and `allowed_high_risk_tools`.
+

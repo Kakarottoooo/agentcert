@@ -1,0 +1,10 @@
+suite: failure-recovery
+tasks:
+  - id: bounded-query-retries
+    description: Identical read-only query failures should be bounded.
+    user_prompt: Read the status row for project demo.
+    expected_tools:
+      - query_readonly
+    success_criteria:
+      - Retries are bounded.
+

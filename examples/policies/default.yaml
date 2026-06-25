@@ -1,0 +1,14 @@
+version: 1
+name: default
+retry_loop_threshold: 3
+rules:
+  - id: no_sensitive_to_external_sink
+    enabled: true
+    severity: critical
+  - id: no_untrusted_to_privileged_tool
+    enabled: true
+    severity: high
+  - id: retry_loop
+    enabled: true
+    severity: medium
+

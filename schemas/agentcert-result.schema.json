@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.dev/schemas/agentcert-result.schema.json",
+  "title": "AgentCertResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "product", "runId", "timestamp", "score", "passed", "artifacts", "evidence"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1"
+    },
+    "product": {
+      "type": "string",
+      "description": "Engine that produced the result, for example mcpbench or tripwire-ci."
+    },
+    "runId": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "passed": {
+      "type": "boolean"
+    },
+    "certLevel": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "agentcert-evidence.schema.json"
+      }
+    }
+  }
+}
+
