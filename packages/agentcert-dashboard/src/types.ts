@@ -64,3 +64,57 @@ export interface FailurePattern {
   severity: string;
   message: string;
 }
+
+export interface RunDetail {
+  record: CorpusRecord;
+  failurePatterns: Array<{ key: string; severity: string; message: string; scenarioName?: string; faultName?: string }>;
+  assertions: AssertionResult[];
+  timeline: EvidenceTimelineItem[];
+  artifacts: EvidenceArtifact[];
+  traceSummary?: {
+    stepCount: number;
+    firstStepText?: string;
+    lastStepText?: string;
+    firstDivergenceStep?: number;
+  };
+  finalUrl?: string;
+  diagnostics: string[];
+  warnings: string[];
+}
+
+export interface CorpusRecord extends MonitorRun {
+  schemaVersion: "1";
+  kind: "product_run" | "scenario_run";
+  ingestedAt: string;
+  runId: string;
+  stepCount?: number;
+  highOrCriticalEvidenceCount: number;
+  failurePatterns: Array<{ key: string; severity: string; message: string; scenarioName?: string; faultName?: string }>;
+  sourcePath: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AssertionResult {
+  type: string;
+  pass: boolean;
+  message: string;
+  expected?: unknown;
+  observed?: unknown;
+}
+
+export interface EvidenceTimelineItem {
+  kind: "failure" | "agent-action" | "page-state" | "network" | "console";
+  title: string;
+  timestamp?: string;
+  message: string;
+  stepIndex?: number;
+  artifactPath?: string;
+}
+
+export interface EvidenceArtifact {
+  label: string;
+  kind: "screenshot" | "dom" | "trace" | "json" | "events" | "report" | "other";
+  path: string;
+  url: string;
+  sizeBytes?: number;
+}

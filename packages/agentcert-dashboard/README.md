@@ -19,6 +19,12 @@ Build the public monitor from the repository root:
 npm run agentcert:monitor-build
 ```
 
+Run the local API-backed evidence console:
+
+```powershell
+npm run agentcert:serve
+```
+
 The build output is written to:
 
 ```text
@@ -28,6 +34,10 @@ public-demo/agentcert-monitor/
 The checked-in public dashboard uses the checked-in browser-agent robustness
 corpus. For local accumulated runs, point `agentcert monitor build` at your own
 JSONL, SQLite, or Postgres corpus store.
+
+When served through `agentcert serve`, the same React dashboard first calls
+`/api/monitor` and `/api/runs/:id`. That enables run-level artifact inspection
+without changing the static GitHub Pages build.
 
 Examples:
 

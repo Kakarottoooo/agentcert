@@ -1,23 +1,42 @@
 import { useEffect, useMemo, useState } from "react";
-import { compactDate, compactDuration, loadMonitorSnapshot, percent } from "./data";
-import type { LifecycleGate, MonitorRun, MonitorSnapshot, SummaryBucket } from "./types";
+import { compactBytes, compactDate, compactDuration, loadMonitorSnapshot, loadRunDetail, percent } from "./data";
+import type { EvidenceArtifact, EvidenceTimelineItem, LifecycleGate, MonitorRun, MonitorSnapshot, RunDetail, SummaryBucket } from "./types";
 
 type View = "overview" | "runs" | "patterns";
 
 export default function App() {
   const [snapshot, setSnapshot] = useState<MonitorSnapshot>();
+  const [source, setSource] = useState<"api" | "static">("static");
   const [error, setError] = useState<string>();
   const [view, setView] = useState<View>("overview");
   const [selectedRunId, setSelectedRunId] = useState<string>();
+  const [runDetail, setRunDetail] = useState<RunDetail>();
+  const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => {
-    loadMonitorSnapshot().then(setSnapshot).catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+    loadMonitorSnapshot()
+      .then((result) => {
+        setSnapshot(result.snapshot);
+        setSource(result.source);
+      })
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
 
   const selectedRun = useMemo(() => {
     if (!snapshot) return undefined;
     return snapshot.recentRuns.find((run) => run.id === selectedRunId) ?? snapshot.recentRuns[0];
   }, [selectedRunId, snapshot]);
+
+  useEffect(() => {
+    if (!selectedRun || source !== "api") {
+      setRunDetail(undefined);
+      return;
+    }
+    setDetailLoading(true);
+    loadRunDetail(selectedRun.id)
+      .then(setRunDetail)
+      .finally(() => setDetailLoading(false));
+  }, [selectedRun, source]);
 
   if (error) {
     return <ErrorState message={error} />;
@@ -54,7 +73,7 @@ export default function App() {
 
         <div className="sidebar-note">
           <strong>Data source</strong>
-          <span>Generated from AgentCert corpus JSONL.</span>
+          <span>{source === "api" ? "Live local server API." : "Static monitor snapshot."}</span>
         </div>
       </aside>
 
@@ -65,6 +84,7 @@ export default function App() {
             <p>{snapshot.subject}</p>
           </div>
           <div className="header-actions">
+            <span className={`source-badge ${source}`}>{source === "api" ? "Local server" : "Static demo"}</span>
             {snapshot.links.detailUrl ? <a href={snapshot.links.detailUrl}>Open evidence detail</a> : null}
             <a href="https://github.com/Kakarottoooo/agentcert">GitHub</a>
           </div>
@@ -76,8 +96,19 @@ export default function App() {
           ))}
         </section>
 
-        {view === "overview" ? <Overview snapshot={snapshot} selectedRun={selectedRun} onSelectRun={setSelectedRunId} /> : null}
-        {view === "runs" ? <RunsView snapshot={snapshot} selectedRun={selectedRun} onSelectRun={setSelectedRunId} /> : null}
+        {view === "overview" ? (
+          <Overview snapshot={snapshot} selectedRun={selectedRun} runDetail={runDetail} source={source} onSelectRun={setSelectedRunId} />
+        ) : null}
+        {view === "runs" ? (
+          <RunsView
+            snapshot={snapshot}
+            selectedRun={selectedRun}
+            runDetail={runDetail}
+            detailLoading={detailLoading}
+            source={source}
+            onSelectRun={setSelectedRunId}
+          />
+        ) : null}
         {view === "patterns" ? <PatternsView snapshot={snapshot} /> : null}
       </main>
     </div>
@@ -87,10 +118,14 @@ export default function App() {
 function Overview({
   snapshot,
   selectedRun,
+  runDetail,
+  source,
   onSelectRun,
 }: {
   snapshot: MonitorSnapshot;
   selectedRun?: MonitorRun;
+  runDetail?: RunDetail;
+  source: "api" | "static";
   onSelectRun: (id: string) => void;
 }) {
   return (
@@ -131,6 +166,8 @@ function Overview({
       </section>
 
       <RunInspector run={selectedRun} detailUrl={snapshot.links.detailUrl} />
+
+      <EvidencePreview run={selectedRun} detail={runDetail} source={source} />
     </div>
   );
 }
@@ -138,19 +175,26 @@ function Overview({
 function RunsView({
   snapshot,
   selectedRun,
+  runDetail,
+  detailLoading,
+  source,
   onSelectRun,
 }: {
   snapshot: MonitorSnapshot;
   selectedRun?: MonitorRun;
+  runDetail?: RunDetail;
+  detailLoading: boolean;
+  source: "api" | "static";
   onSelectRun: (id: string) => void;
 }) {
   return (
-    <div className="dashboard-grid two-column">
+    <div className="evidence-grid">
       <section className="wide-panel">
         <PanelHeader title="All Recent Runs" action={`${snapshot.recentRuns.length} records shown`} />
         <RunTable runs={snapshot.recentRuns} selectedRun={selectedRun} onSelectRun={onSelectRun} />
       </section>
-      <RunInspector run={selectedRun} detailUrl={snapshot.links.detailUrl} />
+      <EvidenceTimelinePanel run={selectedRun} detail={runDetail} loading={detailLoading} source={source} />
+      <ArtifactPanel run={selectedRun} detail={runDetail} detailUrl={snapshot.links.detailUrl} source={source} />
     </div>
   );
 }
@@ -254,7 +298,7 @@ function RunTable({
         <span>Fault</span>
         <span>Status</span>
         <span>Evidence</span>
-        <span>Duration</span>
+        <span>Time</span>
       </div>
       {runs.map((run) => (
         <button
@@ -321,6 +365,176 @@ function RunInspector({ run, detailUrl }: { run?: MonitorRun; detailUrl?: string
         <EmptyLine text="Select a run to inspect evidence." />
       )}
     </section>
+  );
+}
+
+function EvidencePreview({ run, detail, source }: { run?: MonitorRun; detail?: RunDetail; source: "api" | "static" }) {
+  return (
+    <section className="wide-panel evidence-preview">
+      <PanelHeader title="Evidence Console" action={source === "api" ? "Live artifact inspection" : "Start local server for artifacts"} />
+      {source === "static" ? (
+        <div className="server-callout">
+          <strong>Static mode shows the public snapshot.</strong>
+          <span>Run `npm run agentcert:serve` locally to inspect screenshots, DOM snapshots, traces, and assertion details from the corpus.</span>
+        </div>
+      ) : (
+        <div className="evidence-preview-grid">
+          <div>
+            <span className="preview-label">Selected run</span>
+            <strong>{run?.faultName ?? run?.product ?? "No run selected"}</strong>
+            <p>{detail?.failurePatterns[0]?.message ?? run?.primaryFailure ?? "No failure recorded for this run."}</p>
+          </div>
+          <div>
+            <span className="preview-label">Trace</span>
+            <strong>{detail?.traceSummary?.stepCount ?? "-"} steps</strong>
+            <p>{detail?.traceSummary?.lastStepText ?? "Select a run with trace artifacts."}</p>
+          </div>
+          <div>
+            <span className="preview-label">Artifacts</span>
+            <strong>{detail?.artifacts.length ?? 0} files</strong>
+            <p>{detail?.artifacts[0]?.label ?? "No artifacts loaded."}</p>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function EvidenceTimelinePanel({
+  run,
+  detail,
+  loading,
+  source,
+}: {
+  run?: MonitorRun;
+  detail?: RunDetail;
+  loading: boolean;
+  source: "api" | "static";
+}) {
+  return (
+    <section className="wide-panel timeline-panel">
+      <PanelHeader title="Evidence Timeline" action={loading ? "Loading" : detail ? `${detail.timeline.length} events` : "No API detail"} />
+      {source === "static" ? (
+        <StaticModeNotice />
+      ) : detail ? (
+        <div className="timeline">
+          {detail.assertions.length > 0 ? (
+            <div className="assertion-strip">
+              {detail.assertions.slice(0, 4).map((assertion) => (
+                <span key={`${assertion.type}-${assertion.message}`} className={assertion.pass ? "assert-pass" : "assert-fail"}>
+                  {assertion.type}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {detail.timeline.map((item, index) => (
+            <TimelineItem key={`${item.kind}-${item.timestamp ?? index}-${item.message}`} item={item} />
+          ))}
+          {detail.timeline.length === 0 ? <EmptyLine text="No timeline events were recorded for this run." /> : null}
+        </div>
+      ) : (
+        <EmptyLine text={run ? "No artifact detail is available for this run." : "Select a run to inspect evidence."} />
+      )}
+    </section>
+  );
+}
+
+function TimelineItem({ item }: { item: EvidenceTimelineItem }) {
+  return (
+    <div className={`timeline-item ${item.kind}`}>
+      <i aria-hidden="true" />
+      <div>
+        <div className="timeline-title">
+          <strong>{item.title}</strong>
+          <span>{item.stepIndex ? `step ${item.stepIndex}` : item.timestamp ? compactDate(item.timestamp) : ""}</span>
+        </div>
+        <p>{item.message}</p>
+      </div>
+    </div>
+  );
+}
+
+function ArtifactPanel({
+  run,
+  detail,
+  detailUrl,
+  source,
+}: {
+  run?: MonitorRun;
+  detail?: RunDetail;
+  detailUrl?: string;
+  source: "api" | "static";
+}) {
+  const screenshots = detail?.artifacts.filter((artifact) => artifact.kind === "screenshot") ?? [];
+  const latestScreenshot = screenshots[screenshots.length - 1];
+  return (
+    <section className="panel artifact-panel">
+      <PanelHeader title="Artifact Viewer" action={run?.faultName ?? "No selection"} />
+      {source === "static" ? (
+        <StaticModeNotice />
+      ) : detail ? (
+        <>
+          <div className="artifact-preview">
+            {latestScreenshot ? (
+              <img src={latestScreenshot.url} alt={`${run?.faultName ?? "run"} screenshot`} />
+            ) : (
+              <EmptyLine text="No screenshot artifact found." />
+            )}
+          </div>
+          <div className="artifact-meta">
+            <span>Final URL</span>
+            <strong>{detail.finalUrl ?? "-"}</strong>
+          </div>
+          <ArtifactList artifacts={detail.artifacts} />
+          {detail.diagnostics.length > 0 ? <MessageList title="Diagnostics" messages={detail.diagnostics} /> : null}
+          {detail.warnings.length > 0 ? <MessageList title="Warnings" messages={detail.warnings} /> : null}
+        </>
+      ) : (
+        <EmptyLine text={run ? "Artifact detail was not found." : "Select a run to view artifacts."} />
+      )}
+      {detailUrl ? (
+        <div className="inspector-links">
+          <a href={detailUrl}>Open public evidence page</a>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function ArtifactList({ artifacts }: { artifacts: EvidenceArtifact[] }) {
+  return (
+    <div className="artifact-list">
+      {artifacts.map((artifact) => (
+        <a key={artifact.path} href={artifact.url} target="_blank" rel="noreferrer">
+          <span>
+            <strong>{artifact.label}</strong>
+            <small>{artifact.kind}</small>
+          </span>
+          <em>{compactBytes(artifact.sizeBytes)}</em>
+        </a>
+      ))}
+      {artifacts.length === 0 ? <EmptyLine text="No artifacts are linked for this run." /> : null}
+    </div>
+  );
+}
+
+function MessageList({ title, messages }: { title: string; messages: string[] }) {
+  return (
+    <div className="message-list">
+      <span>{title}</span>
+      {messages.map((message) => (
+        <p key={message}>{message}</p>
+      ))}
+    </div>
+  );
+}
+
+function StaticModeNotice() {
+  return (
+    <div className="server-callout compact">
+      <strong>Artifact inspection needs the local server.</strong>
+      <span>`npm run agentcert:serve` enables `/api/runs/:id` and `/api/artifacts`.</span>
+    </div>
   );
 }
 

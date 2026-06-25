@@ -137,6 +137,25 @@ Build the monitor snapshot and UI:
 npm run agentcert:monitor-build
 ```
 
+Run the local evidence console:
+
+```powershell
+npm run agentcert:serve
+```
+
+Open:
+
+```text
+http://127.0.0.1:8765
+```
+
+The local server keeps the same dashboard UI but adds API-backed inspection:
+
+- `GET /api/monitor` returns the current monitor snapshot from the selected corpus store.
+- `GET /api/runs` returns accumulated run records.
+- `GET /api/runs/:id` returns assertion failures, trace timeline, diagnostics, warnings, and linked artifacts.
+- `GET /api/artifacts?path=...` serves screenshots, DOM snapshots, trace JSON, and related files from the configured artifact root.
+
 ## Public Monitor
 
 Open the hosted monitor:
@@ -149,6 +168,12 @@ The monitor reads a generated `monitor.json` snapshot from the AgentCert corpus 
 - accumulated corpus record counts and pass rate;
 - top failure patterns;
 - recent evidence runs and run-level inspection.
+
+The hosted GitHub Pages monitor is intentionally static. For live corpus storage, run history, screenshots, DOM snapshots, and trace inspection, use the local console:
+
+```powershell
+npm run agentcert:serve
+```
 
 The detailed Tripwire evidence page is still available:
 

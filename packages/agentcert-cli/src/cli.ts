@@ -7,6 +7,7 @@ import { openCorpusStore, parseCorpusStoreKind, type CorpusStoreOptions } from "
 import { buildMonitorSnapshot, writeMonitorSnapshot } from "./monitor.js";
 import { normalizeMcpBenchResult, normalizeOnegentAuditPacket, normalizeTripwireResult } from "./normalizers.js";
 import { renderMarkdownReport } from "./report.js";
+import { serveAgentCertMonitor } from "./local-server.js";
 import type { AgentCertConfig, AgentCertResult } from "./types.js";
 
 const command = process.argv[2] ?? "help";
@@ -110,6 +111,16 @@ if (command === "init") {
   agentcert monitor build --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --out packages/agentcert-dashboard/public/data/monitor.json --subject my-agent
 `);
   }
+} else if (command === "serve") {
+  await serveAgentCertMonitor({
+    host: readFlag("--host") ?? "127.0.0.1",
+    port: Number(readFlag("--port") ?? process.env.PORT ?? 8765),
+    subject: readFlag("--subject") ?? "agentcert-local",
+    detailUrl: readFlag("--detail-url") ?? "../browser-agent-robustness/",
+    staticDir: readFlag("--static") ?? "public-demo/agentcert-monitor",
+    artifactRoot: readFlag("--artifact-root") ?? "public-demo/browser-agent-robustness/evidence/tripwire-public-demo",
+    store: readCorpusStoreOptions("public-demo/browser-agent-robustness/evidence/agentcert-corpus.jsonl"),
+  });
 } else {
   process.stdout.write(`Usage:
   agentcert init --out agentcert.config.json
@@ -118,6 +129,7 @@ if (command === "init") {
   agentcert corpus summary --corpus .agentcert/corpus/corpus.jsonl
   agentcert monitor build --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/monitor/monitor.json --subject my-agent
   agentcert monitor build --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --out .agentcert/monitor/monitor.json --subject my-agent
+  agentcert serve --corpus .agentcert/corpus/corpus.jsonl --static public-demo/agentcert-monitor --artifact-root public-demo/browser-agent-robustness/evidence/tripwire-public-demo
 `);
 }
 
