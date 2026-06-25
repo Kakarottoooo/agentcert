@@ -9,5 +9,17 @@
     "tripwire": "packages/tripwire-ci/.tripwire/latest/tripwire-result.json",
     "onegent": "packages/onegent-runtime/.onegent/procurement/audit-packet.json"
   },
-  "outputDir": ".agentcert/latest"
+  "outputDir": ".agentcert/latest",
+  "run": {
+    "corpus": {
+      "path": ".agentcert/corpus/corpus.jsonl",
+      "replace": true
+    },
+    "monitor": {
+      "outputs": [".agentcert/monitor/monitor.json"]
+    },
+    "gate": {
+      "failOnVerdict": true
+    }
+  }
 }

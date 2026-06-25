@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "1",
+  "kind": "agentcert.run_manifest",
+  "runId": "agentcert_run_04a6cd4f5917",
+  "generatedAt": "2026-06-25T09:53:35.010Z",
+  "subject": {
+    "name": "agentcert-public-demo",
+    "type": "agent"
+  },
+  "steps": [
+    {
+      "id": "mcpbench",
+      "status": "passed",
+      "artifactPath": "public-demo/lifecycle-evidence/mcpbench-passing/results.json"
+    },
+    {
+      "id": "tripwire",
+      "status": "passed",
+      "artifactPath": "public-demo/browser-agent-robustness/evidence/tripwire-public-demo/tripwire-result.json"
+    },
+    {
+      "id": "onegent",
+      "status": "passed",
+      "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json"
+    },
+    {
+      "id": "report",
+      "status": "passed",
+      "artifactPath": "public-demo/browser-agent-robustness/evidence/agentcert-public-demo"
+    },
+    {
+      "id": "corpus",
+      "status": "passed",
+      "artifactPath": "public-demo/browser-agent-robustness/evidence/agentcert-corpus.jsonl"
+    },
+    {
+      "id": "monitor",
+      "status": "passed",
+      "artifactPath": "packages/agentcert-dashboard/public/data/monitor.json, public-demo/agentcert-monitor/data/monitor.json"
+    }
+  ],
+  "outputs": {
+    "monitor": [
+      "packages/agentcert-dashboard/public/data/monitor.json",
+      "public-demo/agentcert-monitor/data/monitor.json"
+    ],
+    "reportDir": "public-demo/browser-agent-robustness/evidence/agentcert-public-demo",
+    "evidenceBundle": "public-demo/browser-agent-robustness/evidence/agentcert-public-demo/agentcert-evidence.json",
+    "markdownReport": "public-demo/browser-agent-robustness/evidence/agentcert-public-demo/agentcert-report.md",
+    "corpus": "public-demo/browser-agent-robustness/evidence/agentcert-corpus.jsonl",
+    "manifest": "public-demo/browser-agent-robustness/evidence/agentcert-public-demo/agentcert-run-manifest.json"
+  },
+  "verdict": {
+    "passed": false,
+    "score": 81,
+    "level": "Not certified"
+  },
+  "summary": {
+    "products": [
+      "mcpbench",
+      "tripwire-ci",
+      "onegent-runtime"
+    ],
+    "criticalEvidence": 0,
+    "highEvidence": 15,
+    "totalEvidence": 26
+  }
+}

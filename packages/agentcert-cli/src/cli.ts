@@ -8,6 +8,7 @@ import { buildMonitorSnapshot, writeMonitorSnapshot } from "./monitor.js";
 import { normalizeMcpBenchResult, normalizeOnegentAuditPacket, normalizeTripwireResult } from "./normalizers.js";
 import { renderMarkdownReport } from "./report.js";
 import { serveAgentCertMonitor } from "./local-server.js";
+import { loadRunProfile, profileFromArtifactFlags, renderRunSummary, runAgentCertProfile, type RunProfileOverrides } from "./runner.js";
 import type { AgentCertConfig, AgentCertResult } from "./types.js";
 
 const command = process.argv[2] ?? "help";
@@ -111,6 +112,21 @@ if (command === "init") {
   agentcert monitor build --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --out packages/agentcert-dashboard/public/data/monitor.json --subject my-agent
 `);
   }
+} else if (command === "run") {
+  const overrides = readRunOverrides();
+  const profileName = readFlag("--profile");
+  const configPath = readFlag("--config");
+  const hasArtifactFlags = Boolean(overrides.mcpbench || overrides.tripwire || overrides.onegent);
+  const profile =
+    hasArtifactFlags && !profileName && !configPath
+      ? profileFromArtifactFlags(overrides)
+      : await loadRunProfile(profileName, configPath);
+  const outcome = await runAgentCertProfile(profile, {
+    runCommands: !readBoolFlag("--skip-commands"),
+    overrides,
+  });
+  process.stdout.write(renderRunSummary(outcome));
+  process.exitCode = outcome.exitCode;
 } else if (command === "serve") {
   await serveAgentCertMonitor({
     host: readFlag("--host") ?? "127.0.0.1",
@@ -129,6 +145,8 @@ if (command === "init") {
   agentcert corpus summary --corpus .agentcert/corpus/corpus.jsonl
   agentcert monitor build --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/monitor/monitor.json --subject my-agent
   agentcert monitor build --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --out .agentcert/monitor/monitor.json --subject my-agent
+  agentcert run --profile public-demo
+  agentcert run --mcpbench .mcpbench/latest/results.json --tripwire .tripwire/latest/tripwire-result.json --onegent .onegent/procurement/audit-packet.json --out .agentcert/latest --corpus .agentcert/corpus/corpus.jsonl --monitor-out .agentcert/monitor/monitor.json
   agentcert serve --corpus .agentcert/corpus/corpus.jsonl --static public-demo/agentcert-monitor --artifact-root public-demo/browser-agent-robustness/evidence/tripwire-public-demo
 `);
 }
@@ -176,6 +194,20 @@ function readFlag(name: string): string | undefined {
 
 function readBoolFlag(name: string): boolean {
   return process.argv.includes(name);
+}
+
+function readRunOverrides(): RunProfileOverrides {
+  return {
+    subject: readFlag("--subject"),
+    mcpbench: readFlag("--mcpbench"),
+    tripwire: readFlag("--tripwire"),
+    onegent: readFlag("--onegent"),
+    outDir: readFlag("--out"),
+    corpusPath: readFlag("--corpus"),
+    monitorOut: readFlag("--monitor-out"),
+    replaceCorpus: readBoolFlag("--replace") ? true : undefined,
+    failOnVerdict: readBoolFlag("--fail-on-verdict") ? true : undefined,
+  };
 }
 
 function readCorpusStoreOptions(defaultJsonlPath: string, outPath?: string): CorpusStoreOptions {

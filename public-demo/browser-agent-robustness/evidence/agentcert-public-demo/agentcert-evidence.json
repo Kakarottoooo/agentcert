@@ -1,8 +1,8 @@
 {
   "schemaVersion": "1",
   "kind": "agentcert.evidence_bundle",
-  "runId": "agentcert_1782379203831",
-  "generatedAt": "2026-06-25T09:20:03.831Z",
+  "runId": "agentcert_1782381214995",
+  "generatedAt": "2026-06-25T09:53:34.995Z",
   "subject": {
     "name": "agentcert-public-demo",
     "type": "agent"

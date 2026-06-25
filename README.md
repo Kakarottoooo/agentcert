@@ -89,6 +89,31 @@ Outputs:
 
 ## Quickstart: AgentCert Evidence
 
+Run the full local evidence pipeline:
+
+```powershell
+npm --prefix packages/agentcert-cli ci
+npm run agentcert:run-public
+```
+
+This one command loads the checked-in MCPBench, Tripwire CI, and Onegent Runtime demo artifacts, builds a unified evidence bundle, writes corpus records, refreshes the monitor snapshot, and emits a run manifest.
+
+For your own project, pass artifact paths directly:
+
+```powershell
+node packages/agentcert-cli/dist/cli.js run `
+  --mcpbench .mcpbench/latest/results.json `
+  --tripwire .tripwire/latest/tripwire-result.json `
+  --onegent .onegent/procurement/audit-packet.json `
+  --out .agentcert/latest `
+  --corpus .agentcert/corpus/corpus.jsonl `
+  --monitor-out .agentcert/monitor/monitor.json `
+  --replace `
+  --fail-on-verdict
+```
+
+Use `--fail-on-verdict` in CI when a failed AgentCert verdict should block the workflow. The public demo profile intentionally leaves that off because its Tripwire slice contains expected adversarial failures.
+
 Generate a unified evidence bundle from existing engine artifacts:
 
 ```powershell
@@ -136,6 +161,8 @@ Build the monitor snapshot and UI:
 ```powershell
 npm run agentcert:monitor-build
 ```
+
+That script now calls `agentcert run --profile public-demo` before building the dashboard, so the checked-in public monitor is regenerated from the same unified runner path users can run locally.
 
 Run the local evidence console:
 
