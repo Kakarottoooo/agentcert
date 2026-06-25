@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AgentCert Real Agent Robustness Lab</title>
+    <meta
+      name="description"
+      content="A reproducible AgentCert lab for browser agents under adversarial UI, prompt-injection, latency, and HTTP failure scenarios."
+    >
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="../agentcert-monitor/" aria-label="AgentCert monitor">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 2.5 20 6v5.6c0 5.1-3.3 8.8-8 10-4.7-1.2-8-4.9-8-10V6l8-3.5Z"></path>
+            <path d="m8.3 12 2.3 2.3 5.1-5.2"></path>
+          </svg>
+        </span>
+        <span>AgentCert</span>
+      </a>
+      <nav aria-label="Lab navigation">
+        <a href="../agentcert-monitor/">Monitor</a>
+        <a href="../browser-agent-robustness/">Tripwire detail</a>
+        <a href="#matrix">Matrix</a>
+        <a href="#browser-use">browser-use</a>
+        <a href="https://github.com/Kakarottoooo/agentcert">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <h1>Browser agents fail differently when the page fights back</h1>
+          <p>
+            Real Agent Robustness Lab turns Tripwire runs into a comparable matrix:
+            same task, same adversarial web faults, different agents, checked-in evidence.
+          </p>
+          <div class="hero-actions">
+            <a href="./evidence/lab-snapshot.json">Open lab JSON</a>
+            <a href="../browser-agent-robustness/evidence/tripwire-public-demo/tripwire-report.html">Open trace report</a>
+          </div>
+        </div>
+
+        <div class="hero-visual">
+          <div class="metric-grid" id="summary-metrics"></div>
+          <div class="preview-frame">
+            <img id="hero-shot" alt="Selected Tripwire screenshot">
+          </div>
+        </div>
+      </section>
+
+      <section class="agent-section" aria-labelledby="agents-title">
+        <div class="section-heading">
+          <h2 id="agents-title">Agent comparison</h2>
+          <p>Checked-in evidence uses deterministic reference agents. Public open-source agents plug into the same schema when you run their adapter locally.</p>
+        </div>
+        <div class="agent-grid" id="agent-grid"></div>
+      </section>
+
+      <section class="matrix-section" id="matrix" aria-labelledby="matrix-title">
+        <div class="section-heading">
+          <h2 id="matrix-title">Fault matrix</h2>
+          <p>Each cell is one agent run against one deterministic web fault. Select a cell to inspect the failure and linked artifacts.</p>
+        </div>
+        <div class="matrix-wrap" id="matrix-wrap"></div>
+      </section>
+
+      <section class="detail-section">
+        <div class="run-detail" id="run-detail"></div>
+        <div class="fault-panel">
+          <h2>Hardest faults</h2>
+          <div id="fault-list"></div>
+        </div>
+      </section>
+
+      <section class="browser-use" id="browser-use">
+        <div>
+          <h2>Run a real public agent: browser-use</h2>
+          <p>
+            The checked-in page does not fabricate browser-use results. It ships the adapter and config,
+            then marks browser-use as missing until you run it with your own model key.
+          </p>
+        </div>
+        <pre><code>python -m venv .venv-browser-use
+.\\.venv-browser-use\\Scripts\\python -m pip install --upgrade browser-use
+$env:OPENAI_API_KEY = "&lt;your key&gt;"
+npm --prefix packages/tripwire-ci run build
+node packages/tripwire-ci/dist/cli.js run `
+  -c examples/real-agents/browser-use/tripwire.browser-use.yml `
+  --out .tripwire/browser-use-real-agent `
+  --fail-under 0
+npm run agentcert:lab-build</code></pre>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

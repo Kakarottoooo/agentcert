@@ -1,0 +1,3 @@
+{"timestamp":"2026-06-25T18:40:00.475Z","type":"navigate","target":"page","note":"http://127.0.0.1:3020/refund"}
+{"timestamp":"2026-06-25T18:40:00.506Z","type":"fill","target":"input:Order ID","note":"1234"}
+{"timestamp":"2026-06-25T18:40:00.513Z","type":"fill","target":"textarea:Reason","note":"Customer requested a refund."}

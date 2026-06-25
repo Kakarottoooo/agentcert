@@ -9,6 +9,7 @@ import { normalizeMcpBenchResult, normalizeOnegentAuditPacket, normalizeTripwire
 import { renderMarkdownReport } from "./report.js";
 import { serveAgentCertMonitor } from "./local-server.js";
 import { loadRunProfile, profileFromArtifactFlags, renderRunSummary, runAgentCertProfile, type RunProfileOverrides } from "./runner.js";
+import { buildRobustnessLabSnapshot, readRobustnessLabConfig, renderRobustnessLabSummary, writeRobustnessLabSnapshot } from "./lab.js";
 import type { AgentCertConfig, AgentCertResult } from "./types.js";
 
 const command = process.argv[2] ?? "help";
@@ -127,6 +128,21 @@ if (command === "init") {
   });
   process.stdout.write(renderRunSummary(outcome));
   process.exitCode = outcome.exitCode;
+} else if (command === "lab") {
+  const action = process.argv[3] ?? "help";
+  if (action === "build") {
+    const configPath = readFlag("--config") ?? "examples/real-agents/robustness-lab/lab.config.json";
+    const outPath = readFlag("--out") ?? "public-demo/real-agent-robustness/evidence/lab-snapshot.json";
+    const config = await readRobustnessLabConfig(configPath);
+    const snapshot = await buildRobustnessLabSnapshot(config);
+    await writeRobustnessLabSnapshot(outPath, snapshot);
+    process.stdout.write(`Wrote ${resolve(outPath)}\n`);
+    process.stdout.write(renderRobustnessLabSummary(snapshot));
+  } else {
+    process.stdout.write(`Usage:
+  agentcert lab build --config examples/real-agents/robustness-lab/lab.config.json --out public-demo/real-agent-robustness/evidence/lab-snapshot.json
+`);
+  }
 } else if (command === "serve") {
   await serveAgentCertMonitor({
     host: readFlag("--host") ?? "127.0.0.1",
@@ -147,6 +163,7 @@ if (command === "init") {
   agentcert monitor build --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --out .agentcert/monitor/monitor.json --subject my-agent
   agentcert run --profile public-demo
   agentcert run --mcpbench .mcpbench/latest/results.json --tripwire .tripwire/latest/tripwire-result.json --onegent .onegent/procurement/audit-packet.json --out .agentcert/latest --corpus .agentcert/corpus/corpus.jsonl --monitor-out .agentcert/monitor/monitor.json
+  agentcert lab build --config examples/real-agents/robustness-lab/lab.config.json --out public-demo/real-agent-robustness/evidence/lab-snapshot.json
   agentcert serve --corpus .agentcert/corpus/corpus.jsonl --static public-demo/agentcert-monitor --artifact-root public-demo/browser-agent-robustness/evidence/tripwire-public-demo
 `);
 }

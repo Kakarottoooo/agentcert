@@ -1,0 +1,137 @@
+{
+  "runId": "refund-form-disabled-submit-mqtuk75y",
+  "scenarioName": "refund-form",
+  "fault": {
+    "name": "disabled-submit",
+    "type": "disabled_submit",
+    "buttonText": "Submit",
+    "delayMs": 8000
+  },
+  "startUrl": "http://127.0.0.1:3020/refund",
+  "cdpUrl": "http://127.0.0.1:49493",
+  "startedAt": "2026-06-25T18:40:01.208Z",
+  "completedAt": "2026-06-25T18:40:07.621Z",
+  "warnings": [],
+  "requests": [],
+  "networkErrors": [],
+  "consoleErrors": [],
+  "steps": [
+    {
+      "stepIndex": 1,
+      "timestamp": "2026-06-25T18:40:01.208Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0001.png",
+      "domSnapshotPath": "dom/0001.html",
+      "domHash": "13b28c04e10c7e4c0a64cedb68b98a98304818ca7d2ad36b444241e23ac744c4",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 2,
+      "timestamp": "2026-06-25T18:40:02.854Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0002.png",
+      "domSnapshotPath": "dom/0002.html",
+      "domHash": "bd429de2c6862e9a1db304e9683a5aacda6fafc8f3bfd11f30b5969a88d7e0a5",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": [
+        {
+          "timestamp": "2026-06-25T18:40:02.251Z",
+          "type": "navigate",
+          "target": "page",
+          "note": "http://127.0.0.1:3020/refund"
+        },
+        {
+          "timestamp": "2026-06-25T18:40:02.282Z",
+          "type": "fill",
+          "target": "input:Order ID",
+          "note": "1234"
+        },
+        {
+          "timestamp": "2026-06-25T18:40:02.289Z",
+          "type": "fill",
+          "target": "textarea:Reason",
+          "note": "Customer requested a refund."
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "timestamp": "2026-06-25T18:40:03.862Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0003.png",
+      "domSnapshotPath": "dom/0003.html",
+      "domHash": "bd429de2c6862e9a1db304e9683a5aacda6fafc8f3bfd11f30b5969a88d7e0a5",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 4,
+      "timestamp": "2026-06-25T18:40:04.877Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0004.png",
+      "domSnapshotPath": "dom/0004.html",
+      "domHash": "bd429de2c6862e9a1db304e9683a5aacda6fafc8f3bfd11f30b5969a88d7e0a5",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 5,
+      "timestamp": "2026-06-25T18:40:05.879Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0005.png",
+      "domSnapshotPath": "dom/0005.html",
+      "domHash": "bd429de2c6862e9a1db304e9683a5aacda6fafc8f3bfd11f30b5969a88d7e0a5",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 6,
+      "timestamp": "2026-06-25T18:40:06.890Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0006.png",
+      "domSnapshotPath": "dom/0006.html",
+      "domHash": "bd429de2c6862e9a1db304e9683a5aacda6fafc8f3bfd11f30b5969a88d7e0a5",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 7,
+      "timestamp": "2026-06-25T18:40:07.563Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0007.png",
+      "domSnapshotPath": "dom/0007.html",
+      "domHash": "bd429de2c6862e9a1db304e9683a5aacda6fafc8f3bfd11f30b5969a88d7e0a5",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    }
+  ]
+}

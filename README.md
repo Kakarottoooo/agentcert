@@ -12,6 +12,8 @@ It combines two implemented pre-release engines and one local runtime-action MVP
 
 Public monitor: [AgentCert Monitor](https://kakarottoooo.github.io/agentcert/public-demo/agentcert-monitor/)
 
+Real Agent Robustness Lab: [browser-agent comparison matrix](https://kakarottoooo.github.io/agentcert/public-demo/real-agent-robustness/)
+
 ## The Lifecycle
 
 AgentCert covers the agent lifecycle in two phases:
@@ -206,6 +208,10 @@ The detailed Tripwire evidence page is still available:
 
 [https://kakarottoooo.github.io/agentcert/public-demo/browser-agent-robustness/](https://kakarottoooo.github.io/agentcert/public-demo/browser-agent-robustness/)
 
+The Real Agent Robustness Lab compares multiple browser-agent runs over the same fault suite:
+
+[https://kakarottoooo.github.io/agentcert/public-demo/real-agent-robustness/](https://kakarottoooo.github.io/agentcert/public-demo/real-agent-robustness/)
+
 Or open the checked-in pages locally:
 
 ```text
@@ -261,6 +267,19 @@ examples/real-agents/browser-use/
 ```
 
 It reads model credentials from the shell, such as `OPENAI_API_KEY`, and does not store secrets in the repository.
+
+Build the public robustness lab snapshot:
+
+```powershell
+npm run tripwire:lab-reference
+npm run agentcert:lab-build
+```
+
+The lab snapshot schema is checked in at:
+
+```text
+schemas/agentcert-robustness-lab.schema.json
+```
 
 ## Quickstart: Tripwire CI
 

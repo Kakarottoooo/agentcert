@@ -38,3 +38,9 @@ examples/real-agents/browser-use/
 ```
 
 That run requires a model key in the shell, for example `OPENAI_API_KEY`.
+
+The multi-agent comparison page lives in:
+
+```text
+../real-agent-robustness/index.html
+```

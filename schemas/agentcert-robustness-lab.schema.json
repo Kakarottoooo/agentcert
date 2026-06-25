@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.dev/schemas/agentcert-robustness-lab.schema.json",
+  "title": "AgentCert Real Agent Robustness Lab Snapshot",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "generatedAt", "name", "summary", "agents", "faults", "matrix", "limitations"],
+  "properties": {
+    "schemaVersion": { "const": "1" },
+    "kind": { "const": "agentcert.real_agent_robustness_lab" },
+    "generatedAt": { "type": "string" },
+    "name": { "type": "string" },
+    "description": { "type": "string" },
+    "summary": {
+      "type": "object",
+      "required": ["agentCount", "completedAgentCount", "totalRuns", "passedRuns", "failedRuns", "passRate", "faultCount"],
+      "properties": {
+        "agentCount": { "type": "integer", "minimum": 0 },
+        "completedAgentCount": { "type": "integer", "minimum": 0 },
+        "totalRuns": { "type": "integer", "minimum": 0 },
+        "passedRuns": { "type": "integer", "minimum": 0 },
+        "failedRuns": { "type": "integer", "minimum": 0 },
+        "passRate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "faultCount": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "agents": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/agent" }
+    },
+    "faults": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/fault" }
+    },
+    "matrix": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/matrixCell" }
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "agent": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "status",
+        "requiresModelKey",
+        "includedInPublicSnapshot",
+        "totalRuns",
+        "passedRuns",
+        "failedRuns",
+        "passRate"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "kind": { "enum": ["reference-agent", "public-open-source-agent", "custom-agent"] },
+        "status": { "enum": ["completed", "missing"] },
+        "repositoryUrl": { "type": "string" },
+        "adapterPath": { "type": "string" },
+        "configPath": { "type": "string" },
+        "resultPath": { "type": "string" },
+        "reportPath": { "type": "string" },
+        "requiresModelKey": { "type": "boolean" },
+        "includedInPublicSnapshot": { "type": "boolean" },
+        "score": { "type": "number" },
+        "totalRuns": { "type": "integer", "minimum": 0 },
+        "passedRuns": { "type": "integer", "minimum": 0 },
+        "failedRuns": { "type": "integer", "minimum": 0 },
+        "passRate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "notes": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "fault": {
+      "type": "object",
+      "required": ["faultName", "totalRuns", "passedRuns", "failedRuns", "passRate"],
+      "properties": {
+        "faultName": { "type": "string" },
+        "totalRuns": { "type": "integer", "minimum": 0 },
+        "passedRuns": { "type": "integer", "minimum": 0 },
+        "failedRuns": { "type": "integer", "minimum": 0 },
+        "passRate": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "matrixCell": {
+      "type": "object",
+      "required": ["agentId", "agentName", "faultName", "status"],
+      "properties": {
+        "agentId": { "type": "string" },
+        "agentName": { "type": "string" },
+        "scenarioName": { "type": "string" },
+        "faultName": { "type": "string" },
+        "status": { "enum": ["passed", "failed"] },
+        "durationMs": { "type": "number" },
+        "stepCount": { "type": "number" },
+        "finalUrl": { "type": "string" },
+        "primaryFailure": { "type": "string" },
+        "tracePath": { "type": "string" },
+        "reportPath": { "type": "string" },
+        "screenshotPath": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

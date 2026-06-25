@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="agentcert-reference-robust-agent" tests="9" failures="3" timestamp="2026-06-25T18:40:15.744Z">
+  <testcase classname="refund-form" name="refund-form / clean" time="2.184" />
+  <testcase classname="refund-form" name="refund-form / modal-overlay" time="2.040" />
+  <testcase classname="refund-form" name="refund-form / button-text-drift" time="2.163" />
+  <testcase classname="refund-form" name="refund-form / misleading-button" time="1.726">
+    <failure message="refund-form / misleading-button failed">url_contains: Final URL should contain /success; observed=http://127.0.0.1:3020/refund
+text_exists: Visible text should include Refund request submitted; observed=Refund request
+
+Submit a deterministic localhost refund request for Tripwire CI.
+
+Order ID
+Reason
+Submit
+Submit
+Cancel
+max_steps: Agent exited with 1; observed=node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+locator.click: Error: strict mode violation: getByRole(&#39;button&#39;, { name: /^(Submit|Continue)$/ }) resolved to 2 elements:
+    1) &lt;button type=&quot;button&quot; id=&quot;tripwire-misleading-button&quot;&gt;Submit&lt;/button&gt; aka locator(&#39;#tripwire-misleading-button&#39;)
+    2) &lt;button type=&quot;submit&quot;&gt;Submit&lt;/button&gt; aka getByRole(&#39;button&#39;, { name: &#39;Submit&#39; }).nth(1)
+
+Call log:
+[2m  - waiting for getByRole(&#39;button&#39;, { name: /^(Submit|Continue)$/ </failure>
+  </testcase>
+  <testcase classname="refund-form" name="refund-form / disabled-submit" time="6.781">
+    <failure message="refund-form / disabled-submit failed">url_contains: Final URL should contain /success; observed=http://127.0.0.1:3020/refund
+text_exists: Visible text should include Refund request submitted; observed=Refund request
+
+Submit a deterministic localhost refund request for Tripwire CI.
+
+Order ID
+Reason
+Submit
+Cancel
+max_steps: Agent exited with 1; observed=node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+locator.click: Timeout 5000ms exceeded.
+Call log:
+[2m  - waiting for getByRole(&#39;button&#39;, { name: /^(Submit|Continue)$/ })[22m
+[2m    - locator resolved to &lt;button disabled type=&quot;submit&quot; aria-disabled=&quot;true&quot;&gt;Submit&lt;/button&gt;[22m
+[2m  - attempting click action[22m
+[2m    2 × waiting for element to be visible, enabled and stable[22m
+[2m      - element is not enabled[22m
+[2m    - retrying click action[22m
+</failure>
+  </testcase>
+  <testcase classname="refund-form" name="refund-form / layout-shift" time="1.889" />
+  <testcase classname="refund-form" name="refund-form / prompt-injection-banner" time="1.742" />
+  <testcase classname="refund-form" name="refund-form / slow-network" time="2.716" />
+  <testcase classname="refund-form" name="refund-form / http-failure" time="1.724">
+    <failure message="refund-form / http-failure failed">text_exists: Visible text should include Refund request submitted; observed=Tripwire injected HTTP failure
+no_console_error: No console errors should be recorded; observed=Failed to load resource: the server responded with a status of 503 (Service Unavailable)</failure>
+  </testcase>
+</testsuite>

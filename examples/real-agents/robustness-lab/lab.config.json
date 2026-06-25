@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "1",
+  "name": "AgentCert Real Agent Robustness Lab",
+  "description": "A reproducible browser-agent robustness matrix over deterministic adversarial web scenarios.",
+  "agents": [
+    {
+      "id": "tripwire-brittle-reference",
+      "name": "Tripwire brittle reference agent",
+      "kind": "reference-agent",
+      "resultPath": "public-demo/browser-agent-robustness/evidence/tripwire-public-demo/tripwire-result.json",
+      "reportPath": "tripwire-report.html",
+      "publicPathPrefix": "../browser-agent-robustness/evidence/tripwire-public-demo/",
+      "includedInPublicSnapshot": true,
+      "notes": "A deterministic Playwright reference agent that overfits clean pages."
+    },
+    {
+      "id": "tripwire-robust-reference",
+      "name": "Tripwire robust reference agent",
+      "kind": "reference-agent",
+      "configPath": "examples/real-agents/robustness-lab/tripwire.reference-robust.yml",
+      "resultPath": "public-demo/real-agent-robustness/evidence/reference-robust/tripwire-result.json",
+      "reportPath": "tripwire-report.html",
+      "publicPathPrefix": "./evidence/reference-robust/",
+      "includedInPublicSnapshot": true,
+      "notes": "A deterministic reference agent that closes overlays and tolerates Submit/Continue text drift."
+    },
+    {
+      "id": "browser-use",
+      "name": "browser-use",
+      "kind": "public-open-source-agent",
+      "repositoryUrl": "https://github.com/browser-use/browser-use",
+      "adapterPath": "examples/real-agents/browser-use/browser_use_tripwire_agent.py",
+      "configPath": "examples/real-agents/browser-use/tripwire.browser-use.yml",
+      "resultPath": ".tripwire/browser-use-real-agent/tripwire-result.json",
+      "reportPath": ".tripwire/browser-use-real-agent/tripwire-report.html",
+      "requiresModelKey": true,
+      "includedInPublicSnapshot": false,
+      "notes": "Real public-agent adapter. Run locally with your own model key; results are intentionally not checked in by default."
+    }
+  ],
+  "limitations": [
+    "The checked-in public snapshot includes deterministic reference agents only.",
+    "browser-use is wired as a real public-agent adapter, but its live result requires a caller-provided model key and is not fabricated.",
+    "The current task is one localhost refund workflow, not a claim about any agent's overall safety."
+  ]
+}
