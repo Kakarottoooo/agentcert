@@ -2,7 +2,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { buildEvidenceBundle } from "./bundle.js";
-import { appendCorpusRecords, readCorpus, recordsFromAgentCertResult, renderCorpusSummary, summarizeCorpus } from "./corpus.js";
+import { recordsFromAgentCertResult, renderCorpusSummary, summarizeCorpus } from "./corpus.js";
+import { openCorpusStore, parseCorpusStoreKind, type CorpusStoreOptions } from "./corpus-store.js";
 import { buildMonitorSnapshot, writeMonitorSnapshot } from "./monitor.js";
 import { normalizeMcpBenchResult, normalizeOnegentAuditPacket, normalizeTripwireResult } from "./normalizers.js";
 import { renderMarkdownReport } from "./report.js";
@@ -51,7 +52,7 @@ if (command === "init") {
   if (action === "ingest") {
     const config = await loadConfig(readFlag("--config"));
     const subject = readFlag("--subject") ?? config?.subject.name ?? "agentcert-subject";
-    const outPath = readFlag("--out") ?? ".agentcert/corpus/corpus.jsonl";
+    const storeOptions = readCorpusStoreOptions(".agentcert/corpus/corpus.jsonl", readFlag("--out"));
     const replace = readBoolFlag("--replace");
     const loaded = await loadArtifactResults(config);
 
@@ -60,37 +61,53 @@ if (command === "init") {
     }
 
     const records = loaded.flatMap(({ result, path, raw }) => recordsFromAgentCertResult(result, path, subject, raw));
-    await appendCorpusRecords(outPath, records, replace);
+    const store = await openCorpusStore(storeOptions);
+    try {
+      await store.append(records, { replace });
+      process.stdout.write(`Wrote ${records.length} corpus records to ${store.description}\n`);
+    } finally {
+      await store.close();
+    }
     const summary = summarizeCorpus(records);
-    process.stdout.write(`Wrote ${records.length} corpus records to ${resolve(outPath)}\n`);
     process.stdout.write(renderCorpusSummary(summary));
   } else if (action === "summary") {
-    const corpusPath = readFlag("--corpus") ?? ".agentcert/corpus/corpus.jsonl";
-    const records = await readCorpus(corpusPath);
-    process.stdout.write(renderCorpusSummary(summarizeCorpus(records)));
+    const store = await openCorpusStore(readCorpusStoreOptions(".agentcert/corpus/corpus.jsonl"));
+    try {
+      const records = await store.readAll();
+      process.stdout.write(renderCorpusSummary(summarizeCorpus(records)));
+    } finally {
+      await store.close();
+    }
   } else {
     process.stdout.write(`Usage:
   agentcert corpus ingest --tripwire .tripwire/latest/tripwire-result.json --out .agentcert/corpus/corpus.jsonl --subject my-agent
+  agentcert corpus ingest --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --tripwire .tripwire/latest/tripwire-result.json --subject my-agent
   agentcert corpus summary --corpus .agentcert/corpus/corpus.jsonl
+  agentcert corpus summary --store postgres --database-url "$DATABASE_URL"
 `);
   }
 } else if (command === "monitor") {
   const action = process.argv[3] ?? "help";
   if (action === "build") {
-    const corpusPath = readFlag("--corpus") ?? ".agentcert/corpus/corpus.jsonl";
     const outPath = readFlag("--out") ?? ".agentcert/monitor/monitor.json";
     const subject = readFlag("--subject") ?? "agentcert-subject";
     const detailUrl = readFlag("--detail-url");
-    const records = await readCorpus(corpusPath);
-    const snapshot = buildMonitorSnapshot(records, { subject, detailUrl });
-    await writeMonitorSnapshot(outPath, snapshot);
-    process.stdout.write(`Wrote ${resolve(outPath)}\n`);
-    process.stdout.write(
-      `Monitor snapshot: ${snapshot.summary.totalRecords} records, ${(snapshot.summary.passRate * 100).toFixed(1)}% pass rate\n`,
-    );
+    const store = await openCorpusStore(readCorpusStoreOptions(".agentcert/corpus/corpus.jsonl"));
+    try {
+      const records = await store.readAll();
+      const snapshot = buildMonitorSnapshot(records, { subject, detailUrl });
+      await writeMonitorSnapshot(outPath, snapshot);
+      process.stdout.write(`Wrote ${resolve(outPath)}\n`);
+      process.stdout.write(
+        `Monitor snapshot: ${snapshot.summary.totalRecords} records, ${(snapshot.summary.passRate * 100).toFixed(1)}% pass rate\n`,
+      );
+    } finally {
+      await store.close();
+    }
   } else {
     process.stdout.write(`Usage:
   agentcert monitor build --corpus .agentcert/corpus/corpus.jsonl --out packages/agentcert-dashboard/public/data/monitor.json --subject my-agent
+  agentcert monitor build --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --out packages/agentcert-dashboard/public/data/monitor.json --subject my-agent
 `);
   }
 } else {
@@ -100,6 +117,7 @@ if (command === "init") {
   agentcert corpus ingest --tripwire .tripwire/latest/tripwire-result.json --out .agentcert/corpus/corpus.jsonl --subject my-agent
   agentcert corpus summary --corpus .agentcert/corpus/corpus.jsonl
   agentcert monitor build --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/monitor/monitor.json --subject my-agent
+  agentcert monitor build --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --out .agentcert/monitor/monitor.json --subject my-agent
 `);
 }
 
@@ -146,4 +164,14 @@ function readFlag(name: string): string | undefined {
 
 function readBoolFlag(name: string): boolean {
   return process.argv.includes(name);
+}
+
+function readCorpusStoreOptions(defaultJsonlPath: string, outPath?: string): CorpusStoreOptions {
+  return {
+    kind: parseCorpusStoreKind(readFlag("--store") ?? process.env.AGENTCERT_CORPUS_STORE),
+    jsonlPath: readFlag("--corpus") ?? outPath ?? defaultJsonlPath,
+    sqlitePath: readFlag("--sqlite") ?? process.env.AGENTCERT_SQLITE_PATH ?? ".agentcert/corpus/agentcert.sqlite",
+    databaseUrl: readFlag("--database-url") ?? process.env.AGENTCERT_DATABASE_URL ?? process.env.DATABASE_URL,
+    tableName: readFlag("--table") ?? process.env.AGENTCERT_CORPUS_TABLE,
+  };
 }

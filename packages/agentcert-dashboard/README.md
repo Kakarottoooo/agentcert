@@ -7,7 +7,7 @@ Data flow:
 ```text
 Tripwire / MCPBench / Onegent evidence
 -> agentcert corpus ingest
--> corpus.jsonl
+-> JSONL, SQLite, or Postgres corpus store
 -> agentcert monitor build
 -> public/data/monitor.json
 -> Vite dashboard
@@ -27,7 +27,15 @@ public-demo/agentcert-monitor/
 
 The checked-in public dashboard uses the checked-in browser-agent robustness
 corpus. For local accumulated runs, point `agentcert monitor build` at your own
-`.agentcert/corpus/corpus.jsonl`.
+JSONL, SQLite, or Postgres corpus store.
+
+Examples:
+
+```powershell
+node packages/agentcert-cli/dist/cli.js monitor build --corpus .agentcert/corpus/corpus.jsonl --out packages/agentcert-dashboard/public/data/monitor.json --subject my-agent
+node packages/agentcert-cli/dist/cli.js monitor build --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --out packages/agentcert-dashboard/public/data/monitor.json --subject my-agent
+node packages/agentcert-cli/dist/cli.js monitor build --store postgres --database-url "$env:AGENTCERT_DATABASE_URL" --out packages/agentcert-dashboard/public/data/monitor.json --subject my-agent
+```
 
 The monitor JSON shape is documented in:
 

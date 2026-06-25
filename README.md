@@ -111,7 +111,25 @@ node packages/agentcert-cli/dist/cli.js corpus ingest --tripwire packages/tripwi
 node packages/agentcert-cli/dist/cli.js corpus summary --corpus .agentcert/corpus/corpus.jsonl
 ```
 
-The corpus is JSONL on purpose: it is easy to diff, easy to commit for public demos, and can later be ingested into SQLite, Postgres, or object storage without changing the evidence format.
+JSONL is still the default corpus storage because it is easy to diff and commit for public demos. For accumulated local or hosted runs, the same CLI can write to SQLite or Postgres without changing the dashboard contract:
+
+```powershell
+node packages/agentcert-cli/dist/cli.js corpus ingest --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --tripwire packages/tripwire-ci/.tripwire/public-demo/tripwire-result.json --subject demo-agent --replace
+node packages/agentcert-cli/dist/cli.js corpus summary --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite
+node packages/agentcert-cli/dist/cli.js monitor build --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --out packages/agentcert-dashboard/public/data/monitor.json --subject demo-agent
+```
+
+SQLite storage uses Node's built-in `node:sqlite`, so use Node 22+ for that store. JSONL remains the Node 20-compatible default.
+
+Postgres uses the optional `pg` driver and a caller-provided database URL:
+
+```powershell
+$env:AGENTCERT_DATABASE_URL="postgres://user:password@localhost:5432/agentcert"
+node packages/agentcert-cli/dist/cli.js corpus ingest --store postgres --tripwire packages/tripwire-ci/.tripwire/public-demo/tripwire-result.json --subject demo-agent
+node packages/agentcert-cli/dist/cli.js monitor build --store postgres --out packages/agentcert-dashboard/public/data/monitor.json --subject demo-agent
+```
+
+The frontend does not connect to SQLite or Postgres directly. It reads the generated `monitor.json` snapshot, so the UI stays the same whether the corpus came from JSONL, SQLite, or Postgres.
 
 Build the monitor snapshot and UI:
 

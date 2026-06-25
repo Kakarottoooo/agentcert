@@ -19,7 +19,7 @@
     "typescript": "^5.9.3",
     "vitest": "^4.0.13"
   },
-  "dependencies": {
-    "agentcert": "file:../.."
+  "optionalDependencies": {
+    "pg": "^8.16.3"
   }
 }
