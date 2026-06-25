@@ -48,7 +48,7 @@ locator.click: Timeout 2500ms exceeded.
 Call log:
 [2m  - waiting for getByRole(&#39;button&#39;, { name: &#39;Submit&#39;, exact: true })[22m
 
-    at C:\Users\Gzw19\Documents\MCP Bench\packages\tripwire-ci\examples\agents\brittle-agent.mjs:19:65 {
+    at packages/tripwire-ci/examples/agents/brittle-agent.mjs:19:65 {
   name: &#39;TimeoutError&#39;
 }
 

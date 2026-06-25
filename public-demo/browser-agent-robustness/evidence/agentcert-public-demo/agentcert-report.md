@@ -1,15 +1,19 @@
 # AgentCert Evidence Report
 
-Subject: tripwire-brittle-reference-agent
-Generated: 2026-06-25T07:48:10.693Z
+Subject: agentcert-public-demo
+Generated: 2026-06-25T09:20:03.831Z
 Verdict: FAIL
-Score: 44
+Score: 81
 Level: Not certified
 
 ## Results
 
+- mcpbench: PASS (100/100, pre-release)
+  MCPBench completed without blocking violations.
 - tripwire-ci: FAIL (44/100, pre-release)
   Tripwire CI gate failed.
+- onegent-runtime: PASS (100/100, runtime)
+  Runtime action was approved, mock-executed, verified, and audited.
 
 ## Evidence
 
@@ -27,6 +31,18 @@ Level: Not certified
 - [high] assertion_result: Agent exited with 1
 - [high] assertion_result: Visible text should include Refund request submitted
 - [high] assertion_result: No console errors should be recorded
+- [high] runtime_risk_assessment: Runtime action risk assessed as HIGH.
+- [info] approval_record: Human approval status: APPROVED.
+- [info] runtime_verification: Observed runtime state matched expected state.
+- [info] audit_event: Action intent captured from agent.
+- [info] audit_event: Risk assessment completed.
+- [info] audit_event: Policy evaluation completed.
+- [info] audit_event: Human approval requested.
+- [info] audit_event: Human approver approved the action.
+- [info] audit_event: Local mock execution started.
+- [info] audit_event: Local mock execution completed.
+- [info] audit_event: Observed state matched expected state.
+- [info] audit_event: Audit packet generated for customer demo.
 
 ## Standards Mapping
 
@@ -36,5 +52,10 @@ Level: Not certified
 
 ## Artifacts
 
-- tripwire-ci.result: `packages/tripwire-ci/.tripwire/public-demo/tripwire-result.json`
-- tripwire-ci.outDir: `C:\Users\Gzw19\Documents\MCP Bench\packages\tripwire-ci\.tripwire\public-demo`
+- mcpbench.results: `public-demo/lifecycle-evidence/mcpbench-passing/results.json`
+- mcpbench.events: `public-demo/lifecycle-evidence/mcpbench-passing/events.jsonl`
+- mcpbench.report: `public-demo/lifecycle-evidence/mcpbench-passing/report.md`
+- mcpbench.badge: `public-demo/lifecycle-evidence/mcpbench-passing/badge.svg`
+- tripwire-ci.result: `public-demo/browser-agent-robustness/evidence/tripwire-public-demo/tripwire-result.json`
+- tripwire-ci.outDir: `public-demo/browser-agent-robustness/evidence/tripwire-public-demo`
+- onegent-runtime.auditPacket: `public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json`

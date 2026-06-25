@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { recordsFromAgentCertResult, renderCorpusSummary, summarizeCorpus } from "../src/corpus.js";
 import { normalizeTripwireResult } from "../src/normalizers.js";
+import type { AgentCertResult } from "../src/types.js";
 
 describe("AgentCert corpus", () => {
   it("turns Tripwire runs into queryable scenario records", () => {
@@ -80,6 +81,37 @@ describe("AgentCert corpus", () => {
       "tripwire:modal-overlay:url_contains",
     ]);
     expect(renderCorpusSummary(summary)).toContain("Total records: 3");
+  });
+
+  it("does not treat high-risk evidence on a passing product run as a failure pattern", () => {
+    const result: AgentCertResult = {
+      schemaVersion: "1",
+      product: "onegent-runtime",
+      runId: "act_1",
+      timestamp: "2026-01-01T00:00:00Z",
+      phase: "runtime",
+      score: 100,
+      passed: true,
+      summary: "Runtime action was approved and verified.",
+      artifacts: { auditPacket: "audit-packet.json" },
+      evidence: [
+        {
+          id: "risk",
+          kind: "runtime_risk_assessment",
+          severity: "high",
+          message: "Runtime action risk assessed as HIGH.",
+          source: "onegent-runtime",
+          artifactPath: "audit-packet.json",
+        },
+      ],
+    };
+
+    const [record] = recordsFromAgentCertResult(result, "audit-packet.json", "demo-agent", result, "2026-01-01T00:01:00Z");
+
+    expect(record.passed).toBe(true);
+    expect(record.evidenceCount).toBe(1);
+    expect(record.highOrCriticalEvidenceCount).toBe(1);
+    expect(record.failurePatterns).toEqual([]);
   });
 });
 

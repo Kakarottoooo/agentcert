@@ -1,0 +1,268 @@
+{
+  "demo": true,
+  "product": "AgentCert Onegent Runtime",
+  "scenario": "Procurement purchase-order approval walkthrough",
+  "actionIntent": {
+    "id": "act_000001",
+    "workspaceId": "demo-workspace",
+    "workflowId": "demo-workflow",
+    "sourceAgentName": "ProcurementAgent",
+    "sourceAgentRunId": "procurement-demo-run",
+    "actionType": "SUBMIT",
+    "targetSystem": "MockERP",
+    "environment": "demo",
+    "title": "Submit purchase order to Acme Industrial Supply",
+    "description": "Submit a $4,850 purchase order after policy and human approval checks.",
+    "businessObjectType": "purchase_order",
+    "businessObjectId": "PO-DEMO-4850",
+    "amount": 4850,
+    "currency": "USD",
+    "vendorName": "Acme Industrial Supply",
+    "beforeState": {
+      "id": "PO-DEMO-4850",
+      "vendor": "Acme Industrial Supply",
+      "amount": 4850,
+      "currency": "USD",
+      "status": "DRAFT"
+    },
+    "proposedAfterState": {
+      "id": "PO-DEMO-4850",
+      "vendor": "Acme Industrial Supply",
+      "amount": 4850,
+      "currency": "USD",
+      "status": "SUBMITTED"
+    },
+    "fieldsChanged": [
+      {
+        "field": "status",
+        "before": "DRAFT",
+        "after": "SUBMITTED"
+      }
+    ],
+    "rawAgentReasoningSummary": "ProcurementAgent found the PO ready for vendor submission and proposed changing it from DRAFT to SUBMITTED.",
+    "createdAt": "2026-06-25T09:16:46.106Z",
+    "status": "VERIFIED"
+  },
+  "riskAssessment": {
+    "id": "risk_000003",
+    "actionIntentId": "act_000001",
+    "riskLevel": "HIGH",
+    "riskScore": 80,
+    "reasons": [
+      "Purchase orders over $1,000 require human approval."
+    ],
+    "triggeredPolicies": [
+      "po-over-1000-requires-approval"
+    ],
+    "requiresHumanApproval": true,
+    "createdAt": "2026-06-25T09:16:46.107Z"
+  },
+  "triggeredPolicies": [
+    {
+      "id": "po-over-1000-requires-approval",
+      "name": "Purchase orders over $1,000 require approval",
+      "description": "High-value purchase order submissions must be reviewed before mock execution.",
+      "actionTypes": [
+        "SUBMIT"
+      ],
+      "effect": "REQUIRE_APPROVAL",
+      "enabled": true,
+      "conditions": [
+        {
+          "field": "amount",
+          "operator": "greaterThan",
+          "value": 1000
+        }
+      ]
+    },
+    {
+      "id": "po-over-1000-requires-approval",
+      "name": "Purchase orders over $1,000 require approval",
+      "description": "High-value purchase order submissions must be reviewed before mock execution.",
+      "actionTypes": [
+        "SUBMIT"
+      ],
+      "effect": "REQUIRE_APPROVAL",
+      "enabled": true,
+      "conditions": [
+        {
+          "field": "amount",
+          "operator": "greaterThan",
+          "value": 1000
+        }
+      ]
+    }
+  ],
+  "approvalRequest": {
+    "id": "approval_000006",
+    "actionIntentId": "act_000001",
+    "riskAssessmentId": "risk_000003",
+    "requestedBy": "ProcurementAgent",
+    "assignedTo": "human-approver@example.local",
+    "status": "APPROVED",
+    "createdAt": "2026-06-25T09:16:46.107Z",
+    "reviewedAt": "2026-06-25T09:16:46.121Z",
+    "reviewerComment": "Approved for local mock ERP submission."
+  },
+  "execution": {
+    "method": "LOCAL_MOCK_ERP",
+    "status": "COMPLETED",
+    "targetSystem": "MockERP",
+    "previousState": {
+      "id": "PO-DEMO-4850",
+      "vendor": "Acme Industrial Supply",
+      "amount": 4850,
+      "currency": "USD",
+      "status": "DRAFT"
+    },
+    "observedState": {
+      "id": "PO-DEMO-4850",
+      "vendor": "Acme Industrial Supply",
+      "amount": 4850,
+      "currency": "USD",
+      "status": "SUBMITTED"
+    }
+  },
+  "verificationResult": {
+    "id": "verify_000011",
+    "actionIntentId": "act_000001",
+    "expectedState": {
+      "id": "PO-DEMO-4850",
+      "vendor": "Acme Industrial Supply",
+      "amount": 4850,
+      "currency": "USD",
+      "status": "SUBMITTED"
+    },
+    "observedState": {
+      "id": "PO-DEMO-4850",
+      "vendor": "Acme Industrial Supply",
+      "amount": 4850,
+      "currency": "USD",
+      "status": "SUBMITTED"
+    },
+    "success": true,
+    "differences": [],
+    "verificationMethod": "LOCAL_MOCK_ERP",
+    "createdAt": "2026-06-25T09:16:46.121Z"
+  },
+  "auditEvents": [
+    {
+      "id": "audit_000002",
+      "actionIntentId": "act_000001",
+      "eventType": "ACTION_CAPTURED",
+      "actorType": "AGENT",
+      "actorId": "ProcurementAgent",
+      "message": "Action intent captured from agent.",
+      "metadata": {
+        "actionType": "SUBMIT",
+        "targetSystem": "MockERP"
+      },
+      "createdAt": "2026-06-25T09:16:46.106Z"
+    },
+    {
+      "id": "audit_000004",
+      "actionIntentId": "act_000001",
+      "eventType": "RISK_ASSESSED",
+      "actorType": "SYSTEM",
+      "actorId": "onegent-runtime",
+      "message": "Risk assessment completed.",
+      "metadata": {
+        "riskLevel": "HIGH",
+        "riskScore": 80
+      },
+      "createdAt": "2026-06-25T09:16:46.107Z"
+    },
+    {
+      "id": "audit_000005",
+      "actionIntentId": "act_000001",
+      "eventType": "POLICY_EVALUATED",
+      "actorType": "SYSTEM",
+      "actorId": "onegent-runtime",
+      "message": "Policy evaluation completed.",
+      "metadata": {
+        "effect": "REQUIRE_APPROVAL",
+        "triggeredPolicies": [
+          "po-over-1000-requires-approval"
+        ]
+      },
+      "createdAt": "2026-06-25T09:16:46.107Z"
+    },
+    {
+      "id": "audit_000007",
+      "actionIntentId": "act_000001",
+      "eventType": "APPROVAL_REQUESTED",
+      "actorType": "SYSTEM",
+      "actorId": "onegent-runtime",
+      "message": "Human approval requested.",
+      "metadata": {
+        "assignedTo": "human-approver@example.local"
+      },
+      "createdAt": "2026-06-25T09:16:46.107Z"
+    },
+    {
+      "id": "audit_000008",
+      "actionIntentId": "act_000001",
+      "eventType": "ACTION_APPROVED",
+      "actorType": "HUMAN",
+      "actorId": "procurement-manager@example.local",
+      "message": "Human approver approved the action.",
+      "metadata": {
+        "reviewerComment": "Approved for local mock ERP submission."
+      },
+      "createdAt": "2026-06-25T09:16:46.121Z"
+    },
+    {
+      "id": "audit_000009",
+      "actionIntentId": "act_000001",
+      "eventType": "MOCK_EXECUTION_STARTED",
+      "actorType": "SYSTEM",
+      "actorId": "onegent-runtime",
+      "message": "Local mock execution started.",
+      "metadata": {
+        "targetSystem": "MockERP"
+      },
+      "createdAt": "2026-06-25T09:16:46.121Z"
+    },
+    {
+      "id": "audit_000010",
+      "actionIntentId": "act_000001",
+      "eventType": "MOCK_EXECUTION_COMPLETED",
+      "actorType": "SYSTEM",
+      "actorId": "onegent-runtime",
+      "message": "Local mock execution completed.",
+      "metadata": {
+        "method": "LOCAL_MOCK_ERP",
+        "observedState": {
+          "id": "PO-DEMO-4850",
+          "vendor": "Acme Industrial Supply",
+          "amount": 4850,
+          "currency": "USD",
+          "status": "SUBMITTED"
+        }
+      },
+      "createdAt": "2026-06-25T09:16:46.121Z"
+    },
+    {
+      "id": "audit_000012",
+      "actionIntentId": "act_000001",
+      "eventType": "VERIFICATION_PASSED",
+      "actorType": "SYSTEM",
+      "actorId": "onegent-runtime",
+      "message": "Observed state matched expected state.",
+      "metadata": {
+        "differences": []
+      },
+      "createdAt": "2026-06-25T09:16:46.121Z"
+    },
+    {
+      "id": "audit_000013",
+      "actionIntentId": "act_000001",
+      "eventType": "AUDIT_PACKET_GENERATED",
+      "actorType": "SYSTEM",
+      "actorId": "onegent-runtime",
+      "message": "Audit packet generated for customer demo.",
+      "createdAt": "2026-06-25T09:16:46.122Z"
+    }
+  ],
+  "disclaimer": "Local demo only. No real payments, emails, vendor portals, credentials, or production systems are used."
+}

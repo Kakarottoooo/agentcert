@@ -2,7 +2,7 @@
   "version": "0.1",
   "project": "agentcert-public-browser-agent-demo",
   "timestamp": "2026-06-25T07:48:10.453Z",
-  "outDir": "C:\\Users\\Gzw19\\Documents\\MCP Bench\\packages\\tripwire-ci\\.tripwire\\public-demo",
+  "outDir": "public-demo/browser-agent-robustness/evidence/tripwire-public-demo",
   "gate": {
     "failUnder": 0.8,
     "passed": false

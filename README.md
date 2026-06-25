@@ -107,7 +107,7 @@ The unified bundle is the review artifact AgentCert is built around. It can incl
 Build a local corpus from evidence artifacts:
 
 ```powershell
-node packages/agentcert-cli/dist/cli.js corpus ingest --tripwire packages/tripwire-ci/.tripwire/public-demo/tripwire-result.json --out .agentcert/corpus/corpus.jsonl --subject demo-agent --replace
+node packages/agentcert-cli/dist/cli.js corpus ingest --mcpbench public-demo/lifecycle-evidence/mcpbench-passing/results.json --tripwire public-demo/browser-agent-robustness/evidence/tripwire-public-demo/tripwire-result.json --onegent public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json --out .agentcert/corpus/corpus.jsonl --subject demo-agent --replace
 node packages/agentcert-cli/dist/cli.js corpus summary --corpus .agentcert/corpus/corpus.jsonl
 ```
 
@@ -186,13 +186,19 @@ public-demo/agentcert-monitor/index.html
 public-demo/browser-agent-robustness/index.html
 ```
 
-The hosted page now frames AgentCert as three lifecycle gates:
+The hosted monitor uses checked-in demo evidence for all three lifecycle gates:
 
 - **MCPBench** before release: checks MCP servers, exposed tools, policy behavior, and runtime traces.
 - **Tripwire CI** before release: checks browser/computer-use agents under adversarial UI and network faults.
 - **Onegent Runtime** after release: approves, verifies, and audits high-risk live actions before they execute.
 
-The interactive dashboard on that page is the Tripwire CI evidence slice.
+The checked-in public corpus currently contains 11 records:
+
+- 1 MCPBench passing pre-release run;
+- 9 Tripwire CI browser-agent scenario runs;
+- 1 Onegent Runtime procurement approval and audit run.
+
+The richer visual evidence page is the Tripwire CI slice because it includes screenshots, DOM snapshots, and browser traces.
 
 It shows a deterministic Tripwire run across clean and adversarial browser scenarios:
 
@@ -205,13 +211,20 @@ It shows a deterministic Tripwire run across clean and adversarial browser scena
 - slow network;
 - HTTP failure.
 
-The checked-in demo evidence includes Tripwire JSON, HTML report, screenshots, DOM snapshots, trace JSON, JUnit XML, corpus JSONL, and a unified AgentCert evidence bundle.
+The checked-in demo evidence includes:
+
+- `public-demo/lifecycle-evidence/mcpbench-passing/`
+- `public-demo/browser-agent-robustness/evidence/tripwire-public-demo/`
+- `public-demo/lifecycle-evidence/onegent-procurement/`
+- `public-demo/browser-agent-robustness/evidence/agentcert-corpus.jsonl`
+- `public-demo/browser-agent-robustness/evidence/agentcert-public-demo/`
 
 Run the public fixture again:
 
 ```powershell
 npm --prefix packages/tripwire-ci run build
 npm run tripwire:demo-public
+npm run agentcert:monitor-build
 ```
 
 The real public-agent adapter for `browser-use` is in:

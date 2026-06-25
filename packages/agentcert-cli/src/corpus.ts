@@ -84,7 +84,7 @@ export function recordsFromAgentCertResult(
       passed: result.passed,
       evidenceCount: result.evidence.length,
       highOrCriticalEvidenceCount: countHighOrCritical(result.evidence),
-      failurePatterns: failurePatternsFromEvidence(result.evidence),
+      failurePatterns: result.passed ? [] : failurePatternsFromEvidence(result.evidence),
       artifacts: result.artifacts,
       sourcePath,
       metadata: result.summary ? { summary: result.summary } : undefined,

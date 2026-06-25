@@ -1,38 +1,58 @@
 {
   "schemaVersion": "1",
   "kind": "agentcert.evidence_bundle",
-  "runId": "agentcert_1782373690693",
-  "generatedAt": "2026-06-25T07:48:10.693Z",
+  "runId": "agentcert_1782379203831",
+  "generatedAt": "2026-06-25T09:20:03.831Z",
   "subject": {
-    "name": "tripwire-brittle-reference-agent",
+    "name": "agentcert-public-demo",
     "type": "agent"
   },
   "verdict": {
     "passed": false,
-    "score": 44,
+    "score": 81,
     "level": "Not certified"
   },
   "summary": {
     "products": [
-      "tripwire-ci"
+      "mcpbench",
+      "tripwire-ci",
+      "onegent-runtime"
     ],
     "criticalEvidence": 0,
-    "highEvidence": 14,
-    "totalEvidence": 14
+    "highEvidence": 15,
+    "totalEvidence": 26
   },
   "results": [
     {
       "schemaVersion": "1",
+      "product": "mcpbench",
+      "runId": "run_basic_tool_use_passing",
+      "timestamp": "2026-01-01T00:16:39Z",
+      "phase": "pre-release",
+      "score": 100,
+      "passed": true,
+      "certLevel": "Platinum",
+      "summary": "MCPBench completed without blocking violations.",
+      "artifacts": {
+        "results": "public-demo/lifecycle-evidence/mcpbench-passing/results.json",
+        "events": "public-demo/lifecycle-evidence/mcpbench-passing/events.jsonl",
+        "report": "public-demo/lifecycle-evidence/mcpbench-passing/report.md",
+        "badge": "public-demo/lifecycle-evidence/mcpbench-passing/badge.svg"
+      },
+      "evidence": []
+    },
+    {
+      "schemaVersion": "1",
       "product": "tripwire-ci",
-      "runId": "tripwire_cd1bfe6c1322",
+      "runId": "tripwire_f9593c1fd560",
       "timestamp": "2026-06-25T07:48:10.453Z",
       "phase": "pre-release",
       "score": 44,
       "passed": false,
       "summary": "Tripwire CI gate failed.",
       "artifacts": {
-        "result": "packages/tripwire-ci/.tripwire/public-demo/tripwire-result.json",
-        "outDir": "C:\\Users\\Gzw19\\Documents\\MCP Bench\\packages\\tripwire-ci\\.tripwire\\public-demo"
+        "result": "public-demo/browser-agent-robustness/evidence/tripwire-public-demo/tripwire-result.json",
+        "outDir": "public-demo/browser-agent-robustness/evidence/tripwire-public-demo"
       },
       "evidence": [
         {
@@ -299,6 +319,281 @@
               "message": "No console errors should be recorded",
               "observed": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
             }
+          }
+        }
+      ]
+    },
+    {
+      "schemaVersion": "1",
+      "product": "onegent-runtime",
+      "runId": "act_000001",
+      "timestamp": "2026-06-25T09:16:46.121Z",
+      "phase": "runtime",
+      "score": 100,
+      "passed": true,
+      "summary": "Runtime action was approved, mock-executed, verified, and audited.",
+      "artifacts": {
+        "auditPacket": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json"
+      },
+      "evidence": [
+        {
+          "id": "onegent_risk_assessment",
+          "kind": "runtime_risk_assessment",
+          "severity": "high",
+          "message": "Runtime action risk assessed as HIGH.",
+          "source": "onegent-runtime",
+          "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+          "metadata": {
+            "id": "risk_000003",
+            "actionIntentId": "act_000001",
+            "riskLevel": "HIGH",
+            "riskScore": 80,
+            "reasons": [
+              "Purchase orders over $1,000 require human approval."
+            ],
+            "triggeredPolicies": [
+              "po-over-1000-requires-approval"
+            ],
+            "requiresHumanApproval": true,
+            "createdAt": "2026-06-25T09:16:46.107Z"
+          }
+        },
+        {
+          "id": "onegent_approval",
+          "kind": "approval_record",
+          "severity": "info",
+          "message": "Human approval status: APPROVED.",
+          "source": "onegent-runtime",
+          "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+          "metadata": {
+            "id": "approval_000006",
+            "actionIntentId": "act_000001",
+            "riskAssessmentId": "risk_000003",
+            "requestedBy": "ProcurementAgent",
+            "assignedTo": "human-approver@example.local",
+            "status": "APPROVED",
+            "createdAt": "2026-06-25T09:16:46.107Z",
+            "reviewedAt": "2026-06-25T09:16:46.121Z",
+            "reviewerComment": "Approved for local mock ERP submission."
+          }
+        },
+        {
+          "id": "onegent_verification",
+          "kind": "runtime_verification",
+          "severity": "info",
+          "message": "Observed runtime state matched expected state.",
+          "source": "onegent-runtime",
+          "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+          "metadata": {
+            "id": "verify_000011",
+            "actionIntentId": "act_000001",
+            "expectedState": {
+              "id": "PO-DEMO-4850",
+              "vendor": "Acme Industrial Supply",
+              "amount": 4850,
+              "currency": "USD",
+              "status": "SUBMITTED"
+            },
+            "observedState": {
+              "id": "PO-DEMO-4850",
+              "vendor": "Acme Industrial Supply",
+              "amount": 4850,
+              "currency": "USD",
+              "status": "SUBMITTED"
+            },
+            "success": true,
+            "differences": [],
+            "verificationMethod": "LOCAL_MOCK_ERP",
+            "createdAt": "2026-06-25T09:16:46.121Z"
+          }
+        },
+        {
+          "id": "audit_000002",
+          "kind": "audit_event",
+          "severity": "info",
+          "message": "Action intent captured from agent.",
+          "source": "onegent-runtime",
+          "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+          "metadata": {
+            "id": "audit_000002",
+            "actionIntentId": "act_000001",
+            "eventType": "ACTION_CAPTURED",
+            "actorType": "AGENT",
+            "actorId": "ProcurementAgent",
+            "message": "Action intent captured from agent.",
+            "metadata": {
+              "actionType": "SUBMIT",
+              "targetSystem": "MockERP"
+            },
+            "createdAt": "2026-06-25T09:16:46.106Z"
+          }
+        },
+        {
+          "id": "audit_000004",
+          "kind": "audit_event",
+          "severity": "info",
+          "message": "Risk assessment completed.",
+          "source": "onegent-runtime",
+          "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+          "metadata": {
+            "id": "audit_000004",
+            "actionIntentId": "act_000001",
+            "eventType": "RISK_ASSESSED",
+            "actorType": "SYSTEM",
+            "actorId": "onegent-runtime",
+            "message": "Risk assessment completed.",
+            "metadata": {
+              "riskLevel": "HIGH",
+              "riskScore": 80
+            },
+            "createdAt": "2026-06-25T09:16:46.107Z"
+          }
+        },
+        {
+          "id": "audit_000005",
+          "kind": "audit_event",
+          "severity": "info",
+          "message": "Policy evaluation completed.",
+          "source": "onegent-runtime",
+          "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+          "metadata": {
+            "id": "audit_000005",
+            "actionIntentId": "act_000001",
+            "eventType": "POLICY_EVALUATED",
+            "actorType": "SYSTEM",
+            "actorId": "onegent-runtime",
+            "message": "Policy evaluation completed.",
+            "metadata": {
+              "effect": "REQUIRE_APPROVAL",
+              "triggeredPolicies": [
+                "po-over-1000-requires-approval"
+              ]
+            },
+            "createdAt": "2026-06-25T09:16:46.107Z"
+          }
+        },
+        {
+          "id": "audit_000007",
+          "kind": "audit_event",
+          "severity": "info",
+          "message": "Human approval requested.",
+          "source": "onegent-runtime",
+          "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+          "metadata": {
+            "id": "audit_000007",
+            "actionIntentId": "act_000001",
+            "eventType": "APPROVAL_REQUESTED",
+            "actorType": "SYSTEM",
+            "actorId": "onegent-runtime",
+            "message": "Human approval requested.",
+            "metadata": {
+              "assignedTo": "human-approver@example.local"
+            },
+            "createdAt": "2026-06-25T09:16:46.107Z"
+          }
+        },
+        {
+          "id": "audit_000008",
+          "kind": "audit_event",
+          "severity": "info",
+          "message": "Human approver approved the action.",
+          "source": "onegent-runtime",
+          "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+          "metadata": {
+            "id": "audit_000008",
+            "actionIntentId": "act_000001",
+            "eventType": "ACTION_APPROVED",
+            "actorType": "HUMAN",
+            "actorId": "procurement-manager@example.local",
+            "message": "Human approver approved the action.",
+            "metadata": {
+              "reviewerComment": "Approved for local mock ERP submission."
+            },
+            "createdAt": "2026-06-25T09:16:46.121Z"
+          }
+        },
+        {
+          "id": "audit_000009",
+          "kind": "audit_event",
+          "severity": "info",
+          "message": "Local mock execution started.",
+          "source": "onegent-runtime",
+          "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+          "metadata": {
+            "id": "audit_000009",
+            "actionIntentId": "act_000001",
+            "eventType": "MOCK_EXECUTION_STARTED",
+            "actorType": "SYSTEM",
+            "actorId": "onegent-runtime",
+            "message": "Local mock execution started.",
+            "metadata": {
+              "targetSystem": "MockERP"
+            },
+            "createdAt": "2026-06-25T09:16:46.121Z"
+          }
+        },
+        {
+          "id": "audit_000010",
+          "kind": "audit_event",
+          "severity": "info",
+          "message": "Local mock execution completed.",
+          "source": "onegent-runtime",
+          "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+          "metadata": {
+            "id": "audit_000010",
+            "actionIntentId": "act_000001",
+            "eventType": "MOCK_EXECUTION_COMPLETED",
+            "actorType": "SYSTEM",
+            "actorId": "onegent-runtime",
+            "message": "Local mock execution completed.",
+            "metadata": {
+              "method": "LOCAL_MOCK_ERP",
+              "observedState": {
+                "id": "PO-DEMO-4850",
+                "vendor": "Acme Industrial Supply",
+                "amount": 4850,
+                "currency": "USD",
+                "status": "SUBMITTED"
+              }
+            },
+            "createdAt": "2026-06-25T09:16:46.121Z"
+          }
+        },
+        {
+          "id": "audit_000012",
+          "kind": "audit_event",
+          "severity": "info",
+          "message": "Observed state matched expected state.",
+          "source": "onegent-runtime",
+          "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+          "metadata": {
+            "id": "audit_000012",
+            "actionIntentId": "act_000001",
+            "eventType": "VERIFICATION_PASSED",
+            "actorType": "SYSTEM",
+            "actorId": "onegent-runtime",
+            "message": "Observed state matched expected state.",
+            "metadata": {
+              "differences": []
+            },
+            "createdAt": "2026-06-25T09:16:46.121Z"
+          }
+        },
+        {
+          "id": "audit_000013",
+          "kind": "audit_event",
+          "severity": "info",
+          "message": "Audit packet generated for customer demo.",
+          "source": "onegent-runtime",
+          "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+          "metadata": {
+            "id": "audit_000013",
+            "actionIntentId": "act_000001",
+            "eventType": "AUDIT_PACKET_GENERATED",
+            "actorType": "SYSTEM",
+            "actorId": "onegent-runtime",
+            "message": "Audit packet generated for customer demo.",
+            "createdAt": "2026-06-25T09:16:46.122Z"
           }
         }
       ]
@@ -570,11 +865,276 @@
           "observed": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
         }
       }
+    },
+    {
+      "id": "onegent_risk_assessment",
+      "kind": "runtime_risk_assessment",
+      "severity": "high",
+      "message": "Runtime action risk assessed as HIGH.",
+      "source": "onegent-runtime",
+      "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+      "metadata": {
+        "id": "risk_000003",
+        "actionIntentId": "act_000001",
+        "riskLevel": "HIGH",
+        "riskScore": 80,
+        "reasons": [
+          "Purchase orders over $1,000 require human approval."
+        ],
+        "triggeredPolicies": [
+          "po-over-1000-requires-approval"
+        ],
+        "requiresHumanApproval": true,
+        "createdAt": "2026-06-25T09:16:46.107Z"
+      }
+    },
+    {
+      "id": "onegent_approval",
+      "kind": "approval_record",
+      "severity": "info",
+      "message": "Human approval status: APPROVED.",
+      "source": "onegent-runtime",
+      "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+      "metadata": {
+        "id": "approval_000006",
+        "actionIntentId": "act_000001",
+        "riskAssessmentId": "risk_000003",
+        "requestedBy": "ProcurementAgent",
+        "assignedTo": "human-approver@example.local",
+        "status": "APPROVED",
+        "createdAt": "2026-06-25T09:16:46.107Z",
+        "reviewedAt": "2026-06-25T09:16:46.121Z",
+        "reviewerComment": "Approved for local mock ERP submission."
+      }
+    },
+    {
+      "id": "onegent_verification",
+      "kind": "runtime_verification",
+      "severity": "info",
+      "message": "Observed runtime state matched expected state.",
+      "source": "onegent-runtime",
+      "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+      "metadata": {
+        "id": "verify_000011",
+        "actionIntentId": "act_000001",
+        "expectedState": {
+          "id": "PO-DEMO-4850",
+          "vendor": "Acme Industrial Supply",
+          "amount": 4850,
+          "currency": "USD",
+          "status": "SUBMITTED"
+        },
+        "observedState": {
+          "id": "PO-DEMO-4850",
+          "vendor": "Acme Industrial Supply",
+          "amount": 4850,
+          "currency": "USD",
+          "status": "SUBMITTED"
+        },
+        "success": true,
+        "differences": [],
+        "verificationMethod": "LOCAL_MOCK_ERP",
+        "createdAt": "2026-06-25T09:16:46.121Z"
+      }
+    },
+    {
+      "id": "audit_000002",
+      "kind": "audit_event",
+      "severity": "info",
+      "message": "Action intent captured from agent.",
+      "source": "onegent-runtime",
+      "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+      "metadata": {
+        "id": "audit_000002",
+        "actionIntentId": "act_000001",
+        "eventType": "ACTION_CAPTURED",
+        "actorType": "AGENT",
+        "actorId": "ProcurementAgent",
+        "message": "Action intent captured from agent.",
+        "metadata": {
+          "actionType": "SUBMIT",
+          "targetSystem": "MockERP"
+        },
+        "createdAt": "2026-06-25T09:16:46.106Z"
+      }
+    },
+    {
+      "id": "audit_000004",
+      "kind": "audit_event",
+      "severity": "info",
+      "message": "Risk assessment completed.",
+      "source": "onegent-runtime",
+      "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+      "metadata": {
+        "id": "audit_000004",
+        "actionIntentId": "act_000001",
+        "eventType": "RISK_ASSESSED",
+        "actorType": "SYSTEM",
+        "actorId": "onegent-runtime",
+        "message": "Risk assessment completed.",
+        "metadata": {
+          "riskLevel": "HIGH",
+          "riskScore": 80
+        },
+        "createdAt": "2026-06-25T09:16:46.107Z"
+      }
+    },
+    {
+      "id": "audit_000005",
+      "kind": "audit_event",
+      "severity": "info",
+      "message": "Policy evaluation completed.",
+      "source": "onegent-runtime",
+      "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+      "metadata": {
+        "id": "audit_000005",
+        "actionIntentId": "act_000001",
+        "eventType": "POLICY_EVALUATED",
+        "actorType": "SYSTEM",
+        "actorId": "onegent-runtime",
+        "message": "Policy evaluation completed.",
+        "metadata": {
+          "effect": "REQUIRE_APPROVAL",
+          "triggeredPolicies": [
+            "po-over-1000-requires-approval"
+          ]
+        },
+        "createdAt": "2026-06-25T09:16:46.107Z"
+      }
+    },
+    {
+      "id": "audit_000007",
+      "kind": "audit_event",
+      "severity": "info",
+      "message": "Human approval requested.",
+      "source": "onegent-runtime",
+      "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+      "metadata": {
+        "id": "audit_000007",
+        "actionIntentId": "act_000001",
+        "eventType": "APPROVAL_REQUESTED",
+        "actorType": "SYSTEM",
+        "actorId": "onegent-runtime",
+        "message": "Human approval requested.",
+        "metadata": {
+          "assignedTo": "human-approver@example.local"
+        },
+        "createdAt": "2026-06-25T09:16:46.107Z"
+      }
+    },
+    {
+      "id": "audit_000008",
+      "kind": "audit_event",
+      "severity": "info",
+      "message": "Human approver approved the action.",
+      "source": "onegent-runtime",
+      "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+      "metadata": {
+        "id": "audit_000008",
+        "actionIntentId": "act_000001",
+        "eventType": "ACTION_APPROVED",
+        "actorType": "HUMAN",
+        "actorId": "procurement-manager@example.local",
+        "message": "Human approver approved the action.",
+        "metadata": {
+          "reviewerComment": "Approved for local mock ERP submission."
+        },
+        "createdAt": "2026-06-25T09:16:46.121Z"
+      }
+    },
+    {
+      "id": "audit_000009",
+      "kind": "audit_event",
+      "severity": "info",
+      "message": "Local mock execution started.",
+      "source": "onegent-runtime",
+      "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+      "metadata": {
+        "id": "audit_000009",
+        "actionIntentId": "act_000001",
+        "eventType": "MOCK_EXECUTION_STARTED",
+        "actorType": "SYSTEM",
+        "actorId": "onegent-runtime",
+        "message": "Local mock execution started.",
+        "metadata": {
+          "targetSystem": "MockERP"
+        },
+        "createdAt": "2026-06-25T09:16:46.121Z"
+      }
+    },
+    {
+      "id": "audit_000010",
+      "kind": "audit_event",
+      "severity": "info",
+      "message": "Local mock execution completed.",
+      "source": "onegent-runtime",
+      "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+      "metadata": {
+        "id": "audit_000010",
+        "actionIntentId": "act_000001",
+        "eventType": "MOCK_EXECUTION_COMPLETED",
+        "actorType": "SYSTEM",
+        "actorId": "onegent-runtime",
+        "message": "Local mock execution completed.",
+        "metadata": {
+          "method": "LOCAL_MOCK_ERP",
+          "observedState": {
+            "id": "PO-DEMO-4850",
+            "vendor": "Acme Industrial Supply",
+            "amount": 4850,
+            "currency": "USD",
+            "status": "SUBMITTED"
+          }
+        },
+        "createdAt": "2026-06-25T09:16:46.121Z"
+      }
+    },
+    {
+      "id": "audit_000012",
+      "kind": "audit_event",
+      "severity": "info",
+      "message": "Observed state matched expected state.",
+      "source": "onegent-runtime",
+      "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+      "metadata": {
+        "id": "audit_000012",
+        "actionIntentId": "act_000001",
+        "eventType": "VERIFICATION_PASSED",
+        "actorType": "SYSTEM",
+        "actorId": "onegent-runtime",
+        "message": "Observed state matched expected state.",
+        "metadata": {
+          "differences": []
+        },
+        "createdAt": "2026-06-25T09:16:46.121Z"
+      }
+    },
+    {
+      "id": "audit_000013",
+      "kind": "audit_event",
+      "severity": "info",
+      "message": "Audit packet generated for customer demo.",
+      "source": "onegent-runtime",
+      "artifactPath": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json",
+      "metadata": {
+        "id": "audit_000013",
+        "actionIntentId": "act_000001",
+        "eventType": "AUDIT_PACKET_GENERATED",
+        "actorType": "SYSTEM",
+        "actorId": "onegent-runtime",
+        "message": "Audit packet generated for customer demo.",
+        "createdAt": "2026-06-25T09:16:46.122Z"
+      }
     }
   ],
   "artifacts": {
-    "tripwire-ci.result": "packages/tripwire-ci/.tripwire/public-demo/tripwire-result.json",
-    "tripwire-ci.outDir": "C:\\Users\\Gzw19\\Documents\\MCP Bench\\packages\\tripwire-ci\\.tripwire\\public-demo"
+    "mcpbench.results": "public-demo/lifecycle-evidence/mcpbench-passing/results.json",
+    "mcpbench.events": "public-demo/lifecycle-evidence/mcpbench-passing/events.jsonl",
+    "mcpbench.report": "public-demo/lifecycle-evidence/mcpbench-passing/report.md",
+    "mcpbench.badge": "public-demo/lifecycle-evidence/mcpbench-passing/badge.svg",
+    "tripwire-ci.result": "public-demo/browser-agent-robustness/evidence/tripwire-public-demo/tripwire-result.json",
+    "tripwire-ci.outDir": "public-demo/browser-agent-robustness/evidence/tripwire-public-demo",
+    "onegent-runtime.auditPacket": "public-demo/lifecycle-evidence/onegent-procurement/audit-packet.json"
   },
   "standards": [
     {

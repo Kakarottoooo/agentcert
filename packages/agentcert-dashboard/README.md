@@ -31,9 +31,9 @@ The build output is written to:
 public-demo/agentcert-monitor/
 ```
 
-The checked-in public dashboard uses the checked-in browser-agent robustness
-corpus. For local accumulated runs, point `agentcert monitor build` at your own
-JSONL, SQLite, or Postgres corpus store.
+The checked-in public dashboard uses the checked-in lifecycle demo corpus:
+MCPBench, Tripwire CI, and Onegent Runtime. For local accumulated runs, point
+`agentcert monitor build` at your own JSONL, SQLite, or Postgres corpus store.
 
 When served through `agentcert serve`, the same React dashboard first calls
 `/api/monitor` and `/api/runs/:id`. That enables run-level artifact inspection

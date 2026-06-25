@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Procurement Action Gateway Walkthrough</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f8fa;
+        --panel: #ffffff;
+        --text: #172033;
+        --muted: #586174;
+        --border: #d8dde6;
+        --accent: #0f766e;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      main { width: min(1120px, calc(100% - 32px)); margin: 32px auto; }
+      .hero { margin-bottom: 24px; }
+      .eyebrow { color: var(--accent); font-size: 13px; font-weight: 700; letter-spacing: 0; text-transform: uppercase; }
+      h1 { margin: 8px 0 12px; font-size: clamp(32px, 5vw, 56px); line-height: 1; letter-spacing: 0; }
+      h2 { margin: 0 0 14px; font-size: 18px; }
+      p { max-width: 760px; color: var(--muted); line-height: 1.6; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 24px; }
+      article, section:not(.hero) {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 18px;
+      }
+      dl { display: grid; grid-template-columns: 130px 1fr; gap: 10px 14px; margin: 0; }
+      dt { color: var(--muted); }
+      dd { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
+      .timeline { margin: 0; padding-left: 20px; }
+      .timeline li { margin: 0 0 12px; }
+      .timeline span { display: block; color: var(--muted); margin-top: 2px; }
+    </style>
+  </head>
+  <body>
+      <main>
+        <section class="hero">
+          <p class="eyebrow">AgentCert Onegent Runtime</p>
+          <h1>Procurement approval boundary</h1>
+          <p>
+            ProcurementAgent wants to submit a $4,850.00
+            purchase order to Acme Industrial Supply. The gateway captures the intent,
+            requires human approval, performs local mock ERP execution, verifies state, and emits an audit packet.
+          </p>
+        </section>
+
+        <section class="grid">
+          <article>
+            <h2>Action</h2>
+            <dl>
+              <dt>Type</dt><dd>SUBMIT</dd>
+              <dt>Status</dt><dd>VERIFIED</dd>
+              <dt>Target</dt><dd>MockERP</dd>
+              <dt>Business object</dt><dd>PO-DEMO-4850</dd>
+            </dl>
+          </article>
+
+          <article>
+            <h2>Risk and policy</h2>
+            <dl>
+              <dt>Risk</dt><dd>HIGH (80)</dd>
+              <dt>Approval</dt><dd>APPROVED</dd>
+              <dt>Reason</dt><dd>Purchase orders over $1,000 require human approval.</dd>
+            </dl>
+          </article>
+
+          <article>
+            <h2>Mock ERP</h2>
+            <dl>
+              <dt>PO</dt><dd>PO-DEMO-4850</dd>
+              <dt>Vendor</dt><dd>Acme Industrial Supply</dd>
+              <dt>Status</dt><dd>SUBMITTED</dd>
+              <dt>Verification</dt><dd>passed</dd>
+            </dl>
+          </article>
+        </section>
+
+        <section>
+          <h2>Audit trail</h2>
+          <ol class="timeline">
+            
+                  <li>
+                    <strong>ACTION_CAPTURED</strong>
+                    <span>Action intent captured from agent.</span>
+                  </li>
+                
+                  <li>
+                    <strong>RISK_ASSESSED</strong>
+                    <span>Risk assessment completed.</span>
+                  </li>
+                
+                  <li>
+                    <strong>POLICY_EVALUATED</strong>
+                    <span>Policy evaluation completed.</span>
+                  </li>
+                
+                  <li>
+                    <strong>APPROVAL_REQUESTED</strong>
+                    <span>Human approval requested.</span>
+                  </li>
+                
+                  <li>
+                    <strong>ACTION_APPROVED</strong>
+                    <span>Human approver approved the action.</span>
+                  </li>
+                
+                  <li>
+                    <strong>MOCK_EXECUTION_STARTED</strong>
+                    <span>Local mock execution started.</span>
+                  </li>
+                
+                  <li>
+                    <strong>MOCK_EXECUTION_COMPLETED</strong>
+                    <span>Local mock execution completed.</span>
+                  </li>
+                
+                  <li>
+                    <strong>VERIFICATION_PASSED</strong>
+                    <span>Observed state matched expected state.</span>
+                  </li>
+                
+          </ol>
+        </section>
+      </main>
+    </body>
+</html>
