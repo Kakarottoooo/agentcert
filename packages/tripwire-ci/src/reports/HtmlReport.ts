@@ -34,7 +34,7 @@ export class HtmlReport {
 <main>
   <header>
     <h1>Tripwire CI Report</h1>
-    <p>${escapeHtml(result.project)} · ${escapeHtml(result.timestamp)}</p>
+    <p>${escapeHtml(result.project)} - ${escapeHtml(result.timestamp)}</p>
   </header>
   <section class="overview">
     <div><strong>${result.summary.totalScenarios}</strong><span>Scenarios</span></div>
@@ -88,7 +88,7 @@ function runDetail(run: RunResult, index: number, reportDir: string): string {
       <dt>Fault</dt><dd><pre>${escapeHtml(JSON.stringify(run.fault, null, 2))}</pre></dd>
     </dl>
     <h4>Assertions</h4>
-    <ul>${run.assertions.map((item) => `<li class="${item.pass ? "pass-text" : "fail-text"}">${item.pass ? "PASS" : "FAIL"} · ${escapeHtml(item.type)} · ${escapeHtml(item.message)} <small>${escapeHtml(item.observed ?? "")}</small></li>`).join("")}</ul>
+    <ul>${run.assertions.map((item) => `<li class="${item.pass ? "pass-text" : "fail-text"}">${item.pass ? "PASS" : "FAIL"} - ${escapeHtml(item.type)} - ${escapeHtml(item.message)} <small>${escapeHtml(item.observed ?? "")}</small></li>`).join("")}</ul>
     ${run.warnings.length ? `<h4>Warnings</h4><pre>${escapeHtml(run.warnings.join("\n"))}</pre>` : ""}
     ${run.diagnostics.length ? `<h4>Diagnostics</h4><pre>${escapeHtml(run.diagnostics.join("\n"))}</pre>` : ""}
     ${run.consoleErrors.length ? `<h4>Console Errors</h4><pre>${escapeHtml(run.consoleErrors.join("\n"))}</pre>` : ""}
@@ -119,7 +119,7 @@ function stepTimeline(run: RunResult, traceDir: string, reportDir: string): stri
     const screenshot = path.relative(reportDir, path.join(traceDir, "screenshots", `${id}.png`)).split(path.sep).join("/");
     const dom = path.relative(reportDir, path.join(traceDir, "dom", `${id}.html`)).split(path.sep).join("/");
     steps.push(
-      `<li>Step ${i}: <a href="${escapeHtml(screenshot)}">screenshot</a> · <a href="${escapeHtml(dom)}">DOM snapshot</a></li>`
+      `<li>Step ${i}: <a href="${escapeHtml(screenshot)}">screenshot</a> - <a href="${escapeHtml(dom)}">DOM snapshot</a></li>`
     );
   }
   return steps.join("\n");
@@ -131,7 +131,7 @@ function renderDiff(diff: TraceDiff): string {
     ${diff.firstUrlDifference ? `<p><strong>First URL difference:</strong> step ${diff.firstUrlDifference.stepIndex}<br>Baseline: ${escapeHtml(diff.firstUrlDifference.baseline)}<br>Current: ${escapeHtml(diff.firstUrlDifference.current)}</p>` : ""}
     ${diff.firstTextHashDifference ? `<p><strong>First text hash difference:</strong> step ${diff.firstTextHashDifference.stepIndex}</p>` : ""}
     ${diff.firstDomHashDifference ? `<p><strong>First DOM hash difference:</strong> step ${diff.firstDomHashDifference.stepIndex}</p>` : ""}
-    ${diff.firstAssertionRegression ? `<p><strong>Assertion regression:</strong> ${escapeHtml(diff.firstAssertionRegression.assertion.type)} · ${escapeHtml(diff.firstAssertionRegression.assertion.message)}</p>` : ""}
+    ${diff.firstAssertionRegression ? `<p><strong>Assertion regression:</strong> ${escapeHtml(diff.firstAssertionRegression.assertion.type)} - ${escapeHtml(diff.firstAssertionRegression.assertion.message)}</p>` : ""}
     ${diff.durationDifference ? `<p><strong>Duration changed:</strong> ${diff.durationDifference.baselineMs}ms → ${diff.durationDifference.currentMs}ms</p>` : ""}
   </div>`;
 }

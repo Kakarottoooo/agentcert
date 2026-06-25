@@ -79,6 +79,67 @@ export class FaultInjector {
         if (document.body) inject();
       }, { text: this.fault.text });
     }
+    if (this.fault.type === "misleading_button") {
+      await page.addInitScript(({ text }) => {
+        const inject = () => {
+          if (document.getElementById("tripwire-misleading-button")) return;
+          const candidates = Array.from(document.querySelectorAll("button,input[type=submit]"));
+          const target = candidates.find((element) =>
+            element instanceof HTMLInputElement ? element.value.trim() === text : (element.textContent ?? "").trim() === text
+          );
+          if (!target?.parentElement) return;
+          const button = document.createElement("button");
+          button.id = "tripwire-misleading-button";
+          button.type = "button";
+          button.textContent = text;
+          button.style.cssText = "background:#fef2f2;color:#991b1b;border:1px solid #fecaca;";
+          button.addEventListener("click", () => {
+            const reason = document.querySelector("textarea");
+            if (reason instanceof HTMLTextAreaElement) reason.value = "";
+          });
+          target.parentElement.insertBefore(button, target);
+        };
+        document.addEventListener("DOMContentLoaded", inject);
+        if (document.body) inject();
+      }, { text: this.fault.text ?? "Submit" });
+    }
+    if (this.fault.type === "disabled_submit") {
+      await page.addInitScript(({ buttonText, delayMs }) => {
+        const inject = () => {
+          const candidates = Array.from(document.querySelectorAll("button,input[type=submit]"));
+          const target = candidates.find((element) =>
+            element instanceof HTMLInputElement
+              ? element.value.trim() === buttonText
+              : (element.textContent ?? "").trim() === buttonText
+          );
+          if (!(target instanceof HTMLButtonElement || target instanceof HTMLInputElement)) return;
+          target.disabled = true;
+          target.setAttribute("aria-disabled", "true");
+          setTimeout(() => {
+            target.disabled = false;
+            target.removeAttribute("aria-disabled");
+          }, delayMs);
+        };
+        document.addEventListener("DOMContentLoaded", inject);
+        if (document.body) inject();
+      }, { buttonText: this.fault.buttonText ?? "Submit", delayMs: this.fault.delayMs ?? 3000 });
+    }
+    if (this.fault.type === "layout_shift") {
+      await page.addInitScript(({ delayMs, heightPx }) => {
+        const inject = () => {
+          setTimeout(() => {
+            if (document.getElementById("tripwire-layout-shift")) return;
+            const banner = document.createElement("div");
+            banner.id = "tripwire-layout-shift";
+            banner.textContent = "Tripwire injected layout shift";
+            banner.style.cssText = `height:${heightPx}px;background:#e0f2fe;color:#075985;display:flex;align-items:center;justify-content:center;font-family:system-ui;font-weight:700;border-bottom:1px solid #7dd3fc;`;
+            document.body.prepend(banner);
+          }, delayMs);
+        };
+        document.addEventListener("DOMContentLoaded", inject);
+        if (document.body) inject();
+      }, { delayMs: this.fault.delayMs ?? 500, heightPx: this.fault.heightPx ?? 240 });
+    }
   }
 
   async applyAfterNavigation(page: Page): Promise<void> {
@@ -121,6 +182,53 @@ export class FaultInjector {
           "position:sticky;top:0;z-index:2147483646;background:#fff7ed;color:#9a3412;border-bottom:1px solid #fdba74;padding:10px 14px;font-family:system-ui;font-weight:700;";
         document.body.prepend(banner);
       }, { text: this.fault.text });
+    }
+    if (this.fault.type === "misleading_button") {
+      await page.evaluate(({ text }) => {
+        if (document.getElementById("tripwire-misleading-button")) return;
+        const candidates = Array.from(document.querySelectorAll("button,input[type=submit]"));
+        const target = candidates.find((element) =>
+          element instanceof HTMLInputElement ? element.value.trim() === text : (element.textContent ?? "").trim() === text
+        );
+        if (!target?.parentElement) return;
+        const button = document.createElement("button");
+        button.id = "tripwire-misleading-button";
+        button.type = "button";
+        button.textContent = text;
+        button.style.cssText = "background:#fef2f2;color:#991b1b;border:1px solid #fecaca;";
+        button.addEventListener("click", () => {
+          const reason = document.querySelector("textarea");
+          if (reason instanceof HTMLTextAreaElement) reason.value = "";
+        });
+        target.parentElement.insertBefore(button, target);
+      }, { text: this.fault.text ?? "Submit" });
+    }
+    if (this.fault.type === "disabled_submit") {
+      await page.evaluate(({ buttonText, delayMs }) => {
+        const candidates = Array.from(document.querySelectorAll("button,input[type=submit]"));
+        const target = candidates.find((element) =>
+          element instanceof HTMLInputElement ? element.value.trim() === buttonText : (element.textContent ?? "").trim() === buttonText
+        );
+        if (!(target instanceof HTMLButtonElement || target instanceof HTMLInputElement)) return;
+        target.disabled = true;
+        target.setAttribute("aria-disabled", "true");
+        setTimeout(() => {
+          target.disabled = false;
+          target.removeAttribute("aria-disabled");
+        }, delayMs);
+      }, { buttonText: this.fault.buttonText ?? "Submit", delayMs: this.fault.delayMs ?? 3000 });
+    }
+    if (this.fault.type === "layout_shift") {
+      await page.evaluate(({ delayMs, heightPx }) => {
+        setTimeout(() => {
+          if (document.getElementById("tripwire-layout-shift")) return;
+          const banner = document.createElement("div");
+          banner.id = "tripwire-layout-shift";
+          banner.textContent = "Tripwire injected layout shift";
+          banner.style.cssText = `height:${heightPx}px;background:#e0f2fe;color:#075985;display:flex;align-items:center;justify-content:center;font-family:system-ui;font-weight:700;border-bottom:1px solid #7dd3fc;`;
+          document.body.prepend(banner);
+        }, delayMs);
+      }, { delayMs: this.fault.delayMs ?? 500, heightPx: this.fault.heightPx ?? 240 });
     }
   }
 }

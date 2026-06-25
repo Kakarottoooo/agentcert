@@ -102,6 +102,15 @@ Outputs:
 
 The unified bundle is the review artifact AgentCert is built around. It can include MCPBench results, Tripwire CI results, and Onegent Runtime audit packets.
 
+Build a local corpus from evidence artifacts:
+
+```powershell
+node packages/agentcert-cli/dist/cli.js corpus ingest --tripwire packages/tripwire-ci/.tripwire/public-demo/tripwire-result.json --out .agentcert/corpus/corpus.jsonl --subject demo-agent --replace
+node packages/agentcert-cli/dist/cli.js corpus summary --corpus .agentcert/corpus/corpus.jsonl
+```
+
+The corpus is JSONL on purpose: it is easy to diff, easy to commit for public demos, and can later be ingested into SQLite, Postgres, or object storage without changing the evidence format.
+
 ## Public Demo: Browser Agent Robustness
 
 Open the hosted demo:
@@ -118,11 +127,14 @@ It shows a deterministic Tripwire run across clean and adversarial browser scena
 
 - modal overlay;
 - button text drift;
+- misleading duplicate button;
+- temporarily disabled submit button;
+- layout shift;
 - prompt-injection banner;
 - slow network;
 - HTTP failure.
 
-The checked-in demo evidence includes Tripwire JSON, HTML report, screenshots, DOM snapshots, trace JSON, JUnit XML, and a unified AgentCert evidence bundle.
+The checked-in demo evidence includes Tripwire JSON, HTML report, screenshots, DOM snapshots, trace JSON, JUnit XML, corpus JSONL, and a unified AgentCert evidence bundle.
 
 Run the public fixture again:
 

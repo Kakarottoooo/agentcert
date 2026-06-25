@@ -34,7 +34,10 @@ export type FaultConfig =
   | { name: string; type: "slow_network"; delayMs?: number; match?: string; optional?: boolean }
   | { name: string; type: "http_failure"; status?: number; match?: string; optional?: boolean }
   | { name: string; type: "changed_button_text"; from: string; to: string; optional?: boolean }
-  | { name: string; type: "prompt_injection_banner"; text: string; optional?: boolean };
+  | { name: string; type: "prompt_injection_banner"; text: string; optional?: boolean }
+  | { name: string; type: "misleading_button"; text?: string; optional?: boolean }
+  | { name: string; type: "disabled_submit"; buttonText?: string; delayMs?: number; optional?: boolean }
+  | { name: string; type: "layout_shift"; delayMs?: number; heightPx?: number; optional?: boolean };
 
 export type ScenarioConfig = {
   name: string;

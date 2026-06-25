@@ -21,6 +21,12 @@ scenarios:
         type: changed_button_text
         from: Submit
         to: Continue
+      - name: misleading
+        type: misleading_button
+      - name: disabled
+        type: disabled_submit
+      - name: shift
+        type: layout_shift
 `,
       "utf8"
     );
@@ -28,6 +34,9 @@ scenarios:
     expect(config.scenarios[0].timeoutMs).toBe(60000);
     expect(config.scenarios[0].capture.screenshots).toBe(true);
     expect(config.scenarios[0].faults[0].type).toBe("changed_button_text");
+    expect(config.scenarios[0].faults[1]).toMatchObject({ type: "misleading_button", text: "Submit" });
+    expect(config.scenarios[0].faults[2]).toMatchObject({ type: "disabled_submit", buttonText: "Submit", delayMs: 3000 });
+    expect(config.scenarios[0].faults[3]).toMatchObject({ type: "layout_shift", delayMs: 500, heightPx: 240 });
   });
 
   it("gives readable invalid YAML errors", async () => {

@@ -8,8 +8,14 @@ artifacts from a local browser-agent robustness run:
 - `evidence/tripwire-public-demo/tripwire-result.json`
 - `evidence/tripwire-public-demo/tripwire-report.html`
 - screenshots, DOM snapshots, and trace JSON per fault
+- `evidence/agentcert-corpus.jsonl`
 - `evidence/agentcert-public-demo/agentcert-evidence.json`
 - `evidence/agentcert-public-demo/agentcert-report.md`
+
+Current fixture result: 4 of 9 runs passed. Failed scenarios include modal
+overlay, button text drift, misleading duplicate button, disabled submit, and
+HTTP failure. Passing scenarios include clean, layout shift, prompt-injection
+banner, and slow network.
 
 The real public-agent adapter for `browser-use` lives in:
 

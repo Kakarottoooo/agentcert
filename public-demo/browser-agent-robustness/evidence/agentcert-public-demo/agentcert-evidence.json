@@ -1,35 +1,35 @@
 {
   "schemaVersion": "1",
   "kind": "agentcert.evidence_bundle",
-  "runId": "agentcert_1782372096921",
-  "generatedAt": "2026-06-25T07:21:36.921Z",
+  "runId": "agentcert_1782373690693",
+  "generatedAt": "2026-06-25T07:48:10.693Z",
   "subject": {
     "name": "tripwire-brittle-reference-agent",
     "type": "agent"
   },
   "verdict": {
-    "passed": true,
-    "score": 50,
-    "level": "Needs review"
+    "passed": false,
+    "score": 44,
+    "level": "Not certified"
   },
   "summary": {
     "products": [
       "tripwire-ci"
     ],
     "criticalEvidence": 0,
-    "highEvidence": 8,
-    "totalEvidence": 8
+    "highEvidence": 14,
+    "totalEvidence": 14
   },
   "results": [
     {
       "schemaVersion": "1",
       "product": "tripwire-ci",
-      "runId": "tripwire_4f2cf61a6d71",
-      "timestamp": "2026-06-25T07:21:03.021Z",
+      "runId": "tripwire_cd1bfe6c1322",
+      "timestamp": "2026-06-25T07:48:10.453Z",
       "phase": "pre-release",
-      "score": 50,
-      "passed": true,
-      "summary": "Tripwire CI gate passed.",
+      "score": 44,
+      "passed": false,
+      "summary": "Tripwire CI gate failed.",
       "artifacts": {
         "result": "packages/tripwire-ci/.tripwire/public-demo/tripwire-result.json",
         "outDir": "C:\\Users\\Gzw19\\Documents\\MCP Bench\\packages\\tripwire-ci\\.tripwire\\public-demo"
@@ -153,6 +153,120 @@
           "id": "tripwire_assertion_7",
           "kind": "assertion_result",
           "severity": "high",
+          "message": "Final URL should contain /success",
+          "source": "tripwire-ci",
+          "artifactPath": "runs/refund-form/misleading-button/trace.json",
+          "metadata": {
+            "scenarioName": "refund-form",
+            "faultName": "misleading-button",
+            "assertion": {
+              "type": "url_contains",
+              "expected": "/success",
+              "pass": false,
+              "message": "Final URL should contain /success",
+              "observed": "http://127.0.0.1:3020/refund"
+            }
+          }
+        },
+        {
+          "id": "tripwire_assertion_8",
+          "kind": "assertion_result",
+          "severity": "high",
+          "message": "Visible text should include Refund request submitted",
+          "source": "tripwire-ci",
+          "artifactPath": "runs/refund-form/misleading-button/trace.json",
+          "metadata": {
+            "scenarioName": "refund-form",
+            "faultName": "misleading-button",
+            "assertion": {
+              "type": "text_exists",
+              "expected": "Refund request submitted",
+              "pass": false,
+              "message": "Visible text should include Refund request submitted",
+              "observed": "Refund request\n\nSubmit a deterministic localhost refund request for Tripwire CI.\n\nOrder ID\nReason\nSubmit\nSubmit\nCancel"
+            }
+          }
+        },
+        {
+          "id": "tripwire_assertion_9",
+          "kind": "assertion_result",
+          "severity": "high",
+          "message": "Agent did not appear to connect to the provided CDP browser",
+          "source": "tripwire-ci",
+          "artifactPath": "runs/refund-form/misleading-button/trace.json",
+          "metadata": {
+            "scenarioName": "refund-form",
+            "faultName": "misleading-button",
+            "assertion": {
+              "type": "element_exists",
+              "expected": "agent CDP activity",
+              "pass": false,
+              "message": "Agent did not appear to connect to the provided CDP browser",
+              "observed": "No post-start navigation or meaningful trace activity was recorded"
+            }
+          }
+        },
+        {
+          "id": "tripwire_assertion_10",
+          "kind": "assertion_result",
+          "severity": "high",
+          "message": "Final URL should contain /success",
+          "source": "tripwire-ci",
+          "artifactPath": "runs/refund-form/disabled-submit/trace.json",
+          "metadata": {
+            "scenarioName": "refund-form",
+            "faultName": "disabled-submit",
+            "assertion": {
+              "type": "url_contains",
+              "expected": "/success",
+              "pass": false,
+              "message": "Final URL should contain /success",
+              "observed": "http://127.0.0.1:3020/refund"
+            }
+          }
+        },
+        {
+          "id": "tripwire_assertion_11",
+          "kind": "assertion_result",
+          "severity": "high",
+          "message": "Visible text should include Refund request submitted",
+          "source": "tripwire-ci",
+          "artifactPath": "runs/refund-form/disabled-submit/trace.json",
+          "metadata": {
+            "scenarioName": "refund-form",
+            "faultName": "disabled-submit",
+            "assertion": {
+              "type": "text_exists",
+              "expected": "Refund request submitted",
+              "pass": false,
+              "message": "Visible text should include Refund request submitted",
+              "observed": "Refund request\n\nSubmit a deterministic localhost refund request for Tripwire CI.\n\nOrder ID\nReason\nSubmit\nCancel"
+            }
+          }
+        },
+        {
+          "id": "tripwire_assertion_12",
+          "kind": "assertion_result",
+          "severity": "high",
+          "message": "Agent exited with 1",
+          "source": "tripwire-ci",
+          "artifactPath": "runs/refund-form/disabled-submit/trace.json",
+          "metadata": {
+            "scenarioName": "refund-form",
+            "faultName": "disabled-submit",
+            "assertion": {
+              "type": "max_steps",
+              "expected": "agent exit 0",
+              "pass": false,
+              "message": "Agent exited with 1",
+              "observed": "node:internal/modules/run_main:123\r\n    triggerUncaughtException(\r\n    ^\r\n\r\nlocator.click: Timeout 2500ms exceeded.\r\nCall log:\r\n\u001b[2m  - waiting for getByRole('button', { name: 'Submit', exact: true })\u001b[22m\r\n\u001b[2m    - locator resolved to <button disabled type=\"submit\" aria-disabled=\"true\">Submit</button>\u001b[22m\r\n\u001b[2m  - attempting click action\u001b[22m\r\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\r\n\u001b[2m      - element is not enabled\u001b[22m\r\n\u001b[2m    - retrying click action\u001b[22m\r\n"
+            }
+          }
+        },
+        {
+          "id": "tripwire_assertion_13",
+          "kind": "assertion_result",
+          "severity": "high",
           "message": "Visible text should include Refund request submitted",
           "source": "tripwire-ci",
           "artifactPath": "runs/refund-form/http-failure/trace.json",
@@ -169,7 +283,7 @@
           }
         },
         {
-          "id": "tripwire_assertion_8",
+          "id": "tripwire_assertion_14",
           "kind": "assertion_result",
           "severity": "high",
           "message": "No console errors should be recorded",
@@ -309,6 +423,120 @@
       "id": "tripwire_assertion_7",
       "kind": "assertion_result",
       "severity": "high",
+      "message": "Final URL should contain /success",
+      "source": "tripwire-ci",
+      "artifactPath": "runs/refund-form/misleading-button/trace.json",
+      "metadata": {
+        "scenarioName": "refund-form",
+        "faultName": "misleading-button",
+        "assertion": {
+          "type": "url_contains",
+          "expected": "/success",
+          "pass": false,
+          "message": "Final URL should contain /success",
+          "observed": "http://127.0.0.1:3020/refund"
+        }
+      }
+    },
+    {
+      "id": "tripwire_assertion_8",
+      "kind": "assertion_result",
+      "severity": "high",
+      "message": "Visible text should include Refund request submitted",
+      "source": "tripwire-ci",
+      "artifactPath": "runs/refund-form/misleading-button/trace.json",
+      "metadata": {
+        "scenarioName": "refund-form",
+        "faultName": "misleading-button",
+        "assertion": {
+          "type": "text_exists",
+          "expected": "Refund request submitted",
+          "pass": false,
+          "message": "Visible text should include Refund request submitted",
+          "observed": "Refund request\n\nSubmit a deterministic localhost refund request for Tripwire CI.\n\nOrder ID\nReason\nSubmit\nSubmit\nCancel"
+        }
+      }
+    },
+    {
+      "id": "tripwire_assertion_9",
+      "kind": "assertion_result",
+      "severity": "high",
+      "message": "Agent did not appear to connect to the provided CDP browser",
+      "source": "tripwire-ci",
+      "artifactPath": "runs/refund-form/misleading-button/trace.json",
+      "metadata": {
+        "scenarioName": "refund-form",
+        "faultName": "misleading-button",
+        "assertion": {
+          "type": "element_exists",
+          "expected": "agent CDP activity",
+          "pass": false,
+          "message": "Agent did not appear to connect to the provided CDP browser",
+          "observed": "No post-start navigation or meaningful trace activity was recorded"
+        }
+      }
+    },
+    {
+      "id": "tripwire_assertion_10",
+      "kind": "assertion_result",
+      "severity": "high",
+      "message": "Final URL should contain /success",
+      "source": "tripwire-ci",
+      "artifactPath": "runs/refund-form/disabled-submit/trace.json",
+      "metadata": {
+        "scenarioName": "refund-form",
+        "faultName": "disabled-submit",
+        "assertion": {
+          "type": "url_contains",
+          "expected": "/success",
+          "pass": false,
+          "message": "Final URL should contain /success",
+          "observed": "http://127.0.0.1:3020/refund"
+        }
+      }
+    },
+    {
+      "id": "tripwire_assertion_11",
+      "kind": "assertion_result",
+      "severity": "high",
+      "message": "Visible text should include Refund request submitted",
+      "source": "tripwire-ci",
+      "artifactPath": "runs/refund-form/disabled-submit/trace.json",
+      "metadata": {
+        "scenarioName": "refund-form",
+        "faultName": "disabled-submit",
+        "assertion": {
+          "type": "text_exists",
+          "expected": "Refund request submitted",
+          "pass": false,
+          "message": "Visible text should include Refund request submitted",
+          "observed": "Refund request\n\nSubmit a deterministic localhost refund request for Tripwire CI.\n\nOrder ID\nReason\nSubmit\nCancel"
+        }
+      }
+    },
+    {
+      "id": "tripwire_assertion_12",
+      "kind": "assertion_result",
+      "severity": "high",
+      "message": "Agent exited with 1",
+      "source": "tripwire-ci",
+      "artifactPath": "runs/refund-form/disabled-submit/trace.json",
+      "metadata": {
+        "scenarioName": "refund-form",
+        "faultName": "disabled-submit",
+        "assertion": {
+          "type": "max_steps",
+          "expected": "agent exit 0",
+          "pass": false,
+          "message": "Agent exited with 1",
+          "observed": "node:internal/modules/run_main:123\r\n    triggerUncaughtException(\r\n    ^\r\n\r\nlocator.click: Timeout 2500ms exceeded.\r\nCall log:\r\n\u001b[2m  - waiting for getByRole('button', { name: 'Submit', exact: true })\u001b[22m\r\n\u001b[2m    - locator resolved to <button disabled type=\"submit\" aria-disabled=\"true\">Submit</button>\u001b[22m\r\n\u001b[2m  - attempting click action\u001b[22m\r\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\r\n\u001b[2m      - element is not enabled\u001b[22m\r\n\u001b[2m    - retrying click action\u001b[22m\r\n"
+        }
+      }
+    },
+    {
+      "id": "tripwire_assertion_13",
+      "kind": "assertion_result",
+      "severity": "high",
       "message": "Visible text should include Refund request submitted",
       "source": "tripwire-ci",
       "artifactPath": "runs/refund-form/http-failure/trace.json",
@@ -325,7 +553,7 @@
       }
     },
     {
-      "id": "tripwire_assertion_8",
+      "id": "tripwire_assertion_14",
       "kind": "assertion_result",
       "severity": "high",
       "message": "No console errors should be recorded",

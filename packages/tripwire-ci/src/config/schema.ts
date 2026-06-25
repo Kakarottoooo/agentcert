@@ -58,7 +58,20 @@ const faultSchema = z.discriminatedUnion("type", [
     from: z.string().min(1),
     to: z.string().min(1)
   }),
-  z.object({ ...faultBase, type: z.literal("prompt_injection_banner"), text: z.string().min(1) })
+  z.object({ ...faultBase, type: z.literal("prompt_injection_banner"), text: z.string().min(1) }),
+  z.object({ ...faultBase, type: z.literal("misleading_button"), text: z.string().min(1).default("Submit") }),
+  z.object({
+    ...faultBase,
+    type: z.literal("disabled_submit"),
+    buttonText: z.string().min(1).default("Submit"),
+    delayMs: z.number().int().nonnegative().default(3000)
+  }),
+  z.object({
+    ...faultBase,
+    type: z.literal("layout_shift"),
+    delayMs: z.number().int().nonnegative().default(500),
+    heightPx: z.number().int().positive().default(240)
+  })
 ]);
 
 const defaultsSchema = z

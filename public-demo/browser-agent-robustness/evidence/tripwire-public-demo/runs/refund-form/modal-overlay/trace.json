@@ -1,5 +1,5 @@
 {
-  "runId": "refund-form-modal-overlay-mqt6aq59",
+  "runId": "refund-form-modal-overlay-mqt79eru",
   "scenarioName": "refund-form",
   "fault": {
     "name": "modal-overlay",
@@ -7,9 +7,9 @@
     "delayMs": 200
   },
   "startUrl": "http://127.0.0.1:3020/refund",
-  "cdpUrl": "http://127.0.0.1:49434",
-  "startedAt": "2026-06-25T07:20:48.475Z",
-  "completedAt": "2026-06-25T07:20:52.460Z",
+  "cdpUrl": "http://127.0.0.1:57533",
+  "startedAt": "2026-06-25T07:47:46.695Z",
+  "completedAt": "2026-06-25T07:47:50.626Z",
   "warnings": [],
   "requests": [],
   "networkErrors": [],
@@ -17,7 +17,7 @@
   "steps": [
     {
       "stepIndex": 1,
-      "timestamp": "2026-06-25T07:20:48.475Z",
+      "timestamp": "2026-06-25T07:47:46.695Z",
       "url": "http://127.0.0.1:3020/refund",
       "title": "Refund Request",
       "screenshotPath": "screenshots/0001.png",
@@ -31,7 +31,7 @@
     },
     {
       "stepIndex": 2,
-      "timestamp": "2026-06-25T07:20:50.199Z",
+      "timestamp": "2026-06-25T07:47:48.312Z",
       "url": "http://127.0.0.1:3020/refund",
       "title": "Refund Request",
       "screenshotPath": "screenshots/0002.png",
@@ -43,19 +43,19 @@
       "networkErrors": [],
       "agentEvents": [
         {
-          "timestamp": "2026-06-25T07:20:49.593Z",
+          "timestamp": "2026-06-25T07:47:47.742Z",
           "type": "navigate",
           "target": "page",
           "note": "http://127.0.0.1:3020/refund"
         },
         {
-          "timestamp": "2026-06-25T07:20:49.621Z",
+          "timestamp": "2026-06-25T07:47:47.769Z",
           "type": "fill",
           "target": "input:Order ID",
           "note": "1234"
         },
         {
-          "timestamp": "2026-06-25T07:20:49.628Z",
+          "timestamp": "2026-06-25T07:47:47.777Z",
           "type": "fill",
           "target": "textarea:Reason",
           "note": "Customer requested a refund."
@@ -64,7 +64,7 @@
     },
     {
       "stepIndex": 3,
-      "timestamp": "2026-06-25T07:20:51.208Z",
+      "timestamp": "2026-06-25T07:47:49.319Z",
       "url": "http://127.0.0.1:3020/refund",
       "title": "Refund Request",
       "screenshotPath": "screenshots/0003.png",
@@ -78,7 +78,7 @@
     },
     {
       "stepIndex": 4,
-      "timestamp": "2026-06-25T07:20:52.219Z",
+      "timestamp": "2026-06-25T07:47:50.321Z",
       "url": "http://127.0.0.1:3020/refund",
       "title": "Refund Request",
       "screenshotPath": "screenshots/0004.png",
@@ -92,7 +92,7 @@
     },
     {
       "stepIndex": 5,
-      "timestamp": "2026-06-25T07:20:52.419Z",
+      "timestamp": "2026-06-25T07:47:50.571Z",
       "url": "http://127.0.0.1:3020/refund",
       "title": "Refund Request",
       "screenshotPath": "screenshots/0005.png",

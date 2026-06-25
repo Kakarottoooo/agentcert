@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.dev/schemas/agentcert-corpus-record.schema.json",
+  "title": "AgentCertCorpusRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "id",
+    "ingestedAt",
+    "subject",
+    "product",
+    "phase",
+    "runId",
+    "timestamp",
+    "score",
+    "passed",
+    "evidenceCount",
+    "highOrCriticalEvidenceCount",
+    "failurePatterns",
+    "artifacts",
+    "sourcePath"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1"
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["product_run", "scenario_run"]
+    },
+    "id": {
+      "type": "string"
+    },
+    "ingestedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "subject": {
+      "type": "string"
+    },
+    "product": {
+      "type": "string",
+      "enum": ["mcpbench", "tripwire-ci", "onegent-runtime", "agentcert-cli"]
+    },
+    "phase": {
+      "type": "string",
+      "enum": ["pre-release", "runtime"]
+    },
+    "runId": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "passed": {
+      "type": "boolean"
+    },
+    "scenarioName": {
+      "type": "string"
+    },
+    "faultName": {
+      "type": "string"
+    },
+    "durationMs": {
+      "type": "number",
+      "minimum": 0
+    },
+    "stepCount": {
+      "type": "number",
+      "minimum": 0
+    },
+    "evidenceCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "highOrCriticalEvidenceCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "failurePatterns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "severity", "message"],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low", "info"]
+          },
+          "message": {
+            "type": "string"
+          },
+          "scenarioName": {
+            "type": "string"
+          },
+          "faultName": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "sourcePath": {
+      "type": "string"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

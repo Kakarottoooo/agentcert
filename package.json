@@ -19,6 +19,8 @@
     "agentcert:test": "npm --prefix packages/agentcert-cli test",
     "agentcert:init": "npm --prefix packages/agentcert-cli run build && node packages/agentcert-cli/dist/cli.js init",
     "agentcert:report": "npm --prefix packages/agentcert-cli run build && node packages/agentcert-cli/dist/cli.js report --mcpbench examples/reports/passing/results.json --out .agentcert/latest --subject demo-agent",
+    "agentcert:corpus-demo": "node packages/agentcert-cli/dist/cli.js corpus ingest --tripwire packages/tripwire-ci/.tripwire/public-demo/tripwire-result.json --out .agentcert/corpus/corpus.jsonl --subject tripwire-brittle-reference-agent --replace",
+    "agentcert:corpus-summary": "node packages/agentcert-cli/dist/cli.js corpus summary --corpus .agentcert/corpus/corpus.jsonl",
     "check": "npm run tripwire:build && npm run tripwire:test && npm run onegent:build && npm run onegent:test && npm run agentcert:build && npm run agentcert:test"
   },
   "engines": {

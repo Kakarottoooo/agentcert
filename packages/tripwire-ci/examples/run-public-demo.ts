@@ -10,7 +10,6 @@ try {
   const config = await loadConfig(path.resolve("examples/tripwire-public-demo.yml"));
   const result = await new TripwireRunner(config).run({
     outDir: ".tripwire/public-demo",
-    failUnder: 0,
   });
   const reportPath = path.resolve(".tripwire/public-demo/tripwire-report.html");
   console.log(

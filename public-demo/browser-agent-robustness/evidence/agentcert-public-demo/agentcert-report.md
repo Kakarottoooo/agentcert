@@ -1,21 +1,27 @@
 # AgentCert Evidence Report
 
 Subject: tripwire-brittle-reference-agent
-Generated: 2026-06-25T07:21:36.921Z
-Verdict: PASS
-Score: 50
-Level: Needs review
+Generated: 2026-06-25T07:48:10.693Z
+Verdict: FAIL
+Score: 44
+Level: Not certified
 
 ## Results
 
-- tripwire-ci: PASS (50/100, pre-release)
-  Tripwire CI gate passed.
+- tripwire-ci: FAIL (44/100, pre-release)
+  Tripwire CI gate failed.
 
 ## Evidence
 
 - [high] assertion_result: Final URL should contain /success
 - [high] assertion_result: Visible text should include Refund request submitted
 - [high] assertion_result: Agent exited with 1
+- [high] assertion_result: Final URL should contain /success
+- [high] assertion_result: Visible text should include Refund request submitted
+- [high] assertion_result: Agent exited with 1
+- [high] assertion_result: Final URL should contain /success
+- [high] assertion_result: Visible text should include Refund request submitted
+- [high] assertion_result: Agent did not appear to connect to the provided CDP browser
 - [high] assertion_result: Final URL should contain /success
 - [high] assertion_result: Visible text should include Refund request submitted
 - [high] assertion_result: Agent exited with 1

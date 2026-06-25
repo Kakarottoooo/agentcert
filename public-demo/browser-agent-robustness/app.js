@@ -27,6 +27,48 @@ const runs = {
       ["00:00:04", "Assertions failed", "fail"],
     ],
   },
+  "misleading-button": {
+    title: "Misleading button",
+    summary: "Tripwire inserted a second visible Submit button. The agent reported completion, but the observed page stayed on the form with two matching actions.",
+    status: "failed",
+    duration: "2 steps",
+    base: "evidence/tripwire-public-demo/runs/refund-form/misleading-button",
+    shots: ["0001.png", "0002.png"],
+    timeline: [
+      ["00:00:00", "Run started", "info"],
+      ["00:00:01", "Duplicate Submit button injected", "fail"],
+      ["00:00:02", "Agent reported completion", "info"],
+      ["00:00:02", "Observed page stayed on form", "fail"],
+      ["00:00:02", "Assertions failed", "fail"],
+    ],
+  },
+  "disabled-submit": {
+    title: "Disabled submit",
+    summary: "The real Submit button was disabled during the agent's click window, then re-enabled after the brittle agent had already failed.",
+    status: "failed",
+    duration: "5 steps",
+    base: "evidence/tripwire-public-demo/runs/refund-form/disabled-submit",
+    shots: ["0001.png", "0002.png", "0003.png", "0004.png", "0005.png"],
+    timeline: [
+      ["00:00:00", "Run started", "info"],
+      ["00:00:01", "Submit temporarily disabled", "fail"],
+      ["00:00:03", "Agent click timed out", "fail"],
+      ["00:00:04", "Assertions failed", "fail"],
+    ],
+  },
+  "layout-shift": {
+    title: "Layout shift",
+    summary: "Tripwire inserted a late banner that moved the form. The locator-based reference agent still completed successfully.",
+    status: "passed",
+    duration: "2 steps",
+    base: "evidence/tripwire-public-demo/runs/refund-form/layout-shift",
+    shots: ["0001.png", "0002.png"],
+    timeline: [
+      ["00:00:00", "Run started", "info"],
+      ["00:00:01", "Layout shift injected", "info"],
+      ["00:00:02", "Success route reached", "pass"],
+    ],
+  },
   "http-failure": {
     title: "HTTP failure",
     summary: "The agent clicked Submit, but Tripwire injected a 503 on the success route.",
@@ -112,7 +154,7 @@ function selectRun(key) {
           <a href="./${run.base}/screenshots/${shot}">
             <img src="./${run.base}/screenshots/${shot}" alt="${run.title} screenshot step ${index + 1}">
           </a>
-          <figcaption>Step ${index + 1} · ${run.duration}</figcaption>
+          <figcaption>Step ${index + 1} of ${run.duration}</figcaption>
         </figure>
       `,
     )
@@ -122,7 +164,7 @@ function selectRun(key) {
     .map(
       ([time, label, state]) => `
         <li>
-          <span class="mark ${state}">${state === "pass" ? "✓" : state === "fail" ? "×" : "i"}</span>
+          <span class="mark ${state}">${state === "pass" ? "OK" : state === "fail" ? "!" : "i"}</span>
           <time>${time}</time>
           <span>${label}</span>
           <em class="${state}">${state}</em>
