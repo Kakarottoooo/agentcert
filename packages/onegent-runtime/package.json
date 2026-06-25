@@ -1,0 +1,26 @@
+{
+  "name": "@agentcert/onegent-runtime",
+  "version": "0.1.0",
+  "description": "Local Action Gateway MVP for policy, approval, verification, and audit demos.",
+  "type": "module",
+  "bin": {
+    "onegent-runtime": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "test": "vitest run tests",
+    "demo:procurement": "node dist/cli.js procurement-demo --out .onegent/procurement",
+    "serve": "node dist/cli.js serve --port 3310"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.13"
+  },
+  "dependencies": {
+    "agentcert": "file:../.."
+  }
+}

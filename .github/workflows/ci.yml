@@ -41,3 +41,19 @@ jobs:
         run: npm --prefix packages/tripwire-ci run build
       - name: Test Tripwire unit suite
         run: npm --prefix packages/tripwire-ci test
+
+  onegent-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: packages/onegent-runtime/package-lock.json
+      - name: Install Onegent Runtime dependencies
+        run: npm --prefix packages/onegent-runtime ci
+      - name: Build Onegent Runtime
+        run: npm --prefix packages/onegent-runtime run build
+      - name: Test Onegent Runtime
+        run: npm --prefix packages/onegent-runtime test

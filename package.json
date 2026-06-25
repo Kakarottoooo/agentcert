@@ -8,10 +8,14 @@
     "tripwire:build": "npm --prefix packages/tripwire-ci run build",
     "tripwire:test": "npm --prefix packages/tripwire-ci test",
     "tripwire:e2e": "npm --prefix packages/tripwire-ci run test:e2e",
-    "check": "npm run tripwire:build && npm run tripwire:test"
+    "onegent:install": "npm --prefix packages/onegent-runtime ci",
+    "onegent:build": "npm --prefix packages/onegent-runtime run build",
+    "onegent:test": "npm --prefix packages/onegent-runtime test",
+    "onegent:demo": "npm --prefix packages/onegent-runtime run demo:procurement",
+    "onegent:serve": "npm --prefix packages/onegent-runtime run serve",
+    "check": "npm run tripwire:build && npm run tripwire:test && npm run onegent:build && npm run onegent:test"
   },
   "engines": {
     "node": ">=20"
   }
 }
-
