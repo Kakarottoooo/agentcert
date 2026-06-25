@@ -1,0 +1,85 @@
+{
+  "runId": "refund-form-http-failure-mqt6b082",
+  "scenarioName": "refund-form",
+  "fault": {
+    "name": "http-failure",
+    "type": "http_failure",
+    "status": 503,
+    "match": "**/success"
+  },
+  "startUrl": "http://127.0.0.1:3020/refund",
+  "cdpUrl": "http://127.0.0.1:55526",
+  "startedAt": "2026-06-25T07:21:01.511Z",
+  "completedAt": "2026-06-25T07:21:03.011Z",
+  "warnings": [],
+  "requests": [
+    "http://127.0.0.1:3020/success"
+  ],
+  "networkErrors": [],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+  ],
+  "steps": [
+    {
+      "stepIndex": 1,
+      "timestamp": "2026-06-25T07:21:01.511Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0001.png",
+      "domSnapshotPath": "dom/0001.html",
+      "domHash": "74ceec0f7b65c8e5f01ab5510fa20ec9fb79c5eeefee9f6fee30753760ec7f03",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 2,
+      "timestamp": "2026-06-25T07:21:02.960Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "",
+      "screenshotPath": "screenshots/0002.png",
+      "domSnapshotPath": "dom/0002.html",
+      "domHash": "851a962a6cca93cc6d3732bc2bc55466e3b1a4241f42965315dab7af5a0d9069",
+      "textHash": "364a6e5385f10edbc96a355345bf0f2b40bb75e0385feeae39574a36ae36cb11",
+      "visibleTextSample": "Tripwire injected HTTP failure",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "networkErrors": [],
+      "agentEvents": [
+        {
+          "timestamp": "2026-06-25T07:21:02.616Z",
+          "type": "navigate",
+          "target": "page",
+          "note": "http://127.0.0.1:3020/refund"
+        },
+        {
+          "timestamp": "2026-06-25T07:21:02.642Z",
+          "type": "fill",
+          "target": "input:Order ID",
+          "note": "1234"
+        },
+        {
+          "timestamp": "2026-06-25T07:21:02.649Z",
+          "type": "fill",
+          "target": "textarea:Reason",
+          "note": "Customer requested a refund."
+        },
+        {
+          "timestamp": "2026-06-25T07:21:02.694Z",
+          "type": "click",
+          "target": "button:Submit",
+          "note": "Clicked exact Submit button."
+        },
+        {
+          "timestamp": "2026-06-25T07:21:02.696Z",
+          "type": "complete",
+          "target": "url",
+          "note": "http://127.0.0.1:3020/success"
+        }
+      ]
+    }
+  ]
+}

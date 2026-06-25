@@ -100,6 +100,39 @@ Outputs:
 
 The unified bundle is the review artifact AgentCert is built around. It can include MCPBench results, Tripwire CI results, and Onegent Runtime audit packets.
 
+## Public Demo: Browser Agent Robustness
+
+Open the static demo:
+
+```text
+public-demo/browser-agent-robustness/index.html
+```
+
+It shows a deterministic Tripwire run across clean and adversarial browser scenarios:
+
+- modal overlay;
+- button text drift;
+- prompt-injection banner;
+- slow network;
+- HTTP failure.
+
+The checked-in demo evidence includes Tripwire JSON, HTML report, screenshots, DOM snapshots, trace JSON, JUnit XML, and a unified AgentCert evidence bundle.
+
+Run the public fixture again:
+
+```powershell
+npm --prefix packages/tripwire-ci run build
+npm run tripwire:demo-public
+```
+
+The real public-agent adapter for `browser-use` is in:
+
+```text
+examples/real-agents/browser-use/
+```
+
+It reads model credentials from the shell, such as `OPENAI_API_KEY`, and does not store secrets in the repository.
+
 ## Quickstart: Tripwire CI
 
 Tripwire CI launches a controlled Chromium browser, exposes a CDP endpoint to the agent, injects faults, records screenshots/DOM/trace artifacts, grades deterministic assertions, and exits non-zero when the gate fails.

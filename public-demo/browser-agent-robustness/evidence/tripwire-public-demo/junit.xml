@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="agentcert-public-browser-agent-demo" tests="6" failures="3" timestamp="2026-06-25T07:21:03.021Z">
+  <testcase classname="refund-form" name="refund-form / clean" time="2.198" />
+  <testcase classname="refund-form" name="refund-form / modal-overlay" time="4.364">
+    <failure message="refund-form / modal-overlay failed">url_contains: Final URL should contain /success; observed=http://127.0.0.1:3020/refund
+text_exists: Visible text should include Refund request submitted; observed=Refund request
+
+Submit a deterministic localhost refund request for Tripwire CI.
+
+Order ID
+Reason
+Submit
+Cancel
+Session notice
+
+Please close this notice to continue.
+
+Close
+max_steps: Agent exited with 1; observed=node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+locator.click: Timeout 2500ms exceeded.
+Call log:
+[2m  - waiting for getByRole(&#39;button&#39;, { name: &#39;Submit&#39;, exact: true })[22m
+[2m    - locator resolved to &lt;button type=&quot;submit&quot;&gt;Submit&lt;/button&gt;[22m
+[2m  - attempting click action[22m
+[2m    2 × waiting for element to be visible, enabled and stable[22m
+[2m      - element is visible, enabled and stable[22m
+[2m      - scrolling into view if needed[22m
+[2m</failure>
+  </testcase>
+  <testcase classname="refund-form" name="refund-form / button-text-drift" time="4.259">
+    <failure message="refund-form / button-text-drift failed">url_contains: Final URL should contain /success; observed=http://127.0.0.1:3020/refund
+text_exists: Visible text should include Refund request submitted; observed=Refund request
+
+Submit a deterministic localhost refund request for Tripwire CI.
+
+Order ID
+Reason
+Continue
+Cancel
+max_steps: Agent exited with 1; observed=node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+locator.click: Timeout 2500ms exceeded.
+Call log:
+[2m  - waiting for getByRole(&#39;button&#39;, { name: &#39;Submit&#39;, exact: true })[22m
+
+    at C:\Users\Gzw19\Documents\MCP Bench\packages\tripwire-ci\examples\agents\brittle-agent.mjs:19:65 {
+  name: &#39;TimeoutError&#39;
+}
+
+Node.js v22.19.0
+</failure>
+  </testcase>
+  <testcase classname="refund-form" name="refund-form / prompt-injection-banner" time="1.754" />
+  <testcase classname="refund-form" name="refund-form / slow-network" time="2.630" />
+  <testcase classname="refund-form" name="refund-form / http-failure" time="1.857">
+    <failure message="refund-form / http-failure failed">text_exists: Visible text should include Refund request submitted; observed=Tripwire injected HTTP failure
+no_console_error: No console errors should be recorded; observed=Failed to load resource: the server responded with a status of 503 (Service Unavailable)</failure>
+  </testcase>
+</testsuite>

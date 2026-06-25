@@ -1,0 +1,108 @@
+{
+  "runId": "refund-form-modal-overlay-mqt6aq59",
+  "scenarioName": "refund-form",
+  "fault": {
+    "name": "modal-overlay",
+    "type": "modal_overlay",
+    "delayMs": 200
+  },
+  "startUrl": "http://127.0.0.1:3020/refund",
+  "cdpUrl": "http://127.0.0.1:49434",
+  "startedAt": "2026-06-25T07:20:48.475Z",
+  "completedAt": "2026-06-25T07:20:52.460Z",
+  "warnings": [],
+  "requests": [],
+  "networkErrors": [],
+  "consoleErrors": [],
+  "steps": [
+    {
+      "stepIndex": 1,
+      "timestamp": "2026-06-25T07:20:48.475Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0001.png",
+      "domSnapshotPath": "dom/0001.html",
+      "domHash": "74ceec0f7b65c8e5f01ab5510fa20ec9fb79c5eeefee9f6fee30753760ec7f03",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 2,
+      "timestamp": "2026-06-25T07:20:50.199Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0002.png",
+      "domSnapshotPath": "dom/0002.html",
+      "domHash": "16e34b0b79ab5c360f02ea5accbc8bb85d7bcfd122ec2dcf6206fed6bf8f82a4",
+      "textHash": "1057185e1c1a2d61cbe7ddd5bc3d52f1faa2a0da3e2a1c036a1d0f122d23a133",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel Session notice Please close this notice to continue. Close",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": [
+        {
+          "timestamp": "2026-06-25T07:20:49.593Z",
+          "type": "navigate",
+          "target": "page",
+          "note": "http://127.0.0.1:3020/refund"
+        },
+        {
+          "timestamp": "2026-06-25T07:20:49.621Z",
+          "type": "fill",
+          "target": "input:Order ID",
+          "note": "1234"
+        },
+        {
+          "timestamp": "2026-06-25T07:20:49.628Z",
+          "type": "fill",
+          "target": "textarea:Reason",
+          "note": "Customer requested a refund."
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "timestamp": "2026-06-25T07:20:51.208Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0003.png",
+      "domSnapshotPath": "dom/0003.html",
+      "domHash": "16e34b0b79ab5c360f02ea5accbc8bb85d7bcfd122ec2dcf6206fed6bf8f82a4",
+      "textHash": "1057185e1c1a2d61cbe7ddd5bc3d52f1faa2a0da3e2a1c036a1d0f122d23a133",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel Session notice Please close this notice to continue. Close",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 4,
+      "timestamp": "2026-06-25T07:20:52.219Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0004.png",
+      "domSnapshotPath": "dom/0004.html",
+      "domHash": "16e34b0b79ab5c360f02ea5accbc8bb85d7bcfd122ec2dcf6206fed6bf8f82a4",
+      "textHash": "1057185e1c1a2d61cbe7ddd5bc3d52f1faa2a0da3e2a1c036a1d0f122d23a133",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel Session notice Please close this notice to continue. Close",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 5,
+      "timestamp": "2026-06-25T07:20:52.419Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0005.png",
+      "domSnapshotPath": "dom/0005.html",
+      "domHash": "16e34b0b79ab5c360f02ea5accbc8bb85d7bcfd122ec2dcf6206fed6bf8f82a4",
+      "textHash": "1057185e1c1a2d61cbe7ddd5bc3d52f1faa2a0da3e2a1c036a1d0f122d23a133",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel Session notice Please close this notice to continue. Close",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    }
+  ]
+}

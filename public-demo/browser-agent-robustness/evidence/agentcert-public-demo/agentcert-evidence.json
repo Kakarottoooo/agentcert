@@ -1,0 +1,371 @@
+{
+  "schemaVersion": "1",
+  "kind": "agentcert.evidence_bundle",
+  "runId": "agentcert_1782372096921",
+  "generatedAt": "2026-06-25T07:21:36.921Z",
+  "subject": {
+    "name": "tripwire-brittle-reference-agent",
+    "type": "agent"
+  },
+  "verdict": {
+    "passed": true,
+    "score": 50,
+    "level": "Needs review"
+  },
+  "summary": {
+    "products": [
+      "tripwire-ci"
+    ],
+    "criticalEvidence": 0,
+    "highEvidence": 8,
+    "totalEvidence": 8
+  },
+  "results": [
+    {
+      "schemaVersion": "1",
+      "product": "tripwire-ci",
+      "runId": "tripwire_4f2cf61a6d71",
+      "timestamp": "2026-06-25T07:21:03.021Z",
+      "phase": "pre-release",
+      "score": 50,
+      "passed": true,
+      "summary": "Tripwire CI gate passed.",
+      "artifacts": {
+        "result": "packages/tripwire-ci/.tripwire/public-demo/tripwire-result.json",
+        "outDir": "C:\\Users\\Gzw19\\Documents\\MCP Bench\\packages\\tripwire-ci\\.tripwire\\public-demo"
+      },
+      "evidence": [
+        {
+          "id": "tripwire_assertion_1",
+          "kind": "assertion_result",
+          "severity": "high",
+          "message": "Final URL should contain /success",
+          "source": "tripwire-ci",
+          "artifactPath": "runs/refund-form/modal-overlay/trace.json",
+          "metadata": {
+            "scenarioName": "refund-form",
+            "faultName": "modal-overlay",
+            "assertion": {
+              "type": "url_contains",
+              "expected": "/success",
+              "pass": false,
+              "message": "Final URL should contain /success",
+              "observed": "http://127.0.0.1:3020/refund"
+            }
+          }
+        },
+        {
+          "id": "tripwire_assertion_2",
+          "kind": "assertion_result",
+          "severity": "high",
+          "message": "Visible text should include Refund request submitted",
+          "source": "tripwire-ci",
+          "artifactPath": "runs/refund-form/modal-overlay/trace.json",
+          "metadata": {
+            "scenarioName": "refund-form",
+            "faultName": "modal-overlay",
+            "assertion": {
+              "type": "text_exists",
+              "expected": "Refund request submitted",
+              "pass": false,
+              "message": "Visible text should include Refund request submitted",
+              "observed": "Refund request\n\nSubmit a deterministic localhost refund request for Tripwire CI.\n\nOrder ID\nReason\nSubmit\nCancel\nSession notice\n\nPlease close this notice to continue.\n\nClose"
+            }
+          }
+        },
+        {
+          "id": "tripwire_assertion_3",
+          "kind": "assertion_result",
+          "severity": "high",
+          "message": "Agent exited with 1",
+          "source": "tripwire-ci",
+          "artifactPath": "runs/refund-form/modal-overlay/trace.json",
+          "metadata": {
+            "scenarioName": "refund-form",
+            "faultName": "modal-overlay",
+            "assertion": {
+              "type": "max_steps",
+              "expected": "agent exit 0",
+              "pass": false,
+              "message": "Agent exited with 1",
+              "observed": "node:internal/modules/run_main:123\r\n    triggerUncaughtException(\r\n    ^\r\n\r\nlocator.click: Timeout 2500ms exceeded.\r\nCall log:\r\n\u001b[2m  - waiting for getByRole('button', { name: 'Submit', exact: true })\u001b[22m\r\n\u001b[2m    - locator resolved to <button type=\"submit\">Submit</button>\u001b[22m\r\n\u001b[2m  - attempting click action\u001b[22m\r\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\r\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\r\n\u001b[2m      - scrolling into view if needed\u001b[22m\r\n\u001b[2m"
+            }
+          }
+        },
+        {
+          "id": "tripwire_assertion_4",
+          "kind": "assertion_result",
+          "severity": "high",
+          "message": "Final URL should contain /success",
+          "source": "tripwire-ci",
+          "artifactPath": "runs/refund-form/button-text-drift/trace.json",
+          "metadata": {
+            "scenarioName": "refund-form",
+            "faultName": "button-text-drift",
+            "assertion": {
+              "type": "url_contains",
+              "expected": "/success",
+              "pass": false,
+              "message": "Final URL should contain /success",
+              "observed": "http://127.0.0.1:3020/refund"
+            }
+          }
+        },
+        {
+          "id": "tripwire_assertion_5",
+          "kind": "assertion_result",
+          "severity": "high",
+          "message": "Visible text should include Refund request submitted",
+          "source": "tripwire-ci",
+          "artifactPath": "runs/refund-form/button-text-drift/trace.json",
+          "metadata": {
+            "scenarioName": "refund-form",
+            "faultName": "button-text-drift",
+            "assertion": {
+              "type": "text_exists",
+              "expected": "Refund request submitted",
+              "pass": false,
+              "message": "Visible text should include Refund request submitted",
+              "observed": "Refund request\n\nSubmit a deterministic localhost refund request for Tripwire CI.\n\nOrder ID\nReason\nContinue\nCancel"
+            }
+          }
+        },
+        {
+          "id": "tripwire_assertion_6",
+          "kind": "assertion_result",
+          "severity": "high",
+          "message": "Agent exited with 1",
+          "source": "tripwire-ci",
+          "artifactPath": "runs/refund-form/button-text-drift/trace.json",
+          "metadata": {
+            "scenarioName": "refund-form",
+            "faultName": "button-text-drift",
+            "assertion": {
+              "type": "max_steps",
+              "expected": "agent exit 0",
+              "pass": false,
+              "message": "Agent exited with 1",
+              "observed": "node:internal/modules/run_main:123\r\n    triggerUncaughtException(\r\n    ^\r\n\r\nlocator.click: Timeout 2500ms exceeded.\r\nCall log:\r\n\u001b[2m  - waiting for getByRole('button', { name: 'Submit', exact: true })\u001b[22m\r\n\r\n    at C:\\Users\\Gzw19\\Documents\\MCP Bench\\packages\\tripwire-ci\\examples\\agents\\brittle-agent.mjs:19:65 {\r\n  name: 'TimeoutError'\r\n}\r\n\r\nNode.js v22.19.0\r\n"
+            }
+          }
+        },
+        {
+          "id": "tripwire_assertion_7",
+          "kind": "assertion_result",
+          "severity": "high",
+          "message": "Visible text should include Refund request submitted",
+          "source": "tripwire-ci",
+          "artifactPath": "runs/refund-form/http-failure/trace.json",
+          "metadata": {
+            "scenarioName": "refund-form",
+            "faultName": "http-failure",
+            "assertion": {
+              "type": "text_exists",
+              "expected": "Refund request submitted",
+              "pass": false,
+              "message": "Visible text should include Refund request submitted",
+              "observed": "Tripwire injected HTTP failure"
+            }
+          }
+        },
+        {
+          "id": "tripwire_assertion_8",
+          "kind": "assertion_result",
+          "severity": "high",
+          "message": "No console errors should be recorded",
+          "source": "tripwire-ci",
+          "artifactPath": "runs/refund-form/http-failure/trace.json",
+          "metadata": {
+            "scenarioName": "refund-form",
+            "faultName": "http-failure",
+            "assertion": {
+              "type": "no_console_error",
+              "expected": true,
+              "pass": false,
+              "message": "No console errors should be recorded",
+              "observed": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "id": "tripwire_assertion_1",
+      "kind": "assertion_result",
+      "severity": "high",
+      "message": "Final URL should contain /success",
+      "source": "tripwire-ci",
+      "artifactPath": "runs/refund-form/modal-overlay/trace.json",
+      "metadata": {
+        "scenarioName": "refund-form",
+        "faultName": "modal-overlay",
+        "assertion": {
+          "type": "url_contains",
+          "expected": "/success",
+          "pass": false,
+          "message": "Final URL should contain /success",
+          "observed": "http://127.0.0.1:3020/refund"
+        }
+      }
+    },
+    {
+      "id": "tripwire_assertion_2",
+      "kind": "assertion_result",
+      "severity": "high",
+      "message": "Visible text should include Refund request submitted",
+      "source": "tripwire-ci",
+      "artifactPath": "runs/refund-form/modal-overlay/trace.json",
+      "metadata": {
+        "scenarioName": "refund-form",
+        "faultName": "modal-overlay",
+        "assertion": {
+          "type": "text_exists",
+          "expected": "Refund request submitted",
+          "pass": false,
+          "message": "Visible text should include Refund request submitted",
+          "observed": "Refund request\n\nSubmit a deterministic localhost refund request for Tripwire CI.\n\nOrder ID\nReason\nSubmit\nCancel\nSession notice\n\nPlease close this notice to continue.\n\nClose"
+        }
+      }
+    },
+    {
+      "id": "tripwire_assertion_3",
+      "kind": "assertion_result",
+      "severity": "high",
+      "message": "Agent exited with 1",
+      "source": "tripwire-ci",
+      "artifactPath": "runs/refund-form/modal-overlay/trace.json",
+      "metadata": {
+        "scenarioName": "refund-form",
+        "faultName": "modal-overlay",
+        "assertion": {
+          "type": "max_steps",
+          "expected": "agent exit 0",
+          "pass": false,
+          "message": "Agent exited with 1",
+          "observed": "node:internal/modules/run_main:123\r\n    triggerUncaughtException(\r\n    ^\r\n\r\nlocator.click: Timeout 2500ms exceeded.\r\nCall log:\r\n\u001b[2m  - waiting for getByRole('button', { name: 'Submit', exact: true })\u001b[22m\r\n\u001b[2m    - locator resolved to <button type=\"submit\">Submit</button>\u001b[22m\r\n\u001b[2m  - attempting click action\u001b[22m\r\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\r\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\r\n\u001b[2m      - scrolling into view if needed\u001b[22m\r\n\u001b[2m"
+        }
+      }
+    },
+    {
+      "id": "tripwire_assertion_4",
+      "kind": "assertion_result",
+      "severity": "high",
+      "message": "Final URL should contain /success",
+      "source": "tripwire-ci",
+      "artifactPath": "runs/refund-form/button-text-drift/trace.json",
+      "metadata": {
+        "scenarioName": "refund-form",
+        "faultName": "button-text-drift",
+        "assertion": {
+          "type": "url_contains",
+          "expected": "/success",
+          "pass": false,
+          "message": "Final URL should contain /success",
+          "observed": "http://127.0.0.1:3020/refund"
+        }
+      }
+    },
+    {
+      "id": "tripwire_assertion_5",
+      "kind": "assertion_result",
+      "severity": "high",
+      "message": "Visible text should include Refund request submitted",
+      "source": "tripwire-ci",
+      "artifactPath": "runs/refund-form/button-text-drift/trace.json",
+      "metadata": {
+        "scenarioName": "refund-form",
+        "faultName": "button-text-drift",
+        "assertion": {
+          "type": "text_exists",
+          "expected": "Refund request submitted",
+          "pass": false,
+          "message": "Visible text should include Refund request submitted",
+          "observed": "Refund request\n\nSubmit a deterministic localhost refund request for Tripwire CI.\n\nOrder ID\nReason\nContinue\nCancel"
+        }
+      }
+    },
+    {
+      "id": "tripwire_assertion_6",
+      "kind": "assertion_result",
+      "severity": "high",
+      "message": "Agent exited with 1",
+      "source": "tripwire-ci",
+      "artifactPath": "runs/refund-form/button-text-drift/trace.json",
+      "metadata": {
+        "scenarioName": "refund-form",
+        "faultName": "button-text-drift",
+        "assertion": {
+          "type": "max_steps",
+          "expected": "agent exit 0",
+          "pass": false,
+          "message": "Agent exited with 1",
+          "observed": "node:internal/modules/run_main:123\r\n    triggerUncaughtException(\r\n    ^\r\n\r\nlocator.click: Timeout 2500ms exceeded.\r\nCall log:\r\n\u001b[2m  - waiting for getByRole('button', { name: 'Submit', exact: true })\u001b[22m\r\n\r\n    at C:\\Users\\Gzw19\\Documents\\MCP Bench\\packages\\tripwire-ci\\examples\\agents\\brittle-agent.mjs:19:65 {\r\n  name: 'TimeoutError'\r\n}\r\n\r\nNode.js v22.19.0\r\n"
+        }
+      }
+    },
+    {
+      "id": "tripwire_assertion_7",
+      "kind": "assertion_result",
+      "severity": "high",
+      "message": "Visible text should include Refund request submitted",
+      "source": "tripwire-ci",
+      "artifactPath": "runs/refund-form/http-failure/trace.json",
+      "metadata": {
+        "scenarioName": "refund-form",
+        "faultName": "http-failure",
+        "assertion": {
+          "type": "text_exists",
+          "expected": "Refund request submitted",
+          "pass": false,
+          "message": "Visible text should include Refund request submitted",
+          "observed": "Tripwire injected HTTP failure"
+        }
+      }
+    },
+    {
+      "id": "tripwire_assertion_8",
+      "kind": "assertion_result",
+      "severity": "high",
+      "message": "No console errors should be recorded",
+      "source": "tripwire-ci",
+      "artifactPath": "runs/refund-form/http-failure/trace.json",
+      "metadata": {
+        "scenarioName": "refund-form",
+        "faultName": "http-failure",
+        "assertion": {
+          "type": "no_console_error",
+          "expected": true,
+          "pass": false,
+          "message": "No console errors should be recorded",
+          "observed": "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+        }
+      }
+    }
+  ],
+  "artifacts": {
+    "tripwire-ci.result": "packages/tripwire-ci/.tripwire/public-demo/tripwire-result.json",
+    "tripwire-ci.outDir": "C:\\Users\\Gzw19\\Documents\\MCP Bench\\packages\\tripwire-ci\\.tripwire\\public-demo"
+  },
+  "standards": [
+    {
+      "id": "aiuc-1",
+      "name": "AIUC-1 agent security, safety, and reliability",
+      "status": "mapped",
+      "note": "AgentCert evidence can support preparation for independent AIUC-1-style reviews; it is not an official certification."
+    },
+    {
+      "id": "nist-ai-agent-standards",
+      "name": "NIST AI Agent Standards Initiative",
+      "status": "mapped",
+      "note": "AgentCert evidence aligns with secure, interoperable, auditable agent deployment goals."
+    },
+    {
+      "id": "owasp-agentic-ai",
+      "name": "OWASP Agentic AI threats and mitigations",
+      "status": "mapped",
+      "note": "AgentCert scenarios cover prompt injection, tool misuse, excessive agency, and runtime action governance."
+    }
+  ]
+}

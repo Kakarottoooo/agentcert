@@ -8,6 +8,7 @@
     "tripwire:build": "npm --prefix packages/tripwire-ci run build",
     "tripwire:test": "npm --prefix packages/tripwire-ci test",
     "tripwire:e2e": "npm --prefix packages/tripwire-ci run test:e2e",
+    "tripwire:demo-public": "npm --prefix packages/tripwire-ci run demo:public",
     "onegent:install": "npm --prefix packages/onegent-runtime ci",
     "onegent:build": "npm --prefix packages/onegent-runtime run build",
     "onegent:test": "npm --prefix packages/onegent-runtime test",

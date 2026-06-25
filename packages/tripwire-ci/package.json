@@ -12,6 +12,7 @@
     "test": "vitest run tests/unit",
     "test:e2e": "vitest run tests/e2e --testTimeout=180000",
     "demo:tripwire": "tsx examples/run-demo.ts",
+    "demo:public": "tsx examples/run-public-demo.ts",
     "demo:gate": "tsx examples/run-demo.ts --fail-under 0.8",
     "demo:repeat": "tsx examples/repeat-demo.ts"
   },
