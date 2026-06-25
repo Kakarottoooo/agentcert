@@ -2,7 +2,14 @@
 
 Open `index.html` in a browser.
 
-This public demo is a deterministic Tripwire fixture run. It includes checked-in
+This public demo explains the three AgentCert lifecycle gates, then shows one
+interactive evidence slice from Tripwire CI:
+
+- MCPBench before release: MCP servers, exposed tools, policy behavior, runtime traces.
+- Tripwire CI before release: browser/computer-use agents under adversarial UI and network faults.
+- Onegent Runtime after release: approval, verification, and audit for high-risk live actions.
+
+The dashboard evidence is a deterministic Tripwire fixture run. It includes checked-in
 artifacts from a local browser-agent robustness run:
 
 - `evidence/tripwire-public-demo/tripwire-result.json`

@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AgentCert Browser Agent Robustness Demo</title>
+    <title>AgentCert Lifecycle Evidence Demo</title>
     <meta
       name="description"
-      content="A deterministic AgentCert demo showing how browser agents behave when production web pages fight back with popups, text drift, misleading controls, disabled buttons, prompt injection, slow loads, and HTTP failures."
+      content="An AgentCert demo showing pre-release MCP/tool checks, browser-agent robustness gates, runtime action approval, and a deterministic Tripwire evidence slice."
     >
     <link rel="stylesheet" href="./styles.css">
   </head>
@@ -23,6 +23,7 @@
       </a>
       <nav aria-label="Demo navigation">
         <a href="#demo">Demo</a>
+        <a href="#lifecycle">Lifecycle</a>
         <a href="#evidence">Evidence</a>
         <a href="#real-agent">browser-use</a>
         <a href="https://github.com/Kakarottoooo/agentcert">GitHub</a>
@@ -32,11 +33,29 @@
     <main>
       <section class="hero" id="demo">
         <div class="hero-copy">
-          <h1>Browser agents fail when the web page fights back</h1>
+          <h1>AgentCert checks agents before and after they ship</h1>
           <p>
-            AgentCert runs adversarial browser scenarios, captures screenshots and DOM snapshots,
-            grades the result deterministically, and exports a portable evidence packet.
+            AgentCert is one evidence layer across the agent lifecycle. This page shows the
+            Tripwire CI browser-agent slice with screenshots, DOM snapshots, deterministic
+            grading, and a portable evidence packet.
           </p>
+
+          <div class="lifecycle-map" id="lifecycle" aria-label="AgentCert lifecycle">
+            <div class="phase-label">Before release</div>
+            <div class="lifecycle-line">
+              <strong>MCPBench</strong>
+              <span>Checks MCP servers, exposed tools, policy behavior, and runtime traces.</span>
+            </div>
+            <div class="lifecycle-line active">
+              <strong>Tripwire CI</strong>
+              <span>Checks browser and computer-use agents under adversarial UI and network faults.</span>
+            </div>
+            <div class="phase-label">After release</div>
+            <div class="lifecycle-line">
+              <strong>Onegent Runtime</strong>
+              <span>Approves, verifies, and audits high-risk live actions before they execute.</span>
+            </div>
+          </div>
 
           <div class="proof-list" aria-label="What the demo proves">
             <div>

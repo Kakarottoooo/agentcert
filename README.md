@@ -123,6 +123,14 @@ Or open the checked-in static page locally:
 public-demo/browser-agent-robustness/index.html
 ```
 
+The hosted page now frames AgentCert as three lifecycle gates:
+
+- **MCPBench** before release: checks MCP servers, exposed tools, policy behavior, and runtime traces.
+- **Tripwire CI** before release: checks browser/computer-use agents under adversarial UI and network faults.
+- **Onegent Runtime** after release: approves, verifies, and audits high-risk live actions before they execute.
+
+The interactive dashboard on that page is the Tripwire CI evidence slice.
+
 It shows a deterministic Tripwire run across clean and adversarial browser scenarios:
 
 - modal overlay;
