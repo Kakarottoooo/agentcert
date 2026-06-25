@@ -9,6 +9,8 @@ It combines two implemented pre-release engines and one local runtime-action MVP
 - **Onegent Runtime**: a local Action Gateway MVP for policy, approval, mock execution, verification, and audit packets.
 - **AgentCert CLI**: a unified evidence packet and report generator across the lifecycle.
 
+Public demo: [Browser Agent Robustness](https://kakarottoooo.github.io/agentcert/public-demo/browser-agent-robustness/)
+
 ## The Lifecycle
 
 AgentCert covers the agent lifecycle in two phases:
@@ -102,7 +104,11 @@ The unified bundle is the review artifact AgentCert is built around. It can incl
 
 ## Public Demo: Browser Agent Robustness
 
-Open the static demo:
+Open the hosted demo:
+
+[https://kakarottoooo.github.io/agentcert/public-demo/browser-agent-robustness/](https://kakarottoooo.github.io/agentcert/public-demo/browser-agent-robustness/)
+
+Or open the checked-in static page locally:
 
 ```text
 public-demo/browser-agent-robustness/index.html
