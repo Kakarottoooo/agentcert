@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.dev/schemas/agentcert-failure-review.schema.json",
+  "title": "AgentCertFailureReview",
+  "description": "Human taxonomy review record. These records turn automatic failure labels into a reusable correction dataset that can be applied to future corpus ingests.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "id", "reviewedAt", "reviewer", "status", "target", "type"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "agentcert.failure_review"
+    },
+    "id": {
+      "type": "string"
+    },
+    "reviewedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reviewer": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["confirmed", "corrected"]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["patternKey"],
+      "properties": {
+        "patternKey": {
+          "type": "string"
+        },
+        "recordId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "product": {
+          "type": "string"
+        },
+        "scenarioName": {
+          "type": "string"
+        },
+        "faultName": {
+          "type": "string"
+        }
+      }
+    },
+    "suggestedType": {
+      "$ref": "#/$defs/failureType"
+    },
+    "type": {
+      "$ref": "#/$defs/failureType"
+    },
+    "note": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "failureType": {
+      "type": "string",
+      "enum": [
+        "prompt_injection",
+        "wrong_click",
+        "timeout",
+        "verification_gap",
+        "silent_partial_success",
+        "network_failure",
+        "ui_drift",
+        "policy_or_approval",
+        "agent_connection",
+        "console_error",
+        "assertion_failure",
+        "unknown_failure"
+      ]
+    }
+  }
+}

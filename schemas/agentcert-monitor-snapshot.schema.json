@@ -35,6 +35,7 @@
         "byAgent",
         "byVersion",
         "byFailureType",
+        "taxonomy",
         "topFailurePatterns"
       ]
     },
@@ -133,6 +134,10 @@
           "agentName",
           "agentVersion",
           "failureTypes",
+          "failurePatterns",
+          "taxonomyReviewStatus",
+          "reviewedFailureCount",
+          "unreviewedFailureCount",
           "passed",
           "score",
           "timestamp",

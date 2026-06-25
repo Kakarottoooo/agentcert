@@ -90,10 +90,35 @@ Each corpus record now includes:
 | `agentName` | Agent or adapter name for filtering and comparison. |
 | `agentVersion` | Version label for longitudinal analysis; `unversioned` when unavailable. |
 | `failurePatterns[].type` | Stable failure taxonomy bucket. |
+| `failurePatterns[].suggestedType` | Automatic classifier suggestion before review. |
+| `failurePatterns[].reviewStatus` | `unreviewed`, `confirmed`, or `corrected`. |
 
 The dashboard does not read the database directly. It reads
 `agentcert.monitor_snapshot`, which contains filters for agents, faults,
 versions, products, and failure types.
+
+## Failure Reviews
+
+Human review records use `agentcert.failure_review` and are stored as JSONL.
+They can target one exact record or a reusable pattern key. This is the
+mechanism that turns the taxonomy from a rules-only classifier into a growing
+failure dataset.
+
+Required review fields:
+
+| Field | Purpose |
+|---|---|
+| `schemaVersion` | Review compatibility family. |
+| `kind` | `agentcert.failure_review`. |
+| `id` | Stable review id. |
+| `reviewedAt` | Review timestamp. |
+| `reviewer` | Human or process that made the decision. |
+| `status` | `confirmed` or `corrected`. |
+| `target.patternKey` | Failure pattern being reviewed. |
+| `type` | Effective taxonomy label after review. |
+
+Optional fields include `target.recordId`, `target.runId`, `target.product`,
+`target.scenarioName`, `target.faultName`, `suggestedType`, and `note`.
 
 ## Failure Taxonomy
 
@@ -141,5 +166,6 @@ schemas/agentcert-evidence-bundle.schema.json
 schemas/agentcert-result.schema.json
 schemas/agentcert-evidence.schema.json
 schemas/agentcert-corpus-record.schema.json
+schemas/agentcert-failure-review.schema.json
 schemas/agentcert-monitor-snapshot.schema.json
 ```

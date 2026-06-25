@@ -16,6 +16,21 @@ Core outputs:
 - `badge.svg`
 - optional corpus and monitor snapshots
 
+Failure taxonomy reviews:
+
+```bash
+node packages/agentcert-cli/dist/cli.js corpus review \
+  --corpus .agentcert/corpus/corpus.jsonl \
+  --reviews .agentcert/corpus/failure-reviews.jsonl \
+  --pattern-key "tripwire:network_failure:http-failure:no_console_error" \
+  --type console_error \
+  --status corrected \
+  --reviewer qa@example.com
+```
+
+The review command appends an `agentcert.failure_review` JSONL record, reapplies
+the review ledger, and writes the corrected taxonomy back to the corpus store.
+
 For local development inside this repository:
 
 ```bash

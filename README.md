@@ -160,6 +160,21 @@ The frontend does not connect to SQLite or Postgres directly. It reads the gener
 
 Corpus records include `agentName`, `agentVersion`, and an AgentCert failure taxonomy so repeated runs become a data flywheel instead of one-off demo output. Current failure buckets include `prompt_injection`, `wrong_click`, `timeout`, `verification_gap`, `silent_partial_success`, `network_failure`, `ui_drift`, `policy_or_approval`, `agent_connection`, `console_error`, `assertion_failure`, and `unknown_failure`.
 
+Human review can now confirm or correct those automatic labels. Reviews are stored in a small JSONL ledger and reapplied when corpus data or monitor snapshots are rebuilt:
+
+```powershell
+node packages/agentcert-cli/dist/cli.js corpus review `
+  --corpus .agentcert/corpus/corpus.jsonl `
+  --reviews .agentcert/corpus/failure-reviews.jsonl `
+  --pattern-key "tripwire:network_failure:http-failure:no_console_error" `
+  --type console_error `
+  --status corrected `
+  --reviewer qa@example.com `
+  --note "Console assertion failed; this should train the corpus as console_error."
+```
+
+The dashboard shows `suggestedType`, effective `type`, and review status for each failure pattern. In static GitHub Pages mode it displays a copyable review command. In local server mode, `npm run agentcert:serve` enables UI write-back to the corpus store and failure-review ledger.
+
 Build the monitor snapshot and UI:
 
 ```powershell
@@ -185,6 +200,7 @@ The local server keeps the same dashboard UI but adds API-backed inspection:
 - `GET /api/monitor` returns the current monitor snapshot from the selected corpus store.
 - `GET /api/runs` returns accumulated run records.
 - `GET /api/runs/:id` returns assertion failures, trace timeline, diagnostics, warnings, and linked artifacts.
+- `POST /api/runs/:id/failure-reviews` writes a human taxonomy review, reapplies the review ledger, and updates the corpus store.
 - `GET /api/artifacts?path=...` serves screenshots, DOM snapshots, trace JSON, and related files from the configured artifact root.
 
 ## Public Monitor
@@ -253,6 +269,7 @@ The checked-in demo evidence includes:
 - `public-demo/browser-agent-robustness/evidence/tripwire-public-demo/`
 - `public-demo/lifecycle-evidence/onegent-procurement/`
 - `public-demo/browser-agent-robustness/evidence/agentcert-corpus.jsonl`
+- `public-demo/browser-agent-robustness/evidence/failure-reviews.jsonl`
 - `public-demo/browser-agent-robustness/evidence/agentcert-public-demo/`
 
 Run the public fixture again:
@@ -521,6 +538,7 @@ Implemented:
 - Onegent Runtime TypeScript Action Gateway MVP with risk assessment, policy evaluation, approval, local mock ERP execution, verification, audit packet export, local API routes, demo HTML pages, and tests.
 - AgentCert CLI unified evidence bundle and markdown report generation across MCPBench, Tripwire CI, and Onegent Runtime artifacts.
 - AgentCert corpus data flywheel with JSONL, SQLite, and Postgres storage, automatic run ingestion, monitor snapshot generation, and failure taxonomy.
+- Human-correctable failure taxonomy with a reusable review ledger and local monitor write-back.
 - Onegent Runtime SDK surface for wrapping high-risk actions with risk, policy, approval, execution, verification, and audit steps.
 - AgentCert evidence schema v1.0.0 documentation for required fields, optional metadata, failure taxonomy, and standards mapping language.
 - Initial failure scenario library and standards mapping docs.

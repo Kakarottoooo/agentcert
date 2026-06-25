@@ -131,6 +131,42 @@
               "unknown_failure"
             ]
           },
+          "suggestedType": {
+            "type": "string",
+            "description": "Automatic classifier suggestion before human review.",
+            "enum": [
+              "prompt_injection",
+              "wrong_click",
+              "timeout",
+              "verification_gap",
+              "silent_partial_success",
+              "network_failure",
+              "ui_drift",
+              "policy_or_approval",
+              "agent_connection",
+              "console_error",
+              "assertion_failure",
+              "unknown_failure"
+            ]
+          },
+          "reviewStatus": {
+            "type": "string",
+            "description": "Human taxonomy review state for this failure pattern.",
+            "enum": ["unreviewed", "confirmed", "corrected"]
+          },
+          "reviewId": {
+            "type": "string"
+          },
+          "reviewedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reviewer": {
+            "type": "string"
+          },
+          "reviewNote": {
+            "type": "string"
+          },
           "scenarioName": {
             "type": "string"
           },

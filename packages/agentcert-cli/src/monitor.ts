@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import type { AgentCertCorpusRecord, CorpusSummary } from "./corpus.js";
+import type { AgentCertCorpusRecord, CorpusSummary, FailurePattern } from "./corpus.js";
 import { summarizeCorpus } from "./corpus.js";
 
 export interface MonitorOptions {
@@ -59,6 +59,10 @@ export interface MonitorRun {
   durationMs?: number;
   evidenceCount: number;
   primaryFailure?: string;
+  failurePatterns: FailurePattern[];
+  taxonomyReviewStatus: "none" | "needs_review" | "reviewed";
+  reviewedFailureCount: number;
+  unreviewedFailureCount: number;
   artifacts: Record<string, string>;
 }
 
@@ -110,6 +114,10 @@ export function buildMonitorSnapshot(records: AgentCertCorpusRecord[], options: 
         durationMs: record.durationMs,
         evidenceCount: record.evidenceCount,
         primaryFailure: record.failurePatterns[0]?.message,
+        failurePatterns: record.failurePatterns,
+        taxonomyReviewStatus: taxonomyReviewStatus(record.failurePatterns),
+        reviewedFailureCount: record.failurePatterns.filter((pattern) => pattern.reviewStatus === "confirmed" || pattern.reviewStatus === "corrected").length,
+        unreviewedFailureCount: record.failurePatterns.filter((pattern) => (pattern.reviewStatus ?? "unreviewed") === "unreviewed").length,
         artifacts: record.artifacts,
       })),
     failurePatterns: summary.topFailurePatterns,
@@ -127,6 +135,11 @@ function buildFilters(records: AgentCertCorpusRecord[]): MonitorFilters {
     failureTypes: unique(records.flatMap((record) => record.failurePatterns.map((pattern) => pattern.type))),
     products: unique(records.map((record) => record.product)),
   };
+}
+
+function taxonomyReviewStatus(patterns: FailurePattern[]): MonitorRun["taxonomyReviewStatus"] {
+  if (patterns.length === 0) return "none";
+  return patterns.every((pattern) => pattern.reviewStatus === "confirmed" || pattern.reviewStatus === "corrected") ? "reviewed" : "needs_review";
 }
 
 function unique(values: string[]): string[] {

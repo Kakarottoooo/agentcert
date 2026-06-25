@@ -82,6 +82,7 @@ describe("AgentCert corpus", () => {
     expect(summary.byAgent).toEqual([{ key: "demo-agent", total: 3, passed: 1, failed: 2, passRate: 1 / 3 }]);
     expect(summary.byVersion).toEqual([{ key: "unversioned", total: 3, passed: 1, failed: 2, passRate: 1 / 3 }]);
     expect(summary.byFailureType).toEqual([{ key: "assertion_failure", total: 2, passed: 0, failed: 2, passRate: 0 }]);
+    expect(summary.taxonomy).toMatchObject({ totalFailurePatterns: 2, reviewedFailurePatterns: 0, unreviewedFailurePatterns: 2 });
     expect(summary.topFailurePatterns.map((pattern) => pattern.key)).toEqual([
       "tripwire:button-text-drift:url_contains",
       "tripwire:modal-overlay:url_contains",
@@ -145,6 +146,8 @@ function record(faultName: string, passed: boolean, failureKeys: string[]) {
       severity: "high" as const,
       message: `${key} failed`,
       type: "assertion_failure" as const,
+      suggestedType: "assertion_failure" as const,
+      reviewStatus: "unreviewed" as const,
       scenarioName: "refund-form",
       faultName,
     })),

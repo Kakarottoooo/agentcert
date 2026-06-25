@@ -19,11 +19,19 @@ export type FailureType =
   | "assertion_failure"
   | "unknown_failure";
 
+export type FailureReviewStatus = "unreviewed" | "confirmed" | "corrected";
+
 export interface FailurePattern {
   key: string;
   severity: AgentCertEvidence["severity"];
   message: string;
   type: FailureType;
+  suggestedType?: FailureType;
+  reviewStatus?: FailureReviewStatus;
+  reviewId?: string;
+  reviewedAt?: string;
+  reviewer?: string;
+  reviewNote?: string;
   scenarioName?: string;
   faultName?: string;
 }
@@ -64,6 +72,13 @@ export interface CorpusSummary {
   byAgent: SummaryBucket[];
   byVersion: SummaryBucket[];
   byFailureType: SummaryBucket[];
+  taxonomy: {
+    totalFailurePatterns: number;
+    reviewedFailurePatterns: number;
+    unreviewedFailurePatterns: number;
+    confirmedFailurePatterns: number;
+    correctedFailurePatterns: number;
+  };
   topFailurePatterns: Array<{
     key: string;
     count: number;
@@ -146,6 +161,7 @@ export function summarizeCorpus(records: AgentCertCorpusRecord[]): CorpusSummary
       ),
       (record) => record.failureTypeForBucket ?? "unknown_failure",
     ),
+    taxonomy: taxonomySummary(records),
     topFailurePatterns: topFailurePatterns(records),
   };
 }
@@ -223,6 +239,8 @@ function recordsFromTripwireInput(
         severity: "high" as const,
         message,
         type: failureType,
+        suggestedType: failureType,
+        reviewStatus: "unreviewed" as const,
         scenarioName,
         faultName,
       };
@@ -239,6 +257,8 @@ function recordsFromTripwireInput(
         severity: "high",
         message: "Tripwire run failed without a failed assertion.",
         type: failureType,
+        suggestedType: failureType,
+        reviewStatus: "unreviewed",
         scenarioName,
         faultName,
       });
@@ -291,10 +311,26 @@ function failurePatternsFromEvidence(evidence: AgentCertEvidence[]): FailurePatt
         severity: item.severity,
         message: item.message,
         type: classifyEvidenceFailure(item),
+        suggestedType: classifyEvidenceFailure(item),
+        reviewStatus: "unreviewed",
         scenarioName: stringValue(metadata.scenarioName),
         faultName: stringValue(metadata.faultName),
       };
     });
+}
+
+function taxonomySummary(records: AgentCertCorpusRecord[]): CorpusSummary["taxonomy"] {
+  const patterns = records.flatMap((record) => record.failurePatterns);
+  const confirmedFailurePatterns = patterns.filter((pattern) => pattern.reviewStatus === "confirmed").length;
+  const correctedFailurePatterns = patterns.filter((pattern) => pattern.reviewStatus === "corrected").length;
+  const reviewedFailurePatterns = confirmedFailurePatterns + correctedFailurePatterns;
+  return {
+    totalFailurePatterns: patterns.length,
+    reviewedFailurePatterns,
+    unreviewedFailurePatterns: patterns.length - reviewedFailurePatterns,
+    confirmedFailurePatterns,
+    correctedFailurePatterns,
+  };
 }
 
 function topFailurePatterns(records: AgentCertCorpusRecord[]): CorpusSummary["topFailurePatterns"] {

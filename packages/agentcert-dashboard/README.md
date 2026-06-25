@@ -35,6 +35,11 @@ The checked-in public dashboard uses the checked-in lifecycle demo corpus:
 MCPBench, Tripwire CI, and Onegent Runtime. For local accumulated runs, point
 `agentcert monitor build` at your own JSONL, SQLite, or Postgres corpus store.
 
+Failure taxonomy labels can be human-reviewed. Static GitHub Pages mode shows a
+copyable `agentcert corpus review` command for each failure pattern. Local
+server mode can write the review through `/api/runs/:id/failure-reviews`, append
+to the review ledger, reapply reviews, and update the corpus store.
+
 When served through `agentcert serve`, the same React dashboard first calls
 `/api/monitor` and `/api/runs/:id`. That enables run-level artifact inspection
 without changing the static GitHub Pages build.

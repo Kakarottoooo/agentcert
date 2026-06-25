@@ -30,6 +30,22 @@ export async function loadRunDetail(runId: string): Promise<RunDetail | undefine
   return (await response.json()) as RunDetail;
 }
 
+export async function submitFailureReview(
+  runId: string,
+  input: { patternKey: string; type: string; status: "confirmed" | "corrected"; reviewer?: string; note?: string },
+): Promise<RunDetail> {
+  const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/failure-reviews`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => undefined);
+    throw new Error(body?.error ?? `Could not save failure review (${response.status})`);
+  }
+  return (await response.json()) as RunDetail;
+}
+
 async function loadApiMonitorSnapshot(): Promise<MonitorSnapshot | undefined> {
   if (window.location.protocol === "file:") {
     return undefined;

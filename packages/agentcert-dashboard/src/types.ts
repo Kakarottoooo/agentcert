@@ -23,6 +23,13 @@ export interface CorpusSummary {
   byAgent: SummaryBucket[];
   byVersion: SummaryBucket[];
   byFailureType: SummaryBucket[];
+  taxonomy: {
+    totalFailurePatterns: number;
+    reviewedFailurePatterns: number;
+    unreviewedFailurePatterns: number;
+    confirmedFailurePatterns: number;
+    correctedFailurePatterns: number;
+  };
   topFailurePatterns: FailurePattern[];
 }
 
@@ -70,20 +77,30 @@ export interface MonitorRun {
   durationMs?: number;
   evidenceCount: number;
   primaryFailure?: string;
+  failurePatterns: FailurePattern[];
+  taxonomyReviewStatus: "none" | "needs_review" | "reviewed";
+  reviewedFailureCount: number;
+  unreviewedFailureCount: number;
   artifacts: Record<string, string>;
 }
 
 export interface FailurePattern {
   key: string;
-  count: number;
+  count?: number;
   severity: string;
   message: string;
   type: string;
+  suggestedType?: string;
+  reviewStatus?: "unreviewed" | "confirmed" | "corrected";
+  reviewId?: string;
+  reviewedAt?: string;
+  reviewer?: string;
+  reviewNote?: string;
 }
 
 export interface RunDetail {
   record: CorpusRecord;
-  failurePatterns: Array<{ key: string; severity: string; message: string; type: string; scenarioName?: string; faultName?: string }>;
+  failurePatterns: FailurePattern[];
   assertions: AssertionResult[];
   timeline: EvidenceTimelineItem[];
   artifacts: EvidenceArtifact[];
@@ -105,7 +122,7 @@ export interface CorpusRecord extends MonitorRun {
   runId: string;
   stepCount?: number;
   highOrCriticalEvidenceCount: number;
-  failurePatterns: Array<{ key: string; severity: string; message: string; type: string; scenarioName?: string; faultName?: string }>;
+  failurePatterns: FailurePattern[];
   sourcePath: string;
   metadata?: Record<string, unknown>;
 }

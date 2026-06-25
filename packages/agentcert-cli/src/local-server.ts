@@ -4,6 +4,15 @@ import { extname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { AgentCertCorpusRecord, FailurePattern } from "./corpus.js";
 import { openCorpusStore, type CorpusStoreOptions } from "./corpus-store.js";
+import {
+  applyFailureReviews,
+  appendFailureReview,
+  createFailureReview,
+  findFailurePattern,
+  parseFailureReviewStatus,
+  parseFailureType,
+  readFailureReviews,
+} from "./failure-review.js";
 import { buildMonitorSnapshot } from "./monitor.js";
 
 export interface ServeOptions {
@@ -14,6 +23,7 @@ export interface ServeOptions {
   staticDir: string;
   artifactRoot: string;
   store: CorpusStoreOptions;
+  reviewsPath?: string;
 }
 
 export interface RunDetail {
@@ -133,7 +143,7 @@ async function handleRequest(
 
   if (url.pathname === "/api/monitor") {
     await withStore(options.store, async (store) => {
-      const records = await store.readAll();
+      const records = applyFailureReviews(await store.readAll(), await readFailureReviews(options.reviewsPath));
       sendJson(response, 200, buildMonitorSnapshot(records, { subject: options.subject, detailUrl: options.detailUrl }));
     });
     return;
@@ -141,16 +151,22 @@ async function handleRequest(
 
   if (url.pathname === "/api/runs") {
     await withStore(options.store, async (store) => {
-      const records = await store.readAll();
+      const records = applyFailureReviews(await store.readAll(), await readFailureReviews(options.reviewsPath));
       sendJson(response, 200, { runs: records.sort((left, right) => right.timestamp.localeCompare(left.timestamp)) });
     });
     return;
   }
 
-  if (url.pathname.startsWith("/api/runs/")) {
+  const reviewRoute = matchRunReviewRoute(url.pathname);
+  if (reviewRoute && request.method === "POST") {
+    await handleFailureReviewPost(request, response, options, artifactRoot, reviewRoute.runId);
+    return;
+  }
+
+  if (url.pathname.startsWith("/api/runs/") && request.method !== "POST") {
     const runId = decodeURIComponent(url.pathname.slice("/api/runs/".length));
     await withStore(options.store, async (store) => {
-      const records = await store.readAll();
+      const records = applyFailureReviews(await store.readAll(), await readFailureReviews(options.reviewsPath));
       const record = records.find((item) => item.id === runId || item.runId === runId);
       if (!record) {
         sendJson(response, 404, { error: `Run ${runId} was not found.` });
@@ -167,6 +183,70 @@ async function handleRequest(
   }
 
   await serveStatic(response, staticRoot, url.pathname);
+}
+
+async function handleFailureReviewPost(
+  request: IncomingMessage,
+  response: ServerResponse,
+  options: ServeOptions,
+  artifactRoot: string,
+  runId: string,
+): Promise<void> {
+  const reviewsPath = options.reviewsPath;
+  if (!reviewsPath) {
+    sendJson(response, 400, { error: "This server was not configured with a failure review ledger path." });
+    return;
+  }
+
+  const body = await readJsonBody(request);
+  const patternKey = stringField(body, "patternKey");
+  const type = parseFailureType(stringField(body, "type"));
+  const reviewer = stringField(body, "reviewer") ?? "local-reviewer";
+  const note = stringField(body, "note");
+  const explicitStatus = stringField(body, "status");
+
+  if (!patternKey) {
+    sendJson(response, 400, { error: "Missing patternKey." });
+    return;
+  }
+
+  await withStore(options.store, async (store) => {
+    const records = await store.readAll();
+    const record = records.find((item) => item.id === runId || item.runId === runId);
+    if (!record) {
+      sendJson(response, 404, { error: `Run ${runId} was not found.` });
+      return;
+    }
+
+    const target = {
+      patternKey,
+      recordId: record.id,
+      runId: record.runId,
+      product: record.product,
+      scenarioName: record.scenarioName,
+      faultName: record.faultName,
+    };
+    const matched = findFailurePattern(records, target);
+    if (!matched) {
+      sendJson(response, 404, { error: `Failure pattern ${patternKey} was not found on run ${runId}.` });
+      return;
+    }
+
+    const suggestedType = matched.pattern.suggestedType ?? matched.pattern.type;
+    const review = createFailureReview({
+      target,
+      type,
+      status: parseFailureReviewStatus(explicitStatus, type, suggestedType),
+      suggestedType,
+      reviewer,
+      note,
+    });
+    await appendFailureReview(reviewsPath, review);
+    const updated = applyFailureReviews(records, await readFailureReviews(reviewsPath));
+    await store.append(updated, { replace: true });
+    const updatedRecord = updated.find((item) => item.id === record.id) ?? record;
+    sendJson(response, 200, await buildRunDetail(updatedRecord, artifactRoot));
+  });
 }
 
 export async function buildRunDetail(record: AgentCertCorpusRecord, artifactRoot: string): Promise<RunDetail> {
@@ -411,6 +491,36 @@ function artifactKindRank(kind: EvidenceArtifact["kind"]): number {
 function sendJson(response: ServerResponse, status: number, data: unknown): void {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-cache" });
   response.end(`${JSON.stringify(data, null, 2)}\n`);
+}
+
+async function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.length;
+    if (totalBytes > 64 * 1024) {
+      throw new Error("Request body is too large.");
+    }
+    chunks.push(buffer);
+  }
+  if (chunks.length === 0) return {};
+  const raw = Buffer.concat(chunks).toString("utf8");
+  return JSON.parse(raw) as Record<string, unknown>;
+}
+
+function stringField(input: Record<string, unknown>, key: string): string | undefined {
+  const value = input[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function matchRunReviewRoute(pathname: string): { runId: string } | undefined {
+  const suffix = "/failure-reviews";
+  if (!pathname.startsWith("/api/runs/") || !pathname.endsWith(suffix)) {
+    return undefined;
+  }
+  const encoded = pathname.slice("/api/runs/".length, -suffix.length);
+  return { runId: decodeURIComponent(encoded) };
 }
 
 function stringMetadata(metadata: Record<string, unknown> | undefined, key: string): string | undefined {

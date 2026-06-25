@@ -5,6 +5,15 @@ import { renderAgentCertBadge } from "./badge.js";
 import { buildEvidenceBundle } from "./bundle.js";
 import { recordsFromAgentCertResult, renderCorpusSummary, summarizeCorpus } from "./corpus.js";
 import { openCorpusStore, parseCorpusStoreKind, type CorpusStoreOptions } from "./corpus-store.js";
+import {
+  applyFailureReviews,
+  appendFailureReview,
+  createFailureReview,
+  findFailurePattern,
+  parseFailureReviewStatus,
+  parseFailureType,
+  readFailureReviews,
+} from "./failure-review.js";
 import { buildMonitorSnapshot, writeMonitorSnapshot } from "./monitor.js";
 import { normalizeMcpBenchResult, normalizeOnegentAuditPacket, normalizeTripwireResult } from "./normalizers.js";
 import { renderMarkdownReport } from "./report.js";
@@ -66,7 +75,11 @@ if (command === "init") {
       throw new Error("No input artifacts were provided. Use --mcpbench, --tripwire, --onegent, or --config.");
     }
 
-    const records = loaded.flatMap(({ result, path, raw }) => recordsFromAgentCertResult(result, path, subject, raw));
+    const reviews = await readFailureReviews(readReviewsPath());
+    const records = applyFailureReviews(
+      loaded.flatMap(({ result, path, raw }) => recordsFromAgentCertResult(result, path, subject, raw)),
+      reviews,
+    );
     const store = await openCorpusStore(storeOptions);
     try {
       await store.append(records, { replace });
@@ -79,8 +92,42 @@ if (command === "init") {
   } else if (action === "summary") {
     const store = await openCorpusStore(readCorpusStoreOptions(".agentcert/corpus/corpus.jsonl"));
     try {
-      const records = await store.readAll();
+      const records = applyFailureReviews(await store.readAll(), await readFailureReviews(readReviewsPath()));
       process.stdout.write(renderCorpusSummary(summarizeCorpus(records)));
+    } finally {
+      await store.close();
+    }
+  } else if (action === "review") {
+    const storeOptions = readCorpusStoreOptions(".agentcert/corpus/corpus.jsonl");
+    const reviewPath = readReviewsPath() ?? ".agentcert/corpus/failure-reviews.jsonl";
+    const store = await openCorpusStore(storeOptions);
+    try {
+      const records = await store.readAll();
+      const target = {
+        patternKey: requiredFlag("--pattern-key"),
+        recordId: readFlag("--record-id"),
+        runId: readFlag("--run-id"),
+        product: readFlag("--product"),
+        scenarioName: readFlag("--scenario"),
+        faultName: readFlag("--fault"),
+      };
+      const matched = findFailurePattern(records, target);
+      const type = parseFailureType(readFlag("--type"));
+      const suggestedType = matched?.pattern.suggestedType ?? matched?.pattern.type;
+      const status = parseFailureReviewStatus(readFlag("--status"), type, suggestedType);
+      const review = createFailureReview({
+        target,
+        type,
+        status,
+        suggestedType,
+        reviewer: readFlag("--reviewer"),
+        note: readFlag("--note"),
+      });
+      await appendFailureReview(reviewPath, review);
+      const updated = applyFailureReviews(records, await readFailureReviews(reviewPath));
+      await store.append(updated, { replace: true });
+      process.stdout.write(`Wrote failure review ${review.id} to ${resolve(reviewPath)}\n`);
+      process.stdout.write(`Updated ${updated.length} corpus records in ${store.description}\n`);
     } finally {
       await store.close();
     }
@@ -88,6 +135,7 @@ if (command === "init") {
     process.stdout.write(`Usage:
   agentcert corpus ingest --tripwire .tripwire/latest/tripwire-result.json --out .agentcert/corpus/corpus.jsonl --subject my-agent
   agentcert corpus ingest --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --tripwire .tripwire/latest/tripwire-result.json --subject my-agent
+  agentcert corpus review --corpus .agentcert/corpus/corpus.jsonl --reviews .agentcert/corpus/failure-reviews.jsonl --pattern-key tripwire:ui_drift:modal-overlay:url_contains --type ui_drift --status confirmed --reviewer you@example.com
   agentcert corpus summary --corpus .agentcert/corpus/corpus.jsonl
   agentcert corpus summary --store postgres --database-url "$DATABASE_URL"
 `);
@@ -100,7 +148,7 @@ if (command === "init") {
     const detailUrl = readFlag("--detail-url");
     const store = await openCorpusStore(readCorpusStoreOptions(".agentcert/corpus/corpus.jsonl"));
     try {
-      const records = await store.readAll();
+      const records = applyFailureReviews(await store.readAll(), await readFailureReviews(readReviewsPath()));
       const snapshot = buildMonitorSnapshot(records, { subject, detailUrl });
       await writeMonitorSnapshot(outPath, snapshot);
       process.stdout.write(`Wrote ${resolve(outPath)}\n`);
@@ -155,12 +203,14 @@ if (command === "init") {
     staticDir: readFlag("--static") ?? "public-demo/agentcert-monitor",
     artifactRoot: readFlag("--artifact-root") ?? "public-demo/browser-agent-robustness/evidence/tripwire-public-demo",
     store: readCorpusStoreOptions("public-demo/browser-agent-robustness/evidence/agentcert-corpus.jsonl"),
+    reviewsPath: readReviewsPath() ?? "public-demo/browser-agent-robustness/evidence/failure-reviews.jsonl",
   });
 } else {
   process.stdout.write(`Usage:
   agentcert init --out agentcert.config.json
   agentcert report --mcpbench .mcpbench/latest/results.json --tripwire .tripwire/latest/tripwire-result.json --onegent .onegent/procurement/audit-packet.json --out .agentcert/latest --subject my-agent
   agentcert corpus ingest --tripwire .tripwire/latest/tripwire-result.json --out .agentcert/corpus/corpus.jsonl --subject my-agent
+  agentcert corpus review --corpus .agentcert/corpus/corpus.jsonl --reviews .agentcert/corpus/failure-reviews.jsonl --pattern-key <failure-key> --type wrong_click --status corrected
   agentcert corpus summary --corpus .agentcert/corpus/corpus.jsonl
   agentcert monitor build --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/monitor/monitor.json --subject my-agent
   agentcert monitor build --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --out .agentcert/monitor/monitor.json --subject my-agent
@@ -225,9 +275,22 @@ function readRunOverrides(): RunProfileOverrides {
     outDir: readFlag("--out"),
     corpusPath: readFlag("--corpus"),
     monitorOut: readFlag("--monitor-out"),
+    reviewsPath: readReviewsPath(),
     replaceCorpus: readBoolFlag("--replace") ? true : undefined,
     failOnVerdict: readBoolFlag("--fail-on-verdict") ? true : undefined,
   };
+}
+
+function requiredFlag(name: string): string {
+  const value = readFlag(name);
+  if (!value) {
+    throw new Error(`Missing required flag ${name}.`);
+  }
+  return value;
+}
+
+function readReviewsPath(): string | undefined {
+  return readFlag("--reviews") ?? process.env.AGENTCERT_FAILURE_REVIEWS;
 }
 
 function readCorpusStoreOptions(defaultJsonlPath: string, outPath?: string): CorpusStoreOptions {

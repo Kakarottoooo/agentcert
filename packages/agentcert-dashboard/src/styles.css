@@ -356,7 +356,7 @@ button {
 
 .metrics-panel {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   grid-column: 1 / -1;
   overflow: hidden;
 }
@@ -871,6 +871,168 @@ button {
   line-height: 1.5;
 }
 
+.taxonomy-state {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f8fbff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.taxonomy-state.reviewed {
+  background: var(--green-soft);
+  border-color: #b9efe3;
+}
+
+.taxonomy-state span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.taxonomy-state p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.taxonomy-review-panel {
+  grid-column: 1 / -1;
+}
+
+.review-error {
+  margin-bottom: 12px;
+  padding: 12px;
+  color: var(--red);
+  background: var(--red-soft);
+  border: 1px solid #ffc9d2;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.taxonomy-review-list {
+  display: grid;
+  gap: 12px;
+}
+
+.taxonomy-review-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(180px, 0.45fr) minmax(220px, 0.65fr);
+  gap: 12px;
+  align-items: start;
+  padding: 14px;
+  background: #f8fbff;
+  border: 1px solid var(--border);
+  border-left: 4px solid #9fb3d1;
+  border-radius: 8px;
+}
+
+.taxonomy-review-card.confirmed {
+  border-left-color: var(--green);
+}
+
+.taxonomy-review-card.corrected {
+  border-left-color: var(--amber);
+}
+
+.taxonomy-card-main {
+  display: grid;
+  gap: 7px;
+}
+
+.taxonomy-card-main strong,
+.taxonomy-command code {
+  overflow-wrap: anywhere;
+}
+
+.taxonomy-card-main p {
+  margin: 0;
+  color: #31415e;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.taxonomy-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.taxonomy-badges span {
+  padding: 5px 8px;
+  color: #244268;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.taxonomy-select,
+.taxonomy-note {
+  display: grid;
+  gap: 6px;
+}
+
+.taxonomy-select span,
+.taxonomy-note span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.taxonomy-select select,
+.taxonomy-note input {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font: inherit;
+}
+
+.taxonomy-actions,
+.taxonomy-command {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.taxonomy-actions button,
+.taxonomy-command button {
+  min-height: 36px;
+  padding: 0 12px;
+  color: var(--accent);
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-weight: 850;
+}
+
+.taxonomy-actions button:disabled {
+  color: var(--muted);
+  cursor: wait;
+}
+
+.taxonomy-command code {
+  flex: 1 1 520px;
+  padding: 10px;
+  color: #27415f;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .inspector-links {
   display: grid;
   gap: 8px;
@@ -988,6 +1150,10 @@ button {
   }
 
   .evidence-preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .taxonomy-review-card {
     grid-template-columns: 1fr;
   }
 }

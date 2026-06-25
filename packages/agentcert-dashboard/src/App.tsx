@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { compactBytes, compactDate, compactDuration, loadMonitorSnapshot, loadRunDetail, percent } from "./data";
-import type { EvidenceArtifact, EvidenceTimelineItem, LifecycleGate, MonitorRun, MonitorSnapshot, RunDetail, SummaryBucket } from "./types";
+import { compactBytes, compactDate, compactDuration, loadMonitorSnapshot, loadRunDetail, percent, submitFailureReview } from "./data";
+import type { EvidenceArtifact, EvidenceTimelineItem, FailurePattern, LifecycleGate, MonitorRun, MonitorSnapshot, RunDetail, SummaryBucket } from "./types";
 
 type View = "overview" | "runs" | "patterns";
 type FilterState = {
@@ -11,6 +11,20 @@ type FilterState = {
 };
 
 const ALL = "__all__";
+const FAILURE_TYPES = [
+  "prompt_injection",
+  "wrong_click",
+  "timeout",
+  "verification_gap",
+  "silent_partial_success",
+  "network_failure",
+  "ui_drift",
+  "policy_or_approval",
+  "agent_connection",
+  "console_error",
+  "assertion_failure",
+  "unknown_failure",
+];
 
 export default function App() {
   const [snapshot, setSnapshot] = useState<MonitorSnapshot>();
@@ -20,6 +34,8 @@ export default function App() {
   const [selectedRunId, setSelectedRunId] = useState<string>();
   const [runDetail, setRunDetail] = useState<RunDetail>();
   const [detailLoading, setDetailLoading] = useState(false);
+  const [reviewSaving, setReviewSaving] = useState(false);
+  const [reviewError, setReviewError] = useState<string>();
   const [filters, setFilters] = useState<FilterState>({
     agent: ALL,
     fault: ALL,
@@ -56,6 +72,35 @@ export default function App() {
       .then(setRunDetail)
       .finally(() => setDetailLoading(false));
   }, [selectedRun, source]);
+
+  async function handleFailureReview(input: {
+    runId: string;
+    patternKey: string;
+    type: string;
+    status: "confirmed" | "corrected";
+    note?: string;
+  }): Promise<void> {
+    if (source !== "api") return;
+    setReviewSaving(true);
+    setReviewError(undefined);
+    try {
+      const nextDetail = await submitFailureReview(input.runId, {
+        patternKey: input.patternKey,
+        type: input.type,
+        status: input.status,
+        reviewer: "local-reviewer",
+        note: input.note,
+      });
+      setRunDetail(nextDetail);
+      const refreshed = await loadMonitorSnapshot();
+      setSnapshot(refreshed.snapshot);
+      setSource(refreshed.source);
+    } catch (err: unknown) {
+      setReviewError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setReviewSaving(false);
+    }
+  }
 
   if (error) {
     return <ErrorState message={error} />;
@@ -124,7 +169,10 @@ export default function App() {
             selectedRun={selectedRun}
             runDetail={runDetail}
             source={source}
+            reviewSaving={reviewSaving}
+            reviewError={reviewError}
             onSelectRun={setSelectedRunId}
+            onReview={handleFailureReview}
           />
         ) : null}
         {view === "runs" ? (
@@ -136,6 +184,9 @@ export default function App() {
             detailLoading={detailLoading}
             source={source}
             onSelectRun={setSelectedRunId}
+            reviewSaving={reviewSaving}
+            reviewError={reviewError}
+            onReview={handleFailureReview}
           />
         ) : null}
         {view === "patterns" ? <PatternsView snapshot={snapshot} /> : null}
@@ -150,14 +201,20 @@ function Overview({
   selectedRun,
   runDetail,
   source,
+  reviewSaving,
+  reviewError,
   onSelectRun,
+  onReview,
 }: {
   snapshot: MonitorSnapshot;
   runs: MonitorRun[];
   selectedRun?: MonitorRun;
   runDetail?: RunDetail;
   source: "api" | "static";
+  reviewSaving: boolean;
+  reviewError?: string;
   onSelectRun: (id: string) => void;
+  onReview: (input: { runId: string; patternKey: string; type: string; status: "confirmed" | "corrected"; note?: string }) => Promise<void>;
 }) {
   return (
     <div className="dashboard-grid">
@@ -165,6 +222,11 @@ function Overview({
         <Metric label="Corpus records" value={String(snapshot.summary.totalRecords)} detail="Accumulated evidence rows" />
         <Metric label="Pass rate" value={percent(snapshot.summary.passRate)} detail={`${snapshot.summary.failedRecords} failed records`} />
         <Metric label="Failure patterns" value={String(snapshot.failurePatterns.length)} detail="Top grouped failures" />
+        <Metric
+          label="Taxonomy reviewed"
+          value={`${snapshot.summary.taxonomy.reviewedFailurePatterns}/${snapshot.summary.taxonomy.totalFailurePatterns}`}
+          detail={`${snapshot.summary.taxonomy.correctedFailurePatterns} corrected labels`}
+        />
         <Metric label="Last generated" value={compactDate(snapshot.generatedAt)} detail="Monitor snapshot timestamp" />
       </section>
 
@@ -199,6 +261,7 @@ function Overview({
       <RunInspector run={selectedRun} detailUrl={snapshot.links.detailUrl} />
 
       <EvidencePreview run={selectedRun} detail={runDetail} source={source} />
+      <TaxonomyReviewPanel run={selectedRun} detail={runDetail} source={source} saving={reviewSaving} error={reviewError} onReview={onReview} />
     </div>
   );
 }
@@ -211,6 +274,9 @@ function RunsView({
   detailLoading,
   source,
   onSelectRun,
+  reviewSaving,
+  reviewError,
+  onReview,
 }: {
   snapshot: MonitorSnapshot;
   runs: MonitorRun[];
@@ -219,6 +285,9 @@ function RunsView({
   detailLoading: boolean;
   source: "api" | "static";
   onSelectRun: (id: string) => void;
+  reviewSaving: boolean;
+  reviewError?: string;
+  onReview: (input: { runId: string; patternKey: string; type: string; status: "confirmed" | "corrected"; note?: string }) => Promise<void>;
 }) {
   return (
     <div className="evidence-grid">
@@ -227,6 +296,7 @@ function RunsView({
         <RunTable runs={runs} selectedRun={selectedRun} onSelectRun={onSelectRun} />
       </section>
       <EvidenceTimelinePanel run={selectedRun} detail={runDetail} loading={detailLoading} source={source} />
+      <TaxonomyReviewPanel run={selectedRun} detail={runDetail} source={source} saving={reviewSaving} error={reviewError} onReview={onReview} />
       <ArtifactPanel run={selectedRun} detail={runDetail} detailUrl={snapshot.links.detailUrl} source={source} />
     </div>
   );
@@ -420,6 +490,7 @@ function RunTable({
           <span>
             <strong>{run.faultName ?? "product-run"}</strong>
             <small>{run.failureTypes.length > 0 ? run.failureTypes.map(formatFilterValue).join(", ") : (run.scenarioName ?? run.subject)}</small>
+            {run.taxonomyReviewStatus !== "none" ? <small>{formatFilterValue(run.taxonomyReviewStatus)}</small> : null}
           </span>
           <Status passed={run.passed} />
           <span>{run.evidenceCount}</span>
@@ -471,6 +542,14 @@ function RunInspector({ run, detailUrl }: { run?: MonitorRun; detailUrl?: string
             <span>Primary failure</span>
             <p>{run.primaryFailure ?? "No failure recorded for this run."}</p>
           </div>
+          {run.taxonomyReviewStatus !== "none" ? (
+            <div className={`taxonomy-state ${run.taxonomyReviewStatus}`}>
+              <span>Taxonomy</span>
+              <p>
+                {run.reviewedFailureCount}/{run.failurePatterns.length} reviewed, {run.unreviewedFailureCount} open
+              </p>
+            </div>
+          ) : null}
           <div className="inspector-links">
             {detailUrl ? <a href={detailUrl}>Evidence detail</a> : null}
             {run.artifacts.result ? <span>{run.artifacts.result}</span> : null}
@@ -493,6 +572,140 @@ function runMatchesFilters(run: MonitorRun, filters: FilterState): boolean {
 
 function formatFilterValue(value: string): string {
   return value.replaceAll("_", " ").replaceAll("-", " ");
+}
+
+function TaxonomyReviewPanel({
+  run,
+  detail,
+  source,
+  saving,
+  error,
+  onReview,
+}: {
+  run?: MonitorRun;
+  detail?: RunDetail;
+  source: "api" | "static";
+  saving: boolean;
+  error?: string;
+  onReview: (input: { runId: string; patternKey: string; type: string; status: "confirmed" | "corrected"; note?: string }) => Promise<void>;
+}) {
+  const patterns = detail?.failurePatterns ?? run?.failurePatterns ?? [];
+  return (
+    <section className="wide-panel taxonomy-review-panel">
+      <PanelHeader title="Failure Taxonomy Review" action={source === "api" ? "Write-back enabled" : "Copy command for local corpus"} />
+      {error ? <div className="review-error">{error}</div> : null}
+      {run && patterns.length > 0 ? (
+        <div className="taxonomy-review-list">
+          {patterns.map((pattern) => (
+            <FailurePatternReview key={pattern.key} run={run} pattern={pattern} source={source} saving={saving} onReview={onReview} />
+          ))}
+        </div>
+      ) : (
+        <EmptyLine text={run ? "This run has no failure taxonomy labels to review." : "Select a failed run to review taxonomy labels."} />
+      )}
+    </section>
+  );
+}
+
+function FailurePatternReview({
+  run,
+  pattern,
+  source,
+  saving,
+  onReview,
+}: {
+  run: MonitorRun;
+  pattern: FailurePattern;
+  source: "api" | "static";
+  saving: boolean;
+  onReview: (input: { runId: string; patternKey: string; type: string; status: "confirmed" | "corrected"; note?: string }) => Promise<void>;
+}) {
+  const suggestedType = pattern.suggestedType ?? pattern.type;
+  const [selectedType, setSelectedType] = useState(pattern.type);
+  const [note, setNote] = useState(pattern.reviewNote ?? "");
+
+  useEffect(() => {
+    setSelectedType(pattern.type);
+    setNote(pattern.reviewNote ?? "");
+  }, [pattern.key, pattern.type, pattern.reviewNote]);
+
+  const reviewStatus = pattern.reviewStatus ?? "unreviewed";
+  const correctionStatus = selectedType === suggestedType ? "confirmed" : "corrected";
+  const command = reviewCommand(run, pattern, selectedType, correctionStatus, note);
+
+  return (
+    <div className={`taxonomy-review-card ${reviewStatus}`}>
+      <div className="taxonomy-card-main">
+        <strong>{pattern.key}</strong>
+        <p>{pattern.message}</p>
+        <div className="taxonomy-badges">
+          <span>suggested: {formatFilterValue(suggestedType)}</span>
+          <span>effective: {formatFilterValue(pattern.type)}</span>
+          <span>{formatFilterValue(reviewStatus)}</span>
+        </div>
+      </div>
+      <label className="taxonomy-select">
+        <span>Failure type</span>
+        <select value={selectedType} onChange={(event) => setSelectedType(event.target.value)}>
+          {FAILURE_TYPES.map((type) => (
+            <option key={type} value={type}>
+              {formatFilterValue(type)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="taxonomy-note">
+        <span>Review note</span>
+        <input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Why this label is right or wrong" />
+      </label>
+      {source === "api" ? (
+        <div className="taxonomy-actions">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => onReview({ runId: run.id, patternKey: pattern.key, type: suggestedType, status: "confirmed", note })}
+          >
+            Confirm suggestion
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => onReview({ runId: run.id, patternKey: pattern.key, type: selectedType, status: correctionStatus, note })}
+          >
+            Save correction
+          </button>
+        </div>
+      ) : (
+        <div className="taxonomy-command">
+          <code>{command}</code>
+          <button type="button" onClick={() => void navigator.clipboard?.writeText(command)}>
+            Copy command
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function reviewCommand(run: MonitorRun, pattern: FailurePattern, type: string, status: "confirmed" | "corrected", note: string): string {
+  const parts = [
+    "node packages/agentcert-cli/dist/cli.js corpus review",
+    "--corpus public-demo/browser-agent-robustness/evidence/agentcert-corpus.jsonl",
+    "--reviews public-demo/browser-agent-robustness/evidence/failure-reviews.jsonl",
+    `--record-id ${quoteArg(run.id)}`,
+    `--pattern-key ${quoteArg(pattern.key)}`,
+    `--type ${quoteArg(type)}`,
+    `--status ${quoteArg(status)}`,
+    "--reviewer you@example.com",
+  ];
+  if (note.trim().length > 0) {
+    parts.push(`--note ${quoteArg(note.trim())}`);
+  }
+  return parts.join(" ");
+}
+
+function quoteArg(input: string): string {
+  return `"${input.replaceAll('"', '\\"')}"`;
 }
 
 function EvidencePreview({ run, detail, source }: { run?: MonitorRun; detail?: RunDetail; source: "api" | "static" }) {

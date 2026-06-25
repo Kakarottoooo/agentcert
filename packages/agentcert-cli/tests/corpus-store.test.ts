@@ -102,6 +102,8 @@ function record(faultName: string, passed: boolean): AgentCertCorpusRecord {
             severity: "high",
             message: `${faultName} failed`,
             type: "assertion_failure",
+            suggestedType: "assertion_failure",
+            reviewStatus: "unreviewed",
             scenarioName: "refund-form",
             faultName,
           },

@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { buildEvidenceBundle } from "./bundle.js";
 import { recordsFromAgentCertResult, renderCorpusSummary, summarizeCorpus, type AgentCertCorpusRecord } from "./corpus.js";
 import { openCorpusStore, parseCorpusStoreKind, type CorpusStoreOptions } from "./corpus-store.js";
+import { applyFailureReviews, readFailureReviews } from "./failure-review.js";
 import { buildMonitorSnapshot, writeMonitorSnapshot } from "./monitor.js";
 import { normalizeMcpBenchResult, normalizeOnegentAuditPacket, normalizeTripwireResult } from "./normalizers.js";
 import { renderMarkdownReport } from "./report.js";
@@ -33,6 +34,7 @@ export interface AgentCertRunProfile extends AgentCertConfig {
       sqlitePath?: string;
       databaseUrl?: string;
       tableName?: string;
+      reviewsPath?: string;
       replace?: boolean;
     };
     monitor?: {
@@ -58,6 +60,7 @@ export interface RunProfileOverrides {
   outDir?: string;
   corpusPath?: string;
   monitorOut?: string;
+  reviewsPath?: string;
   replaceCorpus?: boolean;
   failOnVerdict?: boolean;
 }
@@ -131,6 +134,7 @@ export function publicDemoRunProfile(): AgentCertRunProfile {
     run: {
       corpus: {
         path: "public-demo/browser-agent-robustness/evidence/agentcert-corpus.jsonl",
+        reviewsPath: "public-demo/browser-agent-robustness/evidence/failure-reviews.jsonl",
         replace: true,
       },
       monitor: {
@@ -211,6 +215,7 @@ export function applyRunOverrides(profile: AgentCertRunProfile, overrides: RunPr
       corpus: {
         ...profile.run?.corpus,
         ...(overrides.corpusPath ? { path: overrides.corpusPath } : {}),
+        ...(overrides.reviewsPath ? { reviewsPath: overrides.reviewsPath } : {}),
         ...(overrides.replaceCorpus === undefined ? {} : { replace: overrides.replaceCorpus }),
       },
       monitor: {
@@ -270,7 +275,12 @@ export async function runAgentCertProfile(profileInput: AgentCertRunProfile, opt
     profile.subject.name,
     profile.subject.type,
   );
-  const records = loaded.flatMap(({ result, path, raw }) => recordsFromAgentCertResult(result, path, profile.subject.name, raw));
+  const reviewsPath = profile.run?.corpus?.reviewsPath;
+  const reviews = await readFailureReviews(reviewsPath ? resolve(cwd, reviewsPath) : undefined);
+  const records = applyFailureReviews(
+    loaded.flatMap(({ result, path, raw }) => recordsFromAgentCertResult(result, path, profile.subject.name, raw)),
+    reviews,
+  );
   const outputs: AgentCertRunManifest["outputs"] = { monitor: [] };
 
   const reportEnabled = profile.run?.report?.enabled ?? true;

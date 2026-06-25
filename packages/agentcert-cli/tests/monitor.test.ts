@@ -21,6 +21,11 @@ describe("AgentCert monitor snapshots", () => {
       versions: ["unversioned"],
       failureTypes: ["ui_drift"],
     });
+    expect(snapshot.summary.taxonomy).toMatchObject({
+      totalFailurePatterns: 1,
+      reviewedFailurePatterns: 0,
+      unreviewedFailurePatterns: 1,
+    });
     expect(snapshot.lifecycle.find((gate) => gate.id === "tripwire-ci")).toMatchObject({
       recordCount: 2,
       passedCount: 1,
@@ -32,6 +37,8 @@ describe("AgentCert monitor snapshots", () => {
       status: "waiting",
     });
     expect(snapshot.recentRuns[0].faultName).toBe("modal-overlay");
+    expect(snapshot.recentRuns[0].failurePatterns[0]).toMatchObject({ type: "ui_drift", reviewStatus: "unreviewed" });
+    expect(snapshot.recentRuns[0]).toMatchObject({ taxonomyReviewStatus: "needs_review", reviewedFailureCount: 0, unreviewedFailureCount: 1 });
     expect(snapshot.links.detailUrl).toBe("../browser-agent-robustness/");
   });
 });
@@ -62,6 +69,8 @@ function record(product: AgentCertCorpusRecord["product"], passed: boolean, faul
             severity: "high",
             message: failure,
             type: "ui_drift",
+            suggestedType: "ui_drift",
+            reviewStatus: "unreviewed",
             scenarioName: "refund-form",
             faultName,
           },
