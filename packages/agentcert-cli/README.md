@@ -25,11 +25,20 @@ node packages/agentcert-cli/dist/cli.js corpus review \
   --pattern-key "tripwire:network_failure:http-failure:no_console_error" \
   --type console_error \
   --status corrected \
-  --reviewer qa@example.com
+  --reviewer qa@example.com \
+  --confidence 0.85 \
+  --first-divergence "Console displayed a 503 failure before the task completed." \
+  --screenshot "runs/http-failure/step-2.png" \
+  --trace "runs/http-failure/trace.json" \
+  --why "The failed assertion is about a browser console error." \
+  --signal "assertion type no_console_error"
 ```
 
 The review command appends an `agentcert.failure_review` JSONL record, reapplies
 the review ledger, and writes the corrected taxonomy back to the corpus store.
+Optional review metadata includes confidence, first-divergence snippets,
+screenshot/trace pointers, supporting signals, classifier limitations, and a
+structured taxonomy rationale for later classifier training and evaluation.
 
 For local development inside this repository:
 

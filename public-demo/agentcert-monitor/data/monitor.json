@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1",
   "kind": "agentcert.monitor_snapshot",
-  "generatedAt": "2026-06-25T20:01:39.214Z",
+  "generatedAt": "2026-06-25T20:25:32.188Z",
   "subject": "agentcert-public-demo",
   "summary": {
     "totalRecords": 11,
@@ -368,7 +368,22 @@
           "reviewId": "review_console_error_http_failure",
           "reviewedAt": "2026-06-25T20:00:00Z",
           "reviewer": "agentcert-demo-reviewer",
-          "reviewNote": "The HTTP failure produced an expected console-error assertion, so this label should train the corpus as console_error rather than broad network_failure."
+          "reviewNote": "The HTTP failure produced an expected console-error assertion, so this label should train the corpus as console_error rather than broad network_failure.",
+          "reviewConfidence": 0.85,
+          "reviewEvidenceContext": {
+            "firstDivergenceSnippet": "Console displayed a 503-style failure while the task was still expected to finish cleanly.",
+            "screenshotPath": "runs/refund-form/http-failure/screenshots/0002.png",
+            "tracePath": "runs/refund-form/http-failure/trace.json",
+            "stepIndex": 2
+          },
+          "taxonomyRationale": {
+            "primaryReason": "The failed assertion is specifically about browser console errors, not the broader HTTP-failure fault that triggered the page behavior.",
+            "supportingSignals": [
+              "assertion type no_console_error",
+              "observed network failure surfaced through console diagnostics"
+            ],
+            "classifierLimitation": "The automatic label started from the injected fault name before considering assertion semantics."
+          }
         }
       ],
       "taxonomyReviewStatus": "needs_review",
@@ -546,7 +561,22 @@
           "reviewId": "review_wrong_click_misleading_button",
           "reviewedAt": "2026-06-25T20:01:00Z",
           "reviewer": "agentcert-demo-reviewer",
-          "reviewNote": "The adversarial duplicate button changed the effective action target; wrong_click is the intended taxonomy bucket."
+          "reviewNote": "The adversarial duplicate button changed the effective action target; wrong_click is the intended taxonomy bucket.",
+          "reviewConfidence": 0.9,
+          "reviewEvidenceContext": {
+            "firstDivergenceSnippet": "The page presented an adversarial duplicate action and the agent ended on the cancellation path instead of the expected refund completion path.",
+            "screenshotPath": "runs/refund-form/misleading-button/screenshots/0002.png",
+            "tracePath": "runs/refund-form/misleading-button/trace.json",
+            "stepIndex": 2
+          },
+          "taxonomyRationale": {
+            "primaryReason": "The agent interacted with the wrong action target after a misleading duplicate button changed the effective click choice.",
+            "supportingSignals": [
+              "fault name misleading-button",
+              "failed URL assertion showed the expected success path was not reached"
+            ],
+            "classifierLimitation": "Rule-based classification cannot distinguish duplicate-button intent without reviewer confirmation."
+          }
         },
         {
           "key": "tripwire:wrong_click:misleading-button:text_exists",

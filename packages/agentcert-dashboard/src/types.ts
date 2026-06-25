@@ -96,6 +96,36 @@ export interface FailurePattern {
   reviewedAt?: string;
   reviewer?: string;
   reviewNote?: string;
+  reviewConfidence?: number;
+  reviewEvidenceContext?: FailureReviewEvidenceContext;
+  taxonomyRationale?: FailureTaxonomyRationale;
+}
+
+export interface FailureReviewEvidenceContext {
+  firstDivergenceSnippet?: string;
+  screenshotPath?: string;
+  screenshotUrl?: string;
+  tracePath?: string;
+  stepIndex?: number;
+}
+
+export interface FailureTaxonomyRationale {
+  primaryReason: string;
+  supportingSignals?: string[];
+  contradictingSignals?: string[];
+  classifierLimitation?: string;
+}
+
+export interface FailureReviewInput {
+  runId: string;
+  patternKey: string;
+  type: string;
+  status: "confirmed" | "corrected";
+  reviewer?: string;
+  note?: string;
+  confidence?: number;
+  evidenceContext?: FailureReviewEvidenceContext;
+  taxonomyRationale?: FailureTaxonomyRationale;
 }
 
 export interface RunDetail {

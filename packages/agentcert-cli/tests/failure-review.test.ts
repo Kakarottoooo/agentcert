@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentCertCorpusRecord } from "../src/corpus.js";
-import { applyFailureReviews, createFailureReview, findFailurePattern, parseFailureReviewStatus } from "../src/failure-review.js";
+import { applyFailureReviews, createFailureReview, findFailurePattern, parseFailureReviewStatus, parseReviewConfidence } from "../src/failure-review.js";
 import { summarizeCorpus } from "../src/corpus.js";
 
 describe("failure taxonomy reviews", () => {
@@ -16,6 +16,18 @@ describe("failure taxonomy reviews", () => {
       status: "corrected",
       reviewer: "qa@example.com",
       note: "The failing assertion is specifically a console error.",
+      confidence: 0.85,
+      evidenceContext: {
+        firstDivergenceSnippet: "Console displayed a 503 failure before the task completed.",
+        screenshotPath: "runs/http-failure/step-2.png",
+        tracePath: "runs/http-failure/trace.json",
+        stepIndex: 2,
+      },
+      taxonomyRationale: {
+        primaryReason: "The failed assertion is about a browser console error, not the HTTP fault itself.",
+        supportingSignals: ["assertion type no_console_error", "observed 503 in console"],
+        classifierLimitation: "The automatic rule started from the fault name before assertion semantics.",
+      },
       reviewedAt: "2026-01-01T00:00:00Z",
     });
 
@@ -27,6 +39,18 @@ describe("failure taxonomy reviews", () => {
       reviewStatus: "corrected",
       reviewer: "qa@example.com",
       reviewNote: "The failing assertion is specifically a console error.",
+      reviewConfidence: 0.85,
+      reviewEvidenceContext: {
+        firstDivergenceSnippet: "Console displayed a 503 failure before the task completed.",
+        screenshotPath: "runs/http-failure/step-2.png",
+        tracePath: "runs/http-failure/trace.json",
+        stepIndex: 2,
+      },
+      taxonomyRationale: {
+        primaryReason: "The failed assertion is about a browser console error, not the HTTP fault itself.",
+        supportingSignals: ["assertion type no_console_error", "observed 503 in console"],
+        classifierLimitation: "The automatic rule started from the fault name before assertion semantics.",
+      },
     });
     expect(updated.metadata?.taxonomyReview).toMatchObject({
       reviewedFailurePatterns: 1,
@@ -54,6 +78,14 @@ describe("failure taxonomy reviews", () => {
     expect(matched?.pattern.type).toBe("network_failure");
     expect(parseFailureReviewStatus(undefined, "network_failure", "network_failure")).toBe("confirmed");
     expect(parseFailureReviewStatus(undefined, "console_error", "network_failure")).toBe("corrected");
+  });
+
+  it("validates reviewer confidence as a normalized training label score", () => {
+    expect(parseReviewConfidence("0.72")).toBe(0.72);
+    expect(parseReviewConfidence(1)).toBe(1);
+    expect(parseReviewConfidence(undefined)).toBeUndefined();
+    expect(() => parseReviewConfidence("1.2")).toThrow("Review confidence must be a number from 0 to 1.");
+    expect(() => parseReviewConfidence("not-a-number")).toThrow("Review confidence must be a number from 0 to 1.");
   });
 });
 

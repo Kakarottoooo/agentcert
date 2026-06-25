@@ -92,6 +92,9 @@ Each corpus record now includes:
 | `failurePatterns[].type` | Stable failure taxonomy bucket. |
 | `failurePatterns[].suggestedType` | Automatic classifier suggestion before review. |
 | `failurePatterns[].reviewStatus` | `unreviewed`, `confirmed`, or `corrected`. |
+| `failurePatterns[].reviewConfidence` | Optional human confidence score from 0 to 1. |
+| `failurePatterns[].reviewEvidenceContext` | Optional first-divergence snippet plus screenshot, trace, and step pointers. |
+| `failurePatterns[].taxonomyRationale` | Optional structured explanation for why the final taxonomy label is correct. |
 
 The dashboard does not read the database directly. It reads
 `agentcert.monitor_snapshot`, which contains filters for agents, faults,
@@ -118,7 +121,15 @@ Required review fields:
 | `type` | Effective taxonomy label after review. |
 
 Optional fields include `target.recordId`, `target.runId`, `target.product`,
-`target.scenarioName`, `target.faultName`, `suggestedType`, and `note`.
+`target.scenarioName`, `target.faultName`, `suggestedType`, `note`,
+`confidence`, `evidenceContext`, and `taxonomyRationale`.
+
+`confidence` is normalized from 0 to 1. `evidenceContext` can include
+`firstDivergenceSnippet`, `screenshotPath`, `screenshotUrl`, `tracePath`, and
+`stepIndex`. `taxonomyRationale` stores `primaryReason`, optional
+`supportingSignals`, optional `contradictingSignals`, and an optional
+`classifierLimitation`. These fields make reviewed labels usable as a
+training and evaluation dataset instead of only a UI correction ledger.
 
 ## Failure Taxonomy
 

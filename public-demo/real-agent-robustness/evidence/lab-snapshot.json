@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1",
   "kind": "agentcert.real_agent_robustness_lab",
-  "generatedAt": "2026-06-25T20:01:45.648Z",
+  "generatedAt": "2026-06-25T20:25:37.672Z",
   "name": "AgentCert Real Agent Robustness Lab",
   "description": "A reproducible browser-agent robustness matrix over deterministic adversarial web scenarios.",
   "summary": {

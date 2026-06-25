@@ -1,7 +1,14 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import type { AgentCertCorpusRecord, FailurePattern, FailureReviewStatus, FailureType } from "./corpus.js";
+import type {
+  AgentCertCorpusRecord,
+  FailurePattern,
+  FailureReviewEvidenceContext,
+  FailureReviewStatus,
+  FailureTaxonomyRationale,
+  FailureType,
+} from "./corpus.js";
 
 export const FAILURE_TYPES: FailureType[] = [
   "prompt_injection",
@@ -40,6 +47,9 @@ export interface FailureReview {
   suggestedType?: FailureType;
   type: FailureType;
   note?: string;
+  confidence?: number;
+  evidenceContext?: FailureReviewEvidenceContext;
+  taxonomyRationale?: FailureTaxonomyRationale;
 }
 
 export interface CreateFailureReviewInput {
@@ -49,12 +59,16 @@ export interface CreateFailureReviewInput {
   reviewer?: string;
   suggestedType?: FailureType;
   note?: string;
+  confidence?: number;
+  evidenceContext?: FailureReviewEvidenceContext;
+  taxonomyRationale?: FailureTaxonomyRationale;
   reviewedAt?: string;
 }
 
 export function createFailureReview(input: CreateFailureReviewInput): FailureReview {
   const reviewedAt = input.reviewedAt ?? new Date().toISOString();
   const reviewer = input.reviewer ?? "human-reviewer";
+  const confidence = normalizeReviewConfidence(input.confidence);
   const id = stableReviewId({
     reviewedAt,
     reviewer,
@@ -73,6 +87,9 @@ export function createFailureReview(input: CreateFailureReviewInput): FailureRev
     suggestedType: input.suggestedType,
     type: input.type,
     note: input.note,
+    confidence,
+    evidenceContext: input.evidenceContext,
+    taxonomyRationale: input.taxonomyRationale,
   };
 }
 
@@ -88,6 +105,12 @@ export function parseFailureReviewStatus(input: string | undefined, type: Failur
     return input;
   }
   return suggestedType && type === suggestedType ? "confirmed" : "corrected";
+}
+
+export function parseReviewConfidence(input: string | number | undefined): number | undefined {
+  if (input === undefined) return undefined;
+  const value = typeof input === "number" ? input : Number(input);
+  return normalizeReviewConfidence(value);
 }
 
 export async function readFailureReviews(path: string | undefined): Promise<FailureReview[]> {
@@ -184,6 +207,9 @@ function applyReviewToPattern(record: AgentCertCorpusRecord, pattern: FailurePat
       reviewedAt: review.reviewedAt,
       reviewer: review.reviewer,
       reviewNote: review.note,
+      reviewConfidence: review.confidence,
+      reviewEvidenceContext: review.evidenceContext,
+      taxonomyRationale: review.taxonomyRationale,
     };
   }
 
@@ -206,4 +232,12 @@ function recordMatchesTarget(record: AgentCertCorpusRecord, target: FailureRevie
 
 function stableReviewId(input: unknown): string {
   return createHash("sha256").update(JSON.stringify(input)).digest("hex").slice(0, 16);
+}
+
+function normalizeReviewConfidence(input: number | undefined): number | undefined {
+  if (input === undefined) return undefined;
+  if (!Number.isFinite(input) || input < 0 || input > 1) {
+    throw new Error("Review confidence must be a number from 0 to 1.");
+  }
+  return input;
 }

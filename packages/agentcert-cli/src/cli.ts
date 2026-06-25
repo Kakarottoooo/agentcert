@@ -12,6 +12,7 @@ import {
   findFailurePattern,
   parseFailureReviewStatus,
   parseFailureType,
+  parseReviewConfidence,
   readFailureReviews,
 } from "./failure-review.js";
 import { buildMonitorSnapshot, writeMonitorSnapshot } from "./monitor.js";
@@ -122,6 +123,9 @@ if (command === "init") {
         suggestedType,
         reviewer: readFlag("--reviewer"),
         note: readFlag("--note"),
+        confidence: parseReviewConfidence(readFlag("--confidence")),
+        evidenceContext: readReviewEvidenceContextFromFlags(),
+        taxonomyRationale: readReviewTaxonomyRationaleFromFlags(),
       });
       await appendFailureReview(reviewPath, review);
       const updated = applyFailureReviews(records, await readFailureReviews(reviewPath));
@@ -135,7 +139,7 @@ if (command === "init") {
     process.stdout.write(`Usage:
   agentcert corpus ingest --tripwire .tripwire/latest/tripwire-result.json --out .agentcert/corpus/corpus.jsonl --subject my-agent
   agentcert corpus ingest --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --tripwire .tripwire/latest/tripwire-result.json --subject my-agent
-  agentcert corpus review --corpus .agentcert/corpus/corpus.jsonl --reviews .agentcert/corpus/failure-reviews.jsonl --pattern-key tripwire:ui_drift:modal-overlay:url_contains --type ui_drift --status confirmed --reviewer you@example.com
+  agentcert corpus review --corpus .agentcert/corpus/corpus.jsonl --reviews .agentcert/corpus/failure-reviews.jsonl --pattern-key tripwire:ui_drift:modal-overlay:url_contains --type ui_drift --status confirmed --reviewer you@example.com --confidence 0.8 --why "Visible evidence supports the ui_drift label."
   agentcert corpus summary --corpus .agentcert/corpus/corpus.jsonl
   agentcert corpus summary --store postgres --database-url "$DATABASE_URL"
 `);
@@ -266,6 +270,50 @@ function readBoolFlag(name: string): boolean {
   return process.argv.includes(name);
 }
 
+function readRepeatedFlag(name: string): string[] {
+  const values: string[] = [];
+  for (let index = 0; index < process.argv.length; index += 1) {
+    if (process.argv[index] === name && process.argv[index + 1]) {
+      values.push(process.argv[index + 1]);
+    }
+  }
+  return values;
+}
+
+function readReviewEvidenceContextFromFlags() {
+  const firstDivergenceSnippet = readFlag("--first-divergence") ?? readFlag("--first-divergence-snippet");
+  const screenshotPath = readFlag("--screenshot") ?? readFlag("--screenshot-path");
+  const screenshotUrl = readFlag("--screenshot-url");
+  const tracePath = readFlag("--trace") ?? readFlag("--trace-path");
+  const stepIndex = parseOptionalNonNegativeInteger(readFlag("--step-index"), "--step-index");
+  if (!firstDivergenceSnippet && !screenshotPath && !screenshotUrl && !tracePath && stepIndex === undefined) {
+    return undefined;
+  }
+  return {
+    firstDivergenceSnippet,
+    screenshotPath,
+    screenshotUrl,
+    tracePath,
+    stepIndex,
+  };
+}
+
+function readReviewTaxonomyRationaleFromFlags() {
+  const primaryReason = readFlag("--why") ?? readFlag("--taxonomy-reason");
+  const supportingSignals = readRepeatedFlag("--signal");
+  const contradictingSignals = readRepeatedFlag("--contradiction");
+  const classifierLimitation = readFlag("--classifier-limitation");
+  if (!primaryReason) {
+    return undefined;
+  }
+  return {
+    primaryReason,
+    supportingSignals: supportingSignals.length > 0 ? supportingSignals : undefined,
+    contradictingSignals: contradictingSignals.length > 0 ? contradictingSignals : undefined,
+    classifierLimitation,
+  };
+}
+
 function readRunOverrides(): RunProfileOverrides {
   return {
     subject: readFlag("--subject"),
@@ -285,6 +333,15 @@ function requiredFlag(name: string): string {
   const value = readFlag(name);
   if (!value) {
     throw new Error(`Missing required flag ${name}.`);
+  }
+  return value;
+}
+
+function parseOptionalNonNegativeInteger(input: string | undefined, flagName: string): number | undefined {
+  if (input === undefined) return undefined;
+  const value = Number(input);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${flagName} must be a non-negative integer.`);
   }
   return value;
 }

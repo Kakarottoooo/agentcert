@@ -39,6 +39,10 @@ Failure taxonomy labels can be human-reviewed. Static GitHub Pages mode shows a
 copyable `agentcert corpus review` command for each failure pattern. Local
 server mode can write the review through `/api/runs/:id/failure-reviews`, append
 to the review ledger, reapply reviews, and update the corpus store.
+The review card captures reviewer confidence, first-divergence snippets,
+screenshot/trace pointers, supporting signals, classifier limitations, and a
+structured "why this label" rationale so the ledger can grow into a supervised
+failure dataset.
 
 When served through `agentcert serve`, the same React dashboard first calls
 `/api/monitor` and `/api/runs/:id`. That enables run-level artifact inspection

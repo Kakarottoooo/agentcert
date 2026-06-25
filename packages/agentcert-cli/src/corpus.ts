@@ -21,6 +21,21 @@ export type FailureType =
 
 export type FailureReviewStatus = "unreviewed" | "confirmed" | "corrected";
 
+export interface FailureReviewEvidenceContext {
+  firstDivergenceSnippet?: string;
+  screenshotPath?: string;
+  screenshotUrl?: string;
+  tracePath?: string;
+  stepIndex?: number;
+}
+
+export interface FailureTaxonomyRationale {
+  primaryReason: string;
+  supportingSignals?: string[];
+  contradictingSignals?: string[];
+  classifierLimitation?: string;
+}
+
 export interface FailurePattern {
   key: string;
   severity: AgentCertEvidence["severity"];
@@ -32,6 +47,9 @@ export interface FailurePattern {
   reviewedAt?: string;
   reviewer?: string;
   reviewNote?: string;
+  reviewConfidence?: number;
+  reviewEvidenceContext?: FailureReviewEvidenceContext;
+  taxonomyRationale?: FailureTaxonomyRationale;
   scenarioName?: string;
   faultName?: string;
 }

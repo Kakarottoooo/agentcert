@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { AgentCertCorpusRecord, FailurePattern } from "./corpus.js";
+import type { AgentCertCorpusRecord, FailurePattern, FailureReviewEvidenceContext, FailureTaxonomyRationale } from "./corpus.js";
 import { openCorpusStore, type CorpusStoreOptions } from "./corpus-store.js";
 import {
   applyFailureReviews,
@@ -11,6 +11,7 @@ import {
   findFailurePattern,
   parseFailureReviewStatus,
   parseFailureType,
+  parseReviewConfidence,
   readFailureReviews,
 } from "./failure-review.js";
 import { buildMonitorSnapshot } from "./monitor.js";
@@ -204,6 +205,9 @@ async function handleFailureReviewPost(
   const reviewer = stringField(body, "reviewer") ?? "local-reviewer";
   const note = stringField(body, "note");
   const explicitStatus = stringField(body, "status");
+  const confidence = parseReviewConfidence(numberField(body, "confidence"));
+  const evidenceContext = reviewEvidenceContextField(body);
+  const taxonomyRationale = reviewTaxonomyRationaleField(body);
 
   if (!patternKey) {
     sendJson(response, 400, { error: "Missing patternKey." });
@@ -240,6 +244,9 @@ async function handleFailureReviewPost(
       suggestedType,
       reviewer,
       note,
+      confidence,
+      evidenceContext,
+      taxonomyRationale,
     });
     await appendFailureReview(reviewsPath, review);
     const updated = applyFailureReviews(records, await readFailureReviews(reviewsPath));
@@ -512,6 +519,56 @@ async function readJsonBody(request: IncomingMessage): Promise<Record<string, un
 function stringField(input: Record<string, unknown>, key: string): string | undefined {
   const value = input[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function numberField(input: Record<string, unknown>, key: string): number | undefined {
+  const value = input[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function recordField(input: Record<string, unknown>, key: string): Record<string, unknown> {
+  const value = input[key];
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function stringArrayField(input: Record<string, unknown>, key: string): string[] {
+  const value = input[key];
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
+}
+
+function reviewEvidenceContextField(input: Record<string, unknown>): FailureReviewEvidenceContext | undefined {
+  const nested = recordField(input, "evidenceContext");
+  const firstDivergenceSnippet = stringField(nested, "firstDivergenceSnippet") ?? stringField(input, "firstDivergenceSnippet");
+  const screenshotPath = stringField(nested, "screenshotPath") ?? stringField(input, "screenshotPath");
+  const screenshotUrl = stringField(nested, "screenshotUrl") ?? stringField(input, "screenshotUrl");
+  const tracePath = stringField(nested, "tracePath") ?? stringField(input, "tracePath");
+  const stepIndex = numberField(nested, "stepIndex") ?? numberField(input, "stepIndex");
+  if (!firstDivergenceSnippet && !screenshotPath && !screenshotUrl && !tracePath && stepIndex === undefined) {
+    return undefined;
+  }
+  return {
+    firstDivergenceSnippet,
+    screenshotPath,
+    screenshotUrl,
+    tracePath,
+    stepIndex,
+  };
+}
+
+function reviewTaxonomyRationaleField(input: Record<string, unknown>): FailureTaxonomyRationale | undefined {
+  const nested = recordField(input, "taxonomyRationale");
+  const primaryReason = stringField(nested, "primaryReason") ?? stringField(input, "why");
+  if (!primaryReason) {
+    return undefined;
+  }
+  const supportingSignals = stringArrayField(nested, "supportingSignals");
+  const contradictingSignals = stringArrayField(nested, "contradictingSignals");
+  return {
+    primaryReason,
+    supportingSignals: supportingSignals.length > 0 ? supportingSignals : undefined,
+    contradictingSignals: contradictingSignals.length > 0 ? contradictingSignals : undefined,
+    classifierLimitation: stringField(nested, "classifierLimitation"),
+  };
 }
 
 function matchRunReviewRoute(pathname: string): { runId: string } | undefined {

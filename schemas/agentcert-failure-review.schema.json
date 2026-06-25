@@ -62,9 +62,70 @@
     },
     "note": {
       "type": "string"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Reviewer confidence in the effective taxonomy label, normalized from 0 to 1."
+    },
+    "evidenceContext": {
+      "$ref": "#/$defs/evidenceContext"
+    },
+    "taxonomyRationale": {
+      "$ref": "#/$defs/taxonomyRationale"
     }
   },
   "$defs": {
+    "evidenceContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Pointers and snippets that explain where the reviewer observed the relevant behavior.",
+      "properties": {
+        "firstDivergenceSnippet": {
+          "type": "string"
+        },
+        "screenshotPath": {
+          "type": "string"
+        },
+        "screenshotUrl": {
+          "type": "string"
+        },
+        "tracePath": {
+          "type": "string"
+        },
+        "stepIndex": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "taxonomyRationale": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primaryReason"],
+      "properties": {
+        "primaryReason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "supportingSignals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "contradictingSignals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "classifierLimitation": {
+          "type": "string"
+        }
+      }
+    },
     "failureType": {
       "type": "string",
       "enum": [

@@ -1,4 +1,4 @@
-import type { MonitorSnapshot, RunDetail } from "./types";
+import type { FailureReviewInput, MonitorSnapshot, RunDetail } from "./types";
 
 export interface MonitorLoadResult {
   snapshot: MonitorSnapshot;
@@ -32,7 +32,7 @@ export async function loadRunDetail(runId: string): Promise<RunDetail | undefine
 
 export async function submitFailureReview(
   runId: string,
-  input: { patternKey: string; type: string; status: "confirmed" | "corrected"; reviewer?: string; note?: string },
+  input: Omit<FailureReviewInput, "runId">,
 ): Promise<RunDetail> {
   const response = await fetch(`/api/runs/${encodeURIComponent(runId)}/failure-reviews`, {
     method: "POST",

@@ -167,6 +167,18 @@
           "reviewNote": {
             "type": "string"
           },
+          "reviewConfidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Reviewer confidence in the effective taxonomy label, normalized from 0 to 1."
+          },
+          "reviewEvidenceContext": {
+            "$ref": "#/$defs/reviewEvidenceContext"
+          },
+          "taxonomyRationale": {
+            "$ref": "#/$defs/taxonomyRationale"
+          },
           "scenarioName": {
             "type": "string"
           },
@@ -188,6 +200,57 @@
     "metadata": {
       "type": "object",
       "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "reviewEvidenceContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Pointers and snippets preserved from the human review that justify the taxonomy label.",
+      "properties": {
+        "firstDivergenceSnippet": {
+          "type": "string"
+        },
+        "screenshotPath": {
+          "type": "string"
+        },
+        "screenshotUrl": {
+          "type": "string"
+        },
+        "tracePath": {
+          "type": "string"
+        },
+        "stepIndex": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "taxonomyRationale": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primaryReason"],
+      "properties": {
+        "primaryReason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "supportingSignals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "contradictingSignals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "classifierLimitation": {
+          "type": "string"
+        }
+      }
     }
   }
 }

@@ -170,10 +170,19 @@ node packages/agentcert-cli/dist/cli.js corpus review `
   --type console_error `
   --status corrected `
   --reviewer qa@example.com `
+  --confidence 0.85 `
+  --first-divergence "Console displayed a 503 failure before the task completed." `
+  --screenshot "runs/http-failure/step-2.png" `
+  --trace "runs/http-failure/trace.json" `
+  --why "The failed assertion is about a browser console error, not the HTTP fault itself." `
+  --signal "assertion type no_console_error" `
+  --classifier-limitation "The automatic rule started from the fault name before assertion semantics." `
   --note "Console assertion failed; this should train the corpus as console_error."
 ```
 
 The dashboard shows `suggestedType`, effective `type`, and review status for each failure pattern. In static GitHub Pages mode it displays a copyable review command. In local server mode, `npm run agentcert:serve` enables UI write-back to the corpus store and failure-review ledger.
+
+Reviewed labels can also carry reviewer confidence, the first observed divergence, screenshot/trace pointers, supporting signals, and a structured rationale. That turns the review ledger into a higher-quality failure dataset for future automatic taxonomy classifiers instead of a rules-only label override file.
 
 Build the monitor snapshot and UI:
 

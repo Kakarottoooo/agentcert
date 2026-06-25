@@ -349,7 +349,7 @@ button {
 
 .evidence-grid {
   display: grid;
-  grid-template-columns: minmax(500px, 1fr) minmax(340px, 1fr) minmax(280px, 0.78fr);
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.9fr);
   gap: 16px;
   align-items: start;
 }
@@ -797,16 +797,18 @@ button {
   display: block;
   margin-bottom: 2px;
   font-size: 14px;
+  overflow-wrap: anywhere;
 }
 
 .run-row > span:first-child strong {
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .run-row small {
   display: block;
   color: var(--muted);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .inspector {
@@ -919,7 +921,7 @@ button {
 
 .taxonomy-review-card {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(180px, 0.45fr) minmax(220px, 0.65fr);
+  grid-template-columns: minmax(0, 1.4fr) minmax(170px, 0.45fr) minmax(220px, 0.65fr);
   gap: 12px;
   align-items: start;
   padding: 14px;
@@ -954,6 +956,13 @@ button {
   line-height: 1.5;
 }
 
+.taxonomy-card-main .taxonomy-rationale {
+  padding: 10px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
 .taxonomy-badges {
   display: flex;
   flex-wrap: wrap;
@@ -972,12 +981,14 @@ button {
 }
 
 .taxonomy-select,
+.taxonomy-confidence,
 .taxonomy-note {
   display: grid;
   gap: 6px;
 }
 
 .taxonomy-select span,
+.taxonomy-confidence span,
 .taxonomy-note span {
   color: var(--muted);
   font-size: 12px;
@@ -986,7 +997,9 @@ button {
 }
 
 .taxonomy-select select,
-.taxonomy-note input {
+.taxonomy-confidence input,
+.taxonomy-note input,
+.taxonomy-note textarea {
   width: 100%;
   min-height: 38px;
   padding: 0 10px;
@@ -995,6 +1008,17 @@ button {
   border: 1px solid var(--border);
   border-radius: 7px;
   font: inherit;
+}
+
+.taxonomy-note textarea {
+  min-height: 76px;
+  padding: 9px 10px;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.taxonomy-wide {
+  grid-column: span 2;
 }
 
 .taxonomy-actions,
@@ -1155,6 +1179,10 @@ button {
 
   .taxonomy-review-card {
     grid-template-columns: 1fr;
+  }
+
+  .taxonomy-wide {
+    grid-column: auto;
   }
 }
 

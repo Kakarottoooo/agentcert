@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { compactBytes, compactDate, compactDuration, loadMonitorSnapshot, loadRunDetail, percent, submitFailureReview } from "./data";
-import type { EvidenceArtifact, EvidenceTimelineItem, FailurePattern, LifecycleGate, MonitorRun, MonitorSnapshot, RunDetail, SummaryBucket } from "./types";
+import type {
+  EvidenceArtifact,
+  EvidenceTimelineItem,
+  FailurePattern,
+  FailureReviewEvidenceContext,
+  FailureReviewInput,
+  LifecycleGate,
+  MonitorRun,
+  MonitorSnapshot,
+  RunDetail,
+  SummaryBucket,
+} from "./types";
 
 type View = "overview" | "runs" | "patterns";
 type FilterState = {
@@ -73,13 +84,7 @@ export default function App() {
       .finally(() => setDetailLoading(false));
   }, [selectedRun, source]);
 
-  async function handleFailureReview(input: {
-    runId: string;
-    patternKey: string;
-    type: string;
-    status: "confirmed" | "corrected";
-    note?: string;
-  }): Promise<void> {
+  async function handleFailureReview(input: FailureReviewInput): Promise<void> {
     if (source !== "api") return;
     setReviewSaving(true);
     setReviewError(undefined);
@@ -90,6 +95,9 @@ export default function App() {
         status: input.status,
         reviewer: "local-reviewer",
         note: input.note,
+        confidence: input.confidence,
+        evidenceContext: input.evidenceContext,
+        taxonomyRationale: input.taxonomyRationale,
       });
       setRunDetail(nextDetail);
       const refreshed = await loadMonitorSnapshot();
@@ -214,7 +222,7 @@ function Overview({
   reviewSaving: boolean;
   reviewError?: string;
   onSelectRun: (id: string) => void;
-  onReview: (input: { runId: string; patternKey: string; type: string; status: "confirmed" | "corrected"; note?: string }) => Promise<void>;
+  onReview: (input: FailureReviewInput) => Promise<void>;
 }) {
   return (
     <div className="dashboard-grid">
@@ -287,7 +295,7 @@ function RunsView({
   onSelectRun: (id: string) => void;
   reviewSaving: boolean;
   reviewError?: string;
-  onReview: (input: { runId: string; patternKey: string; type: string; status: "confirmed" | "corrected"; note?: string }) => Promise<void>;
+  onReview: (input: FailureReviewInput) => Promise<void>;
 }) {
   return (
     <div className="evidence-grid">
@@ -587,9 +595,10 @@ function TaxonomyReviewPanel({
   source: "api" | "static";
   saving: boolean;
   error?: string;
-  onReview: (input: { runId: string; patternKey: string; type: string; status: "confirmed" | "corrected"; note?: string }) => Promise<void>;
+  onReview: (input: FailureReviewInput) => Promise<void>;
 }) {
   const patterns = detail?.failurePatterns ?? run?.failurePatterns ?? [];
+  const evidenceContext = useMemo(() => reviewEvidenceContextFromDetail(detail), [detail]);
   return (
     <section className="wide-panel taxonomy-review-panel">
       <PanelHeader title="Failure Taxonomy Review" action={source === "api" ? "Write-back enabled" : "Copy command for local corpus"} />
@@ -597,7 +606,15 @@ function TaxonomyReviewPanel({
       {run && patterns.length > 0 ? (
         <div className="taxonomy-review-list">
           {patterns.map((pattern) => (
-            <FailurePatternReview key={pattern.key} run={run} pattern={pattern} source={source} saving={saving} onReview={onReview} />
+            <FailurePatternReview
+              key={pattern.key}
+              run={run}
+              pattern={pattern}
+              evidenceContext={evidenceContext}
+              source={source}
+              saving={saving}
+              onReview={onReview}
+            />
           ))}
         </div>
       ) : (
@@ -610,28 +627,60 @@ function TaxonomyReviewPanel({
 function FailurePatternReview({
   run,
   pattern,
+  evidenceContext,
   source,
   saving,
   onReview,
 }: {
   run: MonitorRun;
   pattern: FailurePattern;
+  evidenceContext?: FailureReviewEvidenceContext;
   source: "api" | "static";
   saving: boolean;
-  onReview: (input: { runId: string; patternKey: string; type: string; status: "confirmed" | "corrected"; note?: string }) => Promise<void>;
+  onReview: (input: FailureReviewInput) => Promise<void>;
 }) {
   const suggestedType = pattern.suggestedType ?? pattern.type;
   const [selectedType, setSelectedType] = useState(pattern.type);
   const [note, setNote] = useState(pattern.reviewNote ?? "");
+  const [confidence, setConfidence] = useState(formatConfidence(pattern.reviewConfidence ?? 0.8));
+  const [firstDivergenceSnippet, setFirstDivergenceSnippet] = useState(
+    pattern.reviewEvidenceContext?.firstDivergenceSnippet ?? evidenceContext?.firstDivergenceSnippet ?? "",
+  );
+  const [screenshotPath, setScreenshotPath] = useState(pattern.reviewEvidenceContext?.screenshotPath ?? evidenceContext?.screenshotPath ?? "");
+  const [why, setWhy] = useState(
+    pattern.taxonomyRationale?.primaryReason ?? defaultTaxonomyReason(pattern, pattern.type, pattern.reviewStatus ?? "unreviewed"),
+  );
+  const [supportingSignals, setSupportingSignals] = useState((pattern.taxonomyRationale?.supportingSignals ?? []).join("; "));
+  const [classifierLimitation, setClassifierLimitation] = useState(pattern.taxonomyRationale?.classifierLimitation ?? "");
 
   useEffect(() => {
     setSelectedType(pattern.type);
     setNote(pattern.reviewNote ?? "");
-  }, [pattern.key, pattern.type, pattern.reviewNote]);
+    setConfidence(formatConfidence(pattern.reviewConfidence ?? 0.8));
+    setFirstDivergenceSnippet(pattern.reviewEvidenceContext?.firstDivergenceSnippet ?? evidenceContext?.firstDivergenceSnippet ?? "");
+    setScreenshotPath(pattern.reviewEvidenceContext?.screenshotPath ?? evidenceContext?.screenshotPath ?? "");
+    setWhy(pattern.taxonomyRationale?.primaryReason ?? defaultTaxonomyReason(pattern, pattern.type, pattern.reviewStatus ?? "unreviewed"));
+    setSupportingSignals((pattern.taxonomyRationale?.supportingSignals ?? []).join("; "));
+    setClassifierLimitation(pattern.taxonomyRationale?.classifierLimitation ?? "");
+  }, [evidenceContext, pattern]);
 
   const reviewStatus = pattern.reviewStatus ?? "unreviewed";
   const correctionStatus = selectedType === suggestedType ? "confirmed" : "corrected";
-  const command = reviewCommand(run, pattern, selectedType, correctionStatus, note);
+  const draftReview = buildFailureReviewInput({
+    run,
+    pattern,
+    type: selectedType,
+    status: correctionStatus,
+    note,
+    confidence,
+    evidenceContext,
+    firstDivergenceSnippet,
+    screenshotPath,
+    why,
+    supportingSignals,
+    classifierLimitation,
+  });
+  const command = reviewCommand(draftReview);
 
   return (
     <div className={`taxonomy-review-card ${reviewStatus}`}>
@@ -642,7 +691,9 @@ function FailurePatternReview({
           <span>suggested: {formatFilterValue(suggestedType)}</span>
           <span>effective: {formatFilterValue(pattern.type)}</span>
           <span>{formatFilterValue(reviewStatus)}</span>
+          {pattern.reviewConfidence !== undefined ? <span>confidence: {Math.round(pattern.reviewConfidence * 100)}%</span> : null}
         </div>
+        {pattern.taxonomyRationale?.primaryReason ? <p className="taxonomy-rationale">{pattern.taxonomyRationale.primaryReason}</p> : null}
       </div>
       <label className="taxonomy-select">
         <span>Failure type</span>
@@ -654,23 +705,73 @@ function FailurePatternReview({
           ))}
         </select>
       </label>
+      <label className="taxonomy-confidence">
+        <span>Reviewer confidence</span>
+        <input min="0" max="1" step="0.05" type="number" value={confidence} onChange={(event) => setConfidence(event.target.value)} />
+      </label>
+      <label className="taxonomy-note taxonomy-wide">
+        <span>Why this taxonomy label</span>
+        <textarea value={why} onChange={(event) => setWhy(event.target.value)} placeholder="Structured rationale for training and evaluation" rows={2} />
+      </label>
+      <label className="taxonomy-note">
+        <span>First divergence snippet</span>
+        <textarea
+          value={firstDivergenceSnippet}
+          onChange={(event) => setFirstDivergenceSnippet(event.target.value)}
+          placeholder="First visible behavior or state divergence"
+          rows={2}
+        />
+      </label>
+      <label className="taxonomy-note">
+        <span>Screenshot pointer</span>
+        <input value={screenshotPath} onChange={(event) => setScreenshotPath(event.target.value)} placeholder="runs/.../screenshot.png" />
+      </label>
       <label className="taxonomy-note">
         <span>Review note</span>
-        <input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Why this label is right or wrong" />
+        <input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional freeform note" />
+      </label>
+      <label className="taxonomy-note">
+        <span>Supporting signals</span>
+        <input value={supportingSignals} onChange={(event) => setSupportingSignals(event.target.value)} placeholder="semicolon-separated evidence signals" />
+      </label>
+      <label className="taxonomy-note">
+        <span>Classifier limitation</span>
+        <input
+          value={classifierLimitation}
+          onChange={(event) => setClassifierLimitation(event.target.value)}
+          placeholder="What the automatic rule missed"
+        />
       </label>
       {source === "api" ? (
         <div className="taxonomy-actions">
           <button
             type="button"
             disabled={saving}
-            onClick={() => onReview({ runId: run.id, patternKey: pattern.key, type: suggestedType, status: "confirmed", note })}
+            onClick={() =>
+              onReview(
+                buildFailureReviewInput({
+                  run,
+                  pattern,
+                  type: suggestedType,
+                  status: "confirmed",
+                  note,
+                  confidence,
+                  evidenceContext,
+                  firstDivergenceSnippet,
+                  screenshotPath,
+                  why,
+                  supportingSignals,
+                  classifierLimitation,
+                }),
+              )
+            }
           >
             Confirm suggestion
           </button>
           <button
             type="button"
             disabled={saving}
-            onClick={() => onReview({ runId: run.id, patternKey: pattern.key, type: selectedType, status: correctionStatus, note })}
+            onClick={() => onReview(draftReview)}
           >
             Save correction
           </button>
@@ -687,25 +788,142 @@ function FailurePatternReview({
   );
 }
 
-function reviewCommand(run: MonitorRun, pattern: FailurePattern, type: string, status: "confirmed" | "corrected", note: string): string {
+function reviewCommand(review: FailureReviewInput): string {
   const parts = [
     "node packages/agentcert-cli/dist/cli.js corpus review",
     "--corpus public-demo/browser-agent-robustness/evidence/agentcert-corpus.jsonl",
     "--reviews public-demo/browser-agent-robustness/evidence/failure-reviews.jsonl",
-    `--record-id ${quoteArg(run.id)}`,
-    `--pattern-key ${quoteArg(pattern.key)}`,
-    `--type ${quoteArg(type)}`,
-    `--status ${quoteArg(status)}`,
+    `--record-id ${quoteArg(review.runId)}`,
+    `--pattern-key ${quoteArg(review.patternKey)}`,
+    `--type ${quoteArg(review.type)}`,
+    `--status ${quoteArg(review.status)}`,
     "--reviewer you@example.com",
   ];
-  if (note.trim().length > 0) {
-    parts.push(`--note ${quoteArg(note.trim())}`);
+  if (review.confidence !== undefined) {
+    parts.push(`--confidence ${review.confidence}`);
+  }
+  if (review.note?.trim()) {
+    parts.push(`--note ${quoteArg(oneLine(review.note))}`);
+  }
+  if (review.evidenceContext?.firstDivergenceSnippet) {
+    parts.push(`--first-divergence ${quoteArg(oneLine(review.evidenceContext.firstDivergenceSnippet))}`);
+  }
+  if (review.evidenceContext?.screenshotPath) {
+    parts.push(`--screenshot ${quoteArg(review.evidenceContext.screenshotPath)}`);
+  }
+  if (review.evidenceContext?.tracePath) {
+    parts.push(`--trace ${quoteArg(review.evidenceContext.tracePath)}`);
+  }
+  if (review.evidenceContext?.stepIndex !== undefined) {
+    parts.push(`--step-index ${review.evidenceContext.stepIndex}`);
+  }
+  if (review.taxonomyRationale?.primaryReason) {
+    parts.push(`--why ${quoteArg(oneLine(review.taxonomyRationale.primaryReason))}`);
+  }
+  for (const signal of review.taxonomyRationale?.supportingSignals ?? []) {
+    parts.push(`--signal ${quoteArg(oneLine(signal))}`);
+  }
+  if (review.taxonomyRationale?.classifierLimitation) {
+    parts.push(`--classifier-limitation ${quoteArg(oneLine(review.taxonomyRationale.classifierLimitation))}`);
   }
   return parts.join(" ");
 }
 
 function quoteArg(input: string): string {
   return `"${input.replaceAll('"', '\\"')}"`;
+}
+
+function buildFailureReviewInput(input: {
+  run: MonitorRun;
+  pattern: FailurePattern;
+  type: string;
+  status: "confirmed" | "corrected";
+  note: string;
+  confidence: string;
+  evidenceContext?: FailureReviewEvidenceContext;
+  firstDivergenceSnippet: string;
+  screenshotPath: string;
+  why: string;
+  supportingSignals: string;
+  classifierLimitation: string;
+}): FailureReviewInput {
+  const confidence = Number(input.confidence);
+  const firstDivergenceSnippet = input.firstDivergenceSnippet.trim();
+  const screenshotPath = input.screenshotPath.trim();
+  const tracePath = input.evidenceContext?.tracePath;
+  const stepIndex = input.evidenceContext?.stepIndex;
+  return {
+    runId: input.run.id,
+    patternKey: input.pattern.key,
+    type: input.type,
+    status: input.status,
+    note: input.note.trim() || undefined,
+    confidence: Number.isFinite(confidence) ? Math.min(1, Math.max(0, confidence)) : undefined,
+    evidenceContext:
+      firstDivergenceSnippet || screenshotPath || input.evidenceContext?.screenshotUrl || tracePath || stepIndex !== undefined
+        ? {
+            firstDivergenceSnippet: firstDivergenceSnippet || undefined,
+            screenshotPath: screenshotPath || undefined,
+            screenshotUrl: input.evidenceContext?.screenshotUrl,
+            tracePath,
+            stepIndex,
+          }
+        : undefined,
+    taxonomyRationale: {
+      primaryReason:
+        input.why.trim() || defaultTaxonomyReason(input.pattern, input.type, input.status === "corrected" ? "corrected" : "confirmed"),
+      supportingSignals: splitSignals(input.supportingSignals),
+      classifierLimitation: input.classifierLimitation.trim() || undefined,
+    },
+  };
+}
+
+function reviewEvidenceContextFromDetail(detail?: RunDetail): FailureReviewEvidenceContext | undefined {
+  if (!detail) return undefined;
+  const divergence = detail.timeline.find((item) => item.title === "First observed page divergence") ?? detail.timeline.find((item) => item.kind === "failure");
+  const screenshot = detail.artifacts.find((artifact) => artifact.kind === "screenshot");
+  const trace = detail.artifacts.find((artifact) => artifact.kind === "trace");
+  const firstDivergenceSnippet = truncateSnippet(divergence?.message ?? detail.traceSummary?.lastStepText ?? detail.traceSummary?.firstStepText);
+  if (!firstDivergenceSnippet && !screenshot && !trace && detail.traceSummary?.firstDivergenceStep === undefined) {
+    return undefined;
+  }
+  return {
+    firstDivergenceSnippet,
+    screenshotPath: screenshot?.path,
+    screenshotUrl: screenshot?.url,
+    tracePath: trace?.path,
+    stepIndex: divergence?.stepIndex ?? detail.traceSummary?.firstDivergenceStep,
+  };
+}
+
+function defaultTaxonomyReason(pattern: FailurePattern, type: string, status: "unreviewed" | "confirmed" | "corrected"): string {
+  const suggestedType = pattern.suggestedType ?? pattern.type;
+  if (status === "corrected" || type !== suggestedType) {
+    return `Human review corrected ${formatFilterValue(suggestedType)} to ${formatFilterValue(type)} based on the run evidence.`;
+  }
+  return `Human review confirmed ${formatFilterValue(type)} based on the run evidence.`;
+}
+
+function formatConfidence(value: number): string {
+  return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function splitSignals(input: string): string[] | undefined {
+  const values = input
+    .split(";")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return values.length > 0 ? values : undefined;
+}
+
+function truncateSnippet(input: string | undefined): string | undefined {
+  if (!input) return undefined;
+  const value = oneLine(input);
+  return value.length > 320 ? `${value.slice(0, 317)}...` : value;
+}
+
+function oneLine(input: string): string {
+  return input.replace(/\s+/g, " ").trim();
 }
 
 function EvidencePreview({ run, detail, source }: { run?: MonitorRun; detail?: RunDetail; source: "api" | "static" }) {
