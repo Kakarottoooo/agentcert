@@ -21,6 +21,11 @@
     "agentcert:report": "npm --prefix packages/agentcert-cli run build && node packages/agentcert-cli/dist/cli.js report --mcpbench examples/reports/passing/results.json --out .agentcert/latest --subject demo-agent",
     "agentcert:corpus-demo": "node packages/agentcert-cli/dist/cli.js corpus ingest --tripwire packages/tripwire-ci/.tripwire/public-demo/tripwire-result.json --out .agentcert/corpus/corpus.jsonl --subject tripwire-brittle-reference-agent --replace",
     "agentcert:corpus-summary": "node packages/agentcert-cli/dist/cli.js corpus summary --corpus .agentcert/corpus/corpus.jsonl",
+    "agentcert:monitor-data": "node packages/agentcert-cli/dist/cli.js monitor build --corpus public-demo/browser-agent-robustness/evidence/agentcert-corpus.jsonl --out packages/agentcert-dashboard/public/data/monitor.json --subject agentcert-public-demo --detail-url ../browser-agent-robustness/",
+    "dashboard:install": "cd packages/agentcert-dashboard && npm install",
+    "dashboard:build": "npm --prefix packages/agentcert-dashboard run build",
+    "dashboard:dev": "npm --prefix packages/agentcert-dashboard run dev",
+    "agentcert:monitor-build": "npm run agentcert:build && npm run agentcert:monitor-data && npm run dashboard:build",
     "check": "npm run tripwire:build && npm run tripwire:test && npm run onegent:build && npm run onegent:test && npm run agentcert:build && npm run agentcert:test"
   },
   "engines": {

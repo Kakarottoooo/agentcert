@@ -8,8 +8,9 @@ It combines two implemented pre-release engines and one local runtime-action MVP
 - **Tripwire CI**: browser/computer-use agent robustness gates that inject realistic UI and network faults in CI.
 - **Onegent Runtime**: a local Action Gateway MVP for policy, approval, mock execution, verification, and audit packets.
 - **AgentCert CLI**: a unified evidence packet and report generator across the lifecycle.
+- **AgentCert Monitor**: a dashboard UI over accumulated corpus snapshots.
 
-Public demo: [Browser Agent Robustness](https://kakarottoooo.github.io/agentcert/public-demo/browser-agent-robustness/)
+Public monitor: [AgentCert Monitor](https://kakarottoooo.github.io/agentcert/public-demo/agentcert-monitor/)
 
 ## The Lifecycle
 
@@ -49,6 +50,7 @@ src/mcpbench/                 Python MCP/tool benchmark and runtime monitor
 packages/tripwire-ci/         TypeScript Playwright/CDP browser-agent CI gate
 packages/onegent-runtime/     TypeScript local Action Gateway runtime demo
 packages/agentcert-cli/       TypeScript unified evidence/report CLI
+packages/agentcert-dashboard/ TypeScript React monitor UI for accumulated corpus snapshots
 schemas/                      Shared AgentCert result, evidence, and bundle schemas
 scenarios/                    Failure scenario library
 docs/standards/               Standards mapping for agent assurance reviews
@@ -111,15 +113,33 @@ node packages/agentcert-cli/dist/cli.js corpus summary --corpus .agentcert/corpu
 
 The corpus is JSONL on purpose: it is easy to diff, easy to commit for public demos, and can later be ingested into SQLite, Postgres, or object storage without changing the evidence format.
 
-## Public Demo: Browser Agent Robustness
+Build the monitor snapshot and UI:
 
-Open the hosted demo:
+```powershell
+npm run agentcert:monitor-build
+```
+
+## Public Monitor
+
+Open the hosted monitor:
+
+[https://kakarottoooo.github.io/agentcert/public-demo/agentcert-monitor/](https://kakarottoooo.github.io/agentcert/public-demo/agentcert-monitor/)
+
+The monitor reads a generated `monitor.json` snapshot from the AgentCert corpus and shows:
+
+- lifecycle gate status for MCPBench, Tripwire CI, and Onegent Runtime;
+- accumulated corpus record counts and pass rate;
+- top failure patterns;
+- recent evidence runs and run-level inspection.
+
+The detailed Tripwire evidence page is still available:
 
 [https://kakarottoooo.github.io/agentcert/public-demo/browser-agent-robustness/](https://kakarottoooo.github.io/agentcert/public-demo/browser-agent-robustness/)
 
-Or open the checked-in static page locally:
+Or open the checked-in pages locally:
 
 ```text
+public-demo/agentcert-monitor/index.html
 public-demo/browser-agent-robustness/index.html
 ```
 

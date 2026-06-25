@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { buildEvidenceBundle } from "./bundle.js";
 import { appendCorpusRecords, readCorpus, recordsFromAgentCertResult, renderCorpusSummary, summarizeCorpus } from "./corpus.js";
+import { buildMonitorSnapshot, writeMonitorSnapshot } from "./monitor.js";
 import { normalizeMcpBenchResult, normalizeOnegentAuditPacket, normalizeTripwireResult } from "./normalizers.js";
 import { renderMarkdownReport } from "./report.js";
 import type { AgentCertConfig, AgentCertResult } from "./types.js";
@@ -73,12 +74,32 @@ if (command === "init") {
   agentcert corpus summary --corpus .agentcert/corpus/corpus.jsonl
 `);
   }
+} else if (command === "monitor") {
+  const action = process.argv[3] ?? "help";
+  if (action === "build") {
+    const corpusPath = readFlag("--corpus") ?? ".agentcert/corpus/corpus.jsonl";
+    const outPath = readFlag("--out") ?? ".agentcert/monitor/monitor.json";
+    const subject = readFlag("--subject") ?? "agentcert-subject";
+    const detailUrl = readFlag("--detail-url");
+    const records = await readCorpus(corpusPath);
+    const snapshot = buildMonitorSnapshot(records, { subject, detailUrl });
+    await writeMonitorSnapshot(outPath, snapshot);
+    process.stdout.write(`Wrote ${resolve(outPath)}\n`);
+    process.stdout.write(
+      `Monitor snapshot: ${snapshot.summary.totalRecords} records, ${(snapshot.summary.passRate * 100).toFixed(1)}% pass rate\n`,
+    );
+  } else {
+    process.stdout.write(`Usage:
+  agentcert monitor build --corpus .agentcert/corpus/corpus.jsonl --out packages/agentcert-dashboard/public/data/monitor.json --subject my-agent
+`);
+  }
 } else {
   process.stdout.write(`Usage:
   agentcert init --out agentcert.config.json
   agentcert report --mcpbench .mcpbench/latest/results.json --tripwire .tripwire/latest/tripwire-result.json --onegent .onegent/procurement/audit-packet.json --out .agentcert/latest --subject my-agent
   agentcert corpus ingest --tripwire .tripwire/latest/tripwire-result.json --out .agentcert/corpus/corpus.jsonl --subject my-agent
   agentcert corpus summary --corpus .agentcert/corpus/corpus.jsonl
+  agentcert monitor build --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/monitor/monitor.json --subject my-agent
 `);
 }
 

@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.dev/schemas/agentcert-monitor-snapshot.schema.json",
+  "title": "AgentCertMonitorSnapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "generatedAt", "subject", "summary", "lifecycle", "recentRuns", "failurePatterns", "links"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "agentcert.monitor_snapshot"
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "subject": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["totalRecords", "passedRecords", "failedRecords", "passRate"]
+    },
+    "lifecycle": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "phase", "description", "recordCount", "passedCount", "failedCount", "passRate", "status"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": ["mcpbench", "tripwire-ci", "onegent-runtime"]
+          },
+          "name": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string",
+            "enum": ["Before release", "After release"]
+          },
+          "description": {
+            "type": "string"
+          },
+          "recordCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "passedCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failedCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "passRate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": ["passing", "failing", "waiting"]
+          }
+        }
+      }
+    },
+    "recentRuns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "product", "phase", "subject", "passed", "score", "timestamp", "evidenceCount", "artifacts"]
+      }
+    },
+    "failurePatterns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "count", "severity", "message"],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "severity": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "links": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "detailUrl": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
