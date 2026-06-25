@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { recordsFromAgentCertResult, renderCorpusSummary, reviewedFailureDataset, summarizeCorpus } from "../src/corpus.js";
+import {
+  evaluateFailureClassifier,
+  recordsFromAgentCertResult,
+  renderCorpusSummary,
+  reviewedFailureDataset,
+  summarizeCorpus,
+} from "../src/corpus.js";
 import { normalizeTripwireResult } from "../src/normalizers.js";
 import type { AgentCertResult } from "../src/types.js";
 
@@ -111,6 +117,7 @@ describe("AgentCert corpus", () => {
 
     const summary = summarizeCorpus(records);
     const dataset = reviewedFailureDataset(records);
+    const classifier = evaluateFailureClassifier(records);
 
     expect(summary.taxonomy).toMatchObject({
       totalFailurePatterns: 3,
@@ -135,6 +142,15 @@ describe("AgentCert corpus", () => {
       reviewedType: "console_error",
       reviewStatus: "corrected",
     });
+    expect(classifier).toMatchObject({
+      kind: "agentcert.failure_classifier_evaluation",
+      reviewedRows: 2,
+      correctRows: 1,
+      incorrectRows: 1,
+      precision: 0.5,
+      coverage: 2 / 3,
+    });
+    expect(classifier.confusion).toContainEqual({ suggestedType: "network_failure", reviewedType: "console_error", count: 1 });
   });
 
   it("does not treat high-risk evidence on a passing product run as a failure pattern", () => {

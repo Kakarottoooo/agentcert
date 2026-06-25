@@ -12,9 +12,24 @@ credentials.
 ## SDK
 
 ```ts
-import { createOnegentRuntime } from "@agentcert/onegent-runtime";
+import {
+  createInMemoryAuditStore,
+  createLocalEchoAdapter,
+  createOnegentRuntime,
+} from "@agentcert/onegent-runtime";
 
-const runtime = createOnegentRuntime();
+const auditStore = createInMemoryAuditStore();
+const runtime = createOnegentRuntime({
+  approvalAdapter: {
+    name: "manager-approval",
+    requestApproval: async () => ({
+      approved: true,
+      reviewerId: "manager@example.local",
+      reviewerComment: "Approved for demo execution.",
+    }),
+  },
+  auditStore,
+});
 const review = runtime.captureAction({
   sourceAgentName: "ProcurementAgent",
   actionType: "SUBMIT",
@@ -32,21 +47,19 @@ const review = runtime.captureAction({
 
 const risk = runtime.assessRisk(review.action);
 const policy = runtime.evaluatePolicy(review.action, risk);
-const approval = runtime.requestApproval(review.action);
+const approval = await runtime.requestApproval(review.action);
 
-runtime.approveAction(review.action);
-const observed = await runtime.executeAfterApproval(review.action, {
-  name: "local-adapter",
-  execute: async (action) => ({
-    method: "LOCAL_ADAPTER",
-    previousState: action.beforeState,
-    observedState: action.proposedAfterState,
-  }),
-});
-runtime.verifyOutcome(review.action, observed);
+if (approval.status !== "APPROVED") throw new Error("Action was not approved.");
 
-const auditPacket = runtime.writeAuditPacket(review.action);
+const observed = await runtime.executeAfterApproval(review.action, createLocalEchoAdapter());
+const verification = runtime.verifyOutcome(review.action, observed);
+if (!verification.success) throw new Error("Observed state did not match expected state.");
+const auditPacket = await runtime.writeAuditPacket(review.action);
 ```
+
+The SDK is intentionally adapter-shaped: you bring the approval workflow, the
+execution adapter, and the audit store. The checked-in examples are local-only
+and deterministic so they are safe for tests and demos.
 
 ## Demo
 

@@ -5,6 +5,7 @@ import { renderAgentCertBadge } from "./badge.js";
 import { buildEvidenceBundle } from "./bundle.js";
 import {
   recordsFromAgentCertResult,
+  evaluateFailureClassifier,
   renderCorpusSummary,
   summarizeCorpus,
   writeReviewedFailureDataset,
@@ -22,7 +23,7 @@ import {
 } from "./failure-review.js";
 import { buildMonitorSnapshot, writeMonitorSnapshot } from "./monitor.js";
 import { normalizeMcpBenchResult, normalizeOnegentAuditPacket, normalizeTripwireResult } from "./normalizers.js";
-import { renderMarkdownReport } from "./report.js";
+import { renderHtmlReport, renderMarkdownReport } from "./report.js";
 import { serveAgentCertMonitor } from "./local-server.js";
 import { parseSchemaId, validateAgentCertSchema } from "./schema-validator.js";
 import {
@@ -41,6 +42,7 @@ const command = process.argv[2] ?? "help";
 if (command === "init") {
   const outPath = resolve(readFlag("--out") ?? "agentcert.config.json");
   const tripwireConfigPath = resolve(readFlag("--tripwire-config") ?? "tripwire.yml");
+  const githubWorkflowPath = resolve(readFlag("--github-action-out") ?? ".github/workflows/agentcert-tripwire.yml");
   const subject = readFlag("--subject") ?? "my-browser-agent";
   const force = readBoolFlag("--force");
   const config: AgentCertRunProfile = {
@@ -60,10 +62,14 @@ if (command === "init") {
       },
       corpus: {
         path: ".agentcert/corpus/corpus.jsonl",
-        replace: true,
+        reviewsPath: ".agentcert/corpus/failure-reviews.jsonl",
+        replace: false,
       },
       monitor: {
-        out: ".agentcert/monitor/monitor.json",
+        out: ".agentcert/latest/monitor.json",
+      },
+      dataset: {
+        reviewedOut: ".agentcert/latest/reviewed-failure-dataset.jsonl",
       },
       gate: {
         failOnVerdict: true,
@@ -79,11 +85,16 @@ if (command === "init") {
     await writeStarterFile(tripwireConfigPath, starterTripwireConfig(subject), force);
     process.stdout.write(`Wrote ${tripwireConfigPath}\n`);
   }
+  if (!readBoolFlag("--skip-github-action")) {
+    await writeStarterFile(githubWorkflowPath, starterGitHubActionWorkflow(subject), force);
+    process.stdout.write(`Wrote ${githubWorkflowPath}\n`);
+  }
   process.stdout.write(`
 Next:
   1. Edit tripwire.yml so startUrl and agent.command/agent.args match your app and browser agent.
-  2. Run Tripwire in CI with Kakarottoooo/agentcert/actions/tripwire@v0, or produce .tripwire/latest/tripwire-result.json locally.
-  3. Run npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --subject ${JSON.stringify(subject)} --fail-on-verdict
+  2. Commit .github/workflows/agentcert-tripwire.yml to run AgentCert in CI.
+  3. Or run locally after Tripwire writes .tripwire/latest/tripwire-result.json:
+     npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --subject ${JSON.stringify(subject)} --fail-on-verdict
 `);
 } else if (command === "report") {
   const config = await loadConfig(readFlag("--config"));
@@ -101,9 +112,11 @@ Next:
   await mkdir(outDir, { recursive: true });
   await writeFile(`${outDir}/agentcert-evidence.json`, `${JSON.stringify(bundle, null, 2)}\n`);
   await writeFile(`${outDir}/agentcert-report.md`, renderMarkdownReport(bundle));
+  await writeFile(`${outDir}/agentcert-report.html`, renderHtmlReport(bundle));
   await writeFile(`${outDir}/badge.svg`, renderAgentCertBadge(bundle));
   process.stdout.write(`Wrote ${outDir}\\agentcert-evidence.json\n`);
   process.stdout.write(`Wrote ${outDir}\\agentcert-report.md\n`);
+  process.stdout.write(`Wrote ${outDir}\\agentcert-report.html\n`);
   process.stdout.write(`Wrote ${outDir}\\badge.svg\n`);
   process.exitCode = bundle.verdict.passed ? 0 : 1;
 } else if (command === "corpus") {
@@ -151,12 +164,28 @@ Next:
       await store.close();
     }
   } else if (action === "export-reviewed") {
-    const outPath = readFlag("--out") ?? ".agentcert/corpus/reviewed-failure-dataset.jsonl";
+    const outPath = readFlag("--out") ?? ".agentcert/latest/reviewed-failure-dataset.jsonl";
     const store = await openCorpusStore(readCorpusStoreOptions(".agentcert/corpus/corpus.jsonl"));
     try {
       const records = applyFailureReviews(await store.readAll(), await readFailureReviews(readReviewsPath()));
       const rows = await writeReviewedFailureDataset(outPath, records);
       process.stdout.write(`Wrote ${rows.length} reviewed failure rows to ${resolve(outPath)}\n`);
+    } finally {
+      await store.close();
+    }
+  } else if (action === "classifier-eval") {
+    const outPath = readFlag("--out");
+    const store = await openCorpusStore(readCorpusStoreOptions(".agentcert/corpus/corpus.jsonl"));
+    try {
+      const records = applyFailureReviews(await store.readAll(), await readFailureReviews(readReviewsPath()));
+      const evaluation = `${JSON.stringify(evaluateFailureClassifier(records), null, 2)}\n`;
+      if (outPath) {
+        await mkdir(dirname(resolve(outPath)), { recursive: true });
+        await writeFile(outPath, evaluation);
+        process.stdout.write(`Wrote classifier evaluation to ${resolve(outPath)}\n`);
+      } else {
+        process.stdout.write(evaluation);
+      }
     } finally {
       await store.close();
     }
@@ -203,7 +232,8 @@ Next:
   agentcert corpus ingest --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --tripwire .tripwire/latest/tripwire-result.json --subject my-agent
   agentcert corpus review --corpus .agentcert/corpus/corpus.jsonl --reviews .agentcert/corpus/failure-reviews.jsonl --pattern-key tripwire:ui_drift:modal-overlay:url_contains --type ui_drift --status confirmed --reviewer you@example.com --confidence 0.8 --why "Visible evidence supports the ui_drift label."
   agentcert corpus metrics --corpus .agentcert/corpus/corpus.jsonl
-  agentcert corpus export-reviewed --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/corpus/reviewed-failure-dataset.jsonl
+  agentcert corpus export-reviewed --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/latest/reviewed-failure-dataset.jsonl
+  agentcert corpus classifier-eval --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/latest/failure-classifier-evaluation.json
   agentcert corpus summary --corpus .agentcert/corpus/corpus.jsonl
   agentcert corpus summary --store postgres --database-url "$DATABASE_URL"
 `);
@@ -211,7 +241,7 @@ Next:
 } else if (command === "monitor") {
   const action = process.argv[3] ?? "help";
   if (action === "build") {
-    const outPath = readFlag("--out") ?? ".agentcert/monitor/monitor.json";
+    const outPath = readFlag("--out") ?? ".agentcert/latest/monitor.json";
     const subject = readFlag("--subject") ?? "agentcert-subject";
     const detailUrl = readFlag("--detail-url");
     const store = await openCorpusStore(readCorpusStoreOptions(".agentcert/corpus/corpus.jsonl"));
@@ -291,8 +321,9 @@ Next:
   } else {
     process.stdout.write(`Usage:
   agentcert schema validate --schema evidence-bundle --file .agentcert/latest/agentcert-evidence.json
-  agentcert schema validate --schema monitor-snapshot --file .agentcert/monitor/monitor.json
+  agentcert schema validate --schema monitor-snapshot --file .agentcert/latest/monitor.json
   agentcert schema validate --schema corpus-record --file examples/agentcert/corpus-record.example.json
+  agentcert schema validate --schema classifier-eval --file examples/agentcert/classifier-eval.example.json
 `);
   }
 } else {
@@ -303,10 +334,11 @@ Next:
   agentcert corpus ingest --tripwire .tripwire/latest/tripwire-result.json --out .agentcert/corpus/corpus.jsonl --subject my-agent
   agentcert corpus review --corpus .agentcert/corpus/corpus.jsonl --reviews .agentcert/corpus/failure-reviews.jsonl --pattern-key <failure-key> --type wrong_click --status corrected
   agentcert corpus summary --corpus .agentcert/corpus/corpus.jsonl
-  agentcert monitor build --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/monitor/monitor.json --subject my-agent
-  agentcert monitor build --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --out .agentcert/monitor/monitor.json --subject my-agent
+  agentcert corpus classifier-eval --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/latest/failure-classifier-evaluation.json
+  agentcert monitor build --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/latest/monitor.json --subject my-agent
+  agentcert monitor build --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --out .agentcert/latest/monitor.json --subject my-agent
   agentcert run --profile public-demo
-  agentcert run --mcpbench .mcpbench/latest/results.json --tripwire .tripwire/latest/tripwire-result.json --onegent .onegent/procurement/audit-packet.json --out .agentcert/latest --corpus .agentcert/corpus/corpus.jsonl --monitor-out .agentcert/monitor/monitor.json --reviewed-dataset-out .agentcert/corpus/reviewed-failure-dataset.jsonl
+  agentcert run --mcpbench .mcpbench/latest/results.json --tripwire .tripwire/latest/tripwire-result.json --onegent .onegent/procurement/audit-packet.json --out .agentcert/latest --corpus .agentcert/corpus/corpus.jsonl --monitor-out .agentcert/latest/monitor.json --reviewed-dataset-out .agentcert/latest/reviewed-failure-dataset.jsonl
   agentcert lab build --config examples/real-agents/robustness-lab/lab.config.json --out public-demo/real-agent-robustness/evidence/lab-snapshot.json
   agentcert serve --corpus .agentcert/corpus/corpus.jsonl --static public-demo/agentcert-monitor --artifact-root public-demo/browser-agent-robustness/evidence/tripwire-public-demo
   agentcert schema validate --schema evidence-bundle --file .agentcert/latest/agentcert-evidence.json
@@ -516,5 +548,33 @@ scenarios:
         type: "http_failure"
         status: 503
         match: "**/success"
+`;
+}
+
+function starterGitHubActionWorkflow(subject: string): string {
+  return `name: AgentCert Tripwire
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  tripwire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: Kakarottoooo/agentcert/actions/tripwire@v0
+        with:
+          config: tripwire.yml
+          out: .tripwire/latest
+          fail-under: "0.8"
+          subject: ${JSON.stringify(subject)}
+          agentcert-out: .agentcert/latest
+          fail-on-verdict: "true"
 `;
 }

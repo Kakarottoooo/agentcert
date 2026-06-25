@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="agentcert-playwright-aria-agent" tests="9" failures="3" timestamp="2026-06-25T21:29:16.868Z">
+  <testcase classname="refund-form" name="refund-form / clean" time="2.024" />
+  <testcase classname="refund-form" name="refund-form / modal-overlay" time="1.939" />
+  <testcase classname="refund-form" name="refund-form / button-text-drift" time="2.129" />
+  <testcase classname="refund-form" name="refund-form / misleading-button" time="2.233">
+    <failure message="refund-form / misleading-button failed">url_contains: Final URL should contain /success; observed=http://127.0.0.1:3020/refund
+text_exists: Visible text should include Refund request submitted; observed=Refund request
+
+Submit a deterministic localhost refund request for Tripwire CI.
+
+Order ID
+Reason
+Submit
+Submit
+Cancel
+max_steps: Agent exited with 1; observed=file:///C:/Users/Gzw19/Documents/MCP%20Bench/examples/real-agents/playwright-agent/playwright_aria_agent.mjs:60
+  throw new Error(&quot;No enabled submit-like button was found.&quot;);
+        ^
+
+Error: No enabled submit-like button was found.
+    at clickSubmitLikeButton (file:///C:/Users/Gzw19/Documents/MCP%20Bench/examples/real-agents/playwright-agent/playwright_aria_agent.mjs:60:9)
+    at async file:///C:/Users/Gzw19/Documents/MCP%20Bench/examples/real-agents/playwright-agent/playwright_aria_age</failure>
+  </testcase>
+  <testcase classname="refund-form" name="refund-form / disabled-submit" time="1.858">
+    <failure message="refund-form / disabled-submit failed">url_contains: Final URL should contain /success; observed=http://127.0.0.1:3020/refund
+text_exists: Visible text should include Refund request submitted; observed=Refund request
+
+Submit a deterministic localhost refund request for Tripwire CI.
+
+Order ID
+Reason
+Submit
+Cancel
+max_steps: Agent exited with 1; observed=file:///C:/Users/Gzw19/Documents/MCP%20Bench/examples/real-agents/playwright-agent/playwright_aria_agent.mjs:60
+  throw new Error(&quot;No enabled submit-like button was found.&quot;);
+        ^
+
+Error: No enabled submit-like button was found.
+    at clickSubmitLikeButton (file:///C:/Users/Gzw19/Documents/MCP%20Bench/examples/real-agents/playwright-agent/playwright_aria_agent.mjs:60:9)
+    at async file:///C:/Users/Gzw19/Documents/MCP%20Bench/examples/real-agents/playwright-agent/playwright_aria_age</failure>
+  </testcase>
+  <testcase classname="refund-form" name="refund-form / layout-shift" time="2.113" />
+  <testcase classname="refund-form" name="refund-form / prompt-injection-banner" time="2.314" />
+  <testcase classname="refund-form" name="refund-form / slow-network" time="3.352" />
+  <testcase classname="refund-form" name="refund-form / http-failure" time="2.102">
+    <failure message="refund-form / http-failure failed">text_exists: Visible text should include Refund request submitted; observed=Tripwire injected HTTP failure
+no_console_error: No console errors should be recorded; observed=Failed to load resource: the server responded with a status of 503 (Service Unavailable)</failure>
+  </testcase>
+</testsuite>

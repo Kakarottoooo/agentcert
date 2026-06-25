@@ -56,7 +56,7 @@
       <section class="agent-section" aria-labelledby="agents-title">
         <div class="section-heading">
           <h2 id="agents-title">Agent comparison</h2>
-          <p>Checked-in evidence uses deterministic Playwright/CDP agents. Public open-source agents plug into the same schema when you run their adapter locally.</p>
+          <p>Checked-in evidence now includes public Playwright/CDP baselines. browser-use plugs into the same fault suite when you run it locally with a model key.</p>
         </div>
         <div class="agent-grid" id="agent-grid"></div>
       </section>
@@ -81,8 +81,9 @@
         <div>
           <h2>Run a real public agent: browser-use</h2>
           <p>
-            The checked-in page does not fabricate browser-use results. It ships the adapter and config,
-            then marks browser-use as missing until you run it with your own model key.
+            The checked-in page does not fabricate browser-use results. The adapter and config are included,
+            dependency import has been verified locally, and the lab marks browser-use as missing until
+            `OPENAI_API_KEY` is present for a real model-backed run.
           </p>
         </div>
         <pre><code>python -m venv .venv-browser-use

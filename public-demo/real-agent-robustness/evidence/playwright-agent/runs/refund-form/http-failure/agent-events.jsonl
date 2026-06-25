@@ -1,0 +1,5 @@
+{"timestamp":"2026-06-25T21:29:16.422Z","type":"agent_start","target":"playwright-aria-agent","note":"http://127.0.0.1:3020/refund"}
+{"timestamp":"2026-06-25T21:29:16.455Z","type":"fill","target":"label:Order ID","note":"1234"}
+{"timestamp":"2026-06-25T21:29:16.465Z","type":"fill","target":"label:Reason","note":"Customer requested a refund."}
+{"timestamp":"2026-06-25T21:29:16.533Z","type":"click","target":"button:Submit","note":"Clicked submit-like button by accessible name."}
+{"timestamp":"2026-06-25T21:29:16.536Z","type":"complete","target":"url","note":"http://127.0.0.1:3020/success"}

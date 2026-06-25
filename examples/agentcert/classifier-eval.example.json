@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1",
+  "kind": "agentcert.failure_classifier_evaluation",
+  "reviewedRows": 3,
+  "correctRows": 2,
+  "incorrectRows": 1,
+  "precision": 0.6666666666666666,
+  "coverage": 0.5,
+  "byType": [
+    {
+      "type": "network_failure",
+      "reviewedRows": 2,
+      "correctRows": 1,
+      "precision": 0.5
+    },
+    {
+      "type": "wrong_click",
+      "reviewedRows": 1,
+      "correctRows": 1,
+      "precision": 1
+    }
+  ],
+  "confusion": [
+    {
+      "suggestedType": "silent_partial_success",
+      "reviewedType": "network_failure",
+      "count": 1
+    }
+  ]
+}

@@ -12,10 +12,20 @@ The command reads configured evidence artifacts and writes:
 ```text
 .agentcert/latest/agentcert-evidence.json
 .agentcert/latest/agentcert-report.md
+.agentcert/latest/agentcert-report.html
 .agentcert/latest/agentcert-run-manifest.json
 .agentcert/corpus/corpus.jsonl
-.agentcert/monitor/monitor.json
+.agentcert/latest/reviewed-failure-dataset.jsonl
+.agentcert/latest/monitor.json
 ```
+
+Schema examples in this directory:
+
+- `evidence-bundle.example.json`
+- `corpus-record.example.json`
+- `failure-review.example.json`
+- `classifier-eval.example.json`
+- `monitor-snapshot.example.json`
 
 If an underlying engine exits non-zero after writing an evidence artifact, add
 `"allowCommandFailure": true` to that job in `agentcert.config.json`. AgentCert
@@ -30,7 +40,8 @@ node packages/agentcert-cli/dist/cli.js run `
   --onegent packages/onegent-runtime/.onegent/procurement/audit-packet.json `
   --out .agentcert/latest `
   --corpus .agentcert/corpus/corpus.jsonl `
-  --monitor-out .agentcert/monitor/monitor.json `
+  --monitor-out .agentcert/latest/monitor.json `
+  --reviewed-dataset-out .agentcert/latest/reviewed-failure-dataset.jsonl `
   --subject my-agent `
   --replace `
   --fail-on-verdict

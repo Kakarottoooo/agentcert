@@ -33,4 +33,27 @@ describe("AgentCert schema validator", () => {
     expect(result.errors).toContain("generatedAt must be a non-empty string.");
     expect(result.errors).toContain("summary must be an object.");
   });
+
+  it("accepts classifier evaluation artifacts", () => {
+    const result = validateAgentCertSchema("classifier-eval", {
+      schemaVersion: "1",
+      kind: "agentcert.failure_classifier_evaluation",
+      reviewedRows: 2,
+      correctRows: 1,
+      incorrectRows: 1,
+      precision: 0.5,
+      coverage: 0.25,
+      byType: [{ type: "network_failure", reviewedRows: 1, correctRows: 1, precision: 1 }],
+      confusion: [
+        {
+          suggestedType: "network_failure",
+          reviewedType: "console_error",
+          count: 1,
+        },
+      ],
+    });
+
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
 });

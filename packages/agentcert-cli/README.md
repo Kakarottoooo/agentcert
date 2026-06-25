@@ -20,22 +20,36 @@ Default outputs:
 
 - `.agentcert/latest/agentcert-evidence.json`
 - `.agentcert/latest/agentcert-report.md`
+- `.agentcert/latest/agentcert-report.html`
 - `.agentcert/latest/agentcert-run-manifest.json`
 - `.agentcert/latest/badge.svg`
 - `.agentcert/corpus/corpus.jsonl`
-- `.agentcert/corpus/reviewed-failure-dataset.jsonl`
-- `.agentcert/monitor/monitor.json`
+- `.agentcert/latest/reviewed-failure-dataset.jsonl`
+- `.agentcert/latest/monitor.json`
 
 Review/export helpers:
 
 ```bash
 npx agentcert corpus metrics --corpus .agentcert/corpus/corpus.jsonl
-npx agentcert corpus export-reviewed --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/corpus/reviewed-failure-dataset.jsonl
+npx agentcert corpus export-reviewed --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/latest/reviewed-failure-dataset.jsonl
+npx agentcert corpus classifier-eval --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/latest/failure-classifier-evaluation.json
 npx agentcert schema validate --schema evidence-bundle --file .agentcert/latest/agentcert-evidence.json
+npx agentcert schema validate --schema classifier-eval --file examples/agentcert/classifier-eval.example.json
 ```
 
 CI users can run Tripwire and AgentCert together with
 `Kakarottoooo/agentcert/actions/tripwire@v0`.
+
+Corpus storage:
+
+```bash
+npx agentcert corpus ingest --tripwire .tripwire/latest/tripwire-result.json --out .agentcert/corpus/corpus.jsonl --subject my-browser-agent
+npx agentcert corpus ingest --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --tripwire .tripwire/latest/tripwire-result.json --subject my-browser-agent
+npx agentcert monitor build --store postgres --database-url "$AGENTCERT_DATABASE_URL" --out .agentcert/latest/monitor.json --subject my-browser-agent
+```
+
+The UI always reads `agentcert.monitor_snapshot`, so switching from JSONL to
+SQLite or Postgres does not require a frontend rewrite.
 
 Failure taxonomy reviews:
 

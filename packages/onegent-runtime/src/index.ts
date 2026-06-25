@@ -1,4 +1,5 @@
 export * from "./api.js";
+export * from "./local-adapters.js";
 export * from "./mock-procurement.js";
 export * from "./policies.js";
 export * from "./policy-config.js";

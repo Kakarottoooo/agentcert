@@ -41,6 +41,9 @@ outputs:
   evidence:
     description: Path to AgentCert evidence bundle.
     value: ${{ inputs.agentcert-out }}/agentcert-evidence.json
+  agentcert-report:
+    description: Path to AgentCert HTML report.
+    value: ${{ inputs.agentcert-out }}/agentcert-report.html
   badge:
     description: Path to AgentCert badge SVG.
     value: ${{ inputs.agentcert-out }}/badge.svg
@@ -123,6 +126,7 @@ runs:
           echo "- Tripwire report: \`${{ inputs.out }}/tripwire-report.html\`"
           echo "- JUnit: \`${{ inputs.out }}/junit.xml\`"
           echo "- Evidence bundle: \`${{ inputs.agentcert-out }}/agentcert-evidence.json\`"
+          echo "- AgentCert HTML report: \`${{ inputs.agentcert-out }}/agentcert-report.html\`"
           echo "- Badge: \`${{ inputs.agentcert-out }}/badge.svg\`"
           echo "- Monitor snapshot: \`${{ inputs.agentcert-out }}/monitor.json\`"
           echo "- Reviewed dataset: \`${{ inputs.agentcert-out }}/reviewed-failure-dataset.jsonl\`"

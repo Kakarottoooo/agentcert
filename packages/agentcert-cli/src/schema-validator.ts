@@ -3,6 +3,7 @@ export type AgentCertSchemaId =
   | "result"
   | "corpus-record"
   | "failure-review"
+  | "classifier-eval"
   | "monitor-snapshot"
   | "robustness-lab";
 
@@ -19,12 +20,15 @@ export function parseSchemaId(input: string | undefined): AgentCertSchemaId {
     value === "result" ||
     value === "corpus-record" ||
     value === "failure-review" ||
+    value === "classifier-eval" ||
     value === "monitor-snapshot" ||
     value === "robustness-lab"
   ) {
     return value;
   }
-  throw new Error(`Unsupported schema "${value}". Use evidence-bundle, result, corpus-record, failure-review, monitor-snapshot, or robustness-lab.`);
+  throw new Error(
+    `Unsupported schema "${value}". Use evidence-bundle, result, corpus-record, failure-review, classifier-eval, monitor-snapshot, or robustness-lab.`
+  );
 }
 
 export function validateAgentCertSchema(schema: AgentCertSchemaId, input: unknown): SchemaValidationResult {
@@ -35,6 +39,7 @@ export function validateAgentCertSchema(schema: AgentCertSchemaId, input: unknow
     if (schema === "result") validateResult(value, errors);
     if (schema === "corpus-record") validateCorpusRecord(value, errors);
     if (schema === "failure-review") validateFailureReview(value, errors);
+    if (schema === "classifier-eval") validateClassifierEval(value, errors);
     if (schema === "monitor-snapshot") validateMonitorSnapshot(value, errors);
     if (schema === "robustness-lab") validateRobustnessLab(value, errors);
   }
@@ -90,6 +95,18 @@ function validateFailureReview(value: Record<string, unknown>, errors: string[])
   requiredEnum(value, "status", ["confirmed", "corrected"], errors);
   requiredObject(value, "target", errors);
   requiredString(value, "type", errors);
+}
+
+function validateClassifierEval(value: Record<string, unknown>, errors: string[]): void {
+  requiredConst(value, "schemaVersion", "1", errors);
+  requiredConst(value, "kind", "agentcert.failure_classifier_evaluation", errors);
+  requiredNumber(value, "reviewedRows", errors);
+  requiredNumber(value, "correctRows", errors);
+  requiredNumber(value, "incorrectRows", errors);
+  requiredNumber(value, "precision", errors);
+  requiredNumber(value, "coverage", errors);
+  requiredArray(value, "byType", errors);
+  requiredArray(value, "confusion", errors);
 }
 
 function validateMonitorSnapshot(value: Record<string, unknown>, errors: string[]): void {

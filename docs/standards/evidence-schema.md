@@ -131,6 +131,24 @@ Optional fields include `target.recordId`, `target.runId`, `target.product`,
 `classifierLimitation`. These fields make reviewed labels usable as a
 training and evaluation dataset instead of only a UI correction ledger.
 
+## Classifier Evaluation
+
+`agentcert.failure_classifier_evaluation` compares automatic failure taxonomy
+suggestions against human-reviewed labels. It reports:
+
+| Field | Purpose |
+|---|---|
+| `reviewedRows` | Count of failure patterns with human-reviewed labels. |
+| `correctRows` | Count where `suggestedType` matched the reviewed `type`. |
+| `incorrectRows` | Count where review corrected the automatic suggestion. |
+| `precision` | `correctRows / reviewedRows`; `0` when there are no reviewed rows. |
+| `coverage` | Reviewed failure patterns divided by all failure patterns. |
+| `byType` | Per-reviewed-label precision. |
+| `confusion` | Suggested label to reviewed label correction counts. |
+
+This is deliberately evaluation output, not a trained classifier. It lets the
+project measure taxonomy quality as the reviewed dataset grows.
+
 ## Validator CLI
 
 AgentCert includes a local structural validator for checked-in examples,
@@ -139,6 +157,9 @@ snapshots:
 
 ```powershell
 node packages/agentcert-cli/dist/cli.js schema validate --schema evidence-bundle --file examples/agentcert/evidence-bundle.example.json
+node packages/agentcert-cli/dist/cli.js schema validate --schema corpus-record --file examples/agentcert/corpus-record.example.json
+node packages/agentcert-cli/dist/cli.js schema validate --schema failure-review --file examples/agentcert/failure-review.example.json
+node packages/agentcert-cli/dist/cli.js schema validate --schema classifier-eval --file examples/agentcert/classifier-eval.example.json
 node packages/agentcert-cli/dist/cli.js schema validate --schema monitor-snapshot --file public-demo/agentcert-monitor/data/monitor.json
 ```
 
@@ -200,5 +221,6 @@ schemas/agentcert-result.schema.json
 schemas/agentcert-evidence.schema.json
 schemas/agentcert-corpus-record.schema.json
 schemas/agentcert-failure-review.schema.json
+schemas/agentcert-failure-classifier-evaluation.schema.json
 schemas/agentcert-monitor-snapshot.schema.json
 ```

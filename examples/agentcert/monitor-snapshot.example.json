@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1",
+  "kind": "agentcert.monitor_snapshot",
+  "generatedAt": "2026-06-25T00:00:00.000Z",
+  "subject": "demo-browser-agent",
+  "summary": {
+    "totalRecords": 1,
+    "passedRecords": 0,
+    "failedRecords": 1,
+    "passRate": 0,
+    "byProduct": [{ "key": "tripwire-ci", "total": 1, "passed": 0, "failed": 1, "passRate": 0 }],
+    "byFault": [{ "key": "http-failure", "total": 1, "passed": 0, "failed": 1, "passRate": 0 }],
+    "byAgent": [{ "key": "Playwright ARIA agent", "total": 1, "passed": 0, "failed": 1, "passRate": 0 }],
+    "byVersion": [{ "key": "unversioned", "total": 1, "passed": 0, "failed": 1, "passRate": 0 }],
+    "byFailureType": [{ "key": "network_failure", "total": 1, "passed": 0, "failed": 1, "passRate": 0 }],
+    "taxonomy": {
+      "totalFailurePatterns": 1,
+      "reviewedFailurePatterns": 1,
+      "unreviewedFailurePatterns": 0,
+      "confirmedFailurePatterns": 0,
+      "correctedFailurePatterns": 1,
+      "coverage": 1,
+      "precision": 0
+    },
+    "topFailurePatterns": [
+      {
+        "key": "tripwire:network_failure:http-failure:text_exists",
+        "count": 1,
+        "severity": "medium",
+        "message": "Visible success text was missing after the HTTP 503 fault.",
+        "type": "network_failure"
+      }
+    ]
+  },
+  "filters": {
+    "agents": ["Playwright ARIA agent"],
+    "faults": ["http-failure"],
+    "versions": ["unversioned"],
+    "failureTypes": ["network_failure"],
+    "products": ["tripwire-ci"],
+    "reviewStatuses": ["reviewed"]
+  },
+  "lifecycle": [
+    {
+      "id": "tripwire-ci",
+      "name": "Tripwire CI",
+      "phase": "Before release",
+      "description": "Browser-agent robustness under deterministic web faults.",
+      "recordCount": 1,
+      "passedCount": 0,
+      "failedCount": 1,
+      "passRate": 0,
+      "status": "failing"
+    }
+  ],
+  "recentRuns": [
+    {
+      "id": "tripwire:refund-form:http-failure",
+      "product": "tripwire-ci",
+      "phase": "pre-release",
+      "subject": "demo-browser-agent",
+      "agentName": "Playwright ARIA agent",
+      "agentVersion": "unversioned",
+      "failureTypes": ["network_failure"],
+      "failurePatterns": [
+        {
+          "key": "tripwire:network_failure:http-failure:text_exists",
+          "severity": "medium",
+          "message": "Visible success text was missing after the HTTP 503 fault.",
+          "type": "network_failure"
+        }
+      ],
+      "taxonomyReviewStatus": "reviewed",
+      "reviewedFailureCount": 1,
+      "unreviewedFailureCount": 0,
+      "passed": false,
+      "score": 0,
+      "timestamp": "2026-06-25T00:00:00.000Z",
+      "evidenceCount": 1,
+      "artifacts": { "result": "tripwire-result.json" }
+    }
+  ],
+  "failurePatterns": [
+    {
+      "key": "tripwire:network_failure:http-failure:text_exists",
+      "count": 1,
+      "severity": "medium",
+      "message": "Visible success text was missing after the HTTP 503 fault.",
+      "type": "network_failure"
+    }
+  ],
+  "links": {
+    "detailUrl": "../browser-agent-robustness/"
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.dev/schemas/agentcert-failure-classifier-evaluation.schema.json",
+  "title": "AgentCertFailureClassifierEvaluation",
+  "description": "Precision and coverage summary for AgentCert failure taxonomy suggestions against human-reviewed labels.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "reviewedRows",
+    "correctRows",
+    "incorrectRows",
+    "precision",
+    "coverage",
+    "byType",
+    "confusion"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "agentcert.failure_classifier_evaluation"
+    },
+    "reviewedRows": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "correctRows": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "incorrectRows": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "precision": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "coverage": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "byType": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "reviewedRows", "correctRows", "precision"],
+        "properties": {
+          "type": {
+            "$ref": "#/$defs/failureType"
+          },
+          "reviewedRows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "correctRows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "precision": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    "confusion": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["suggestedType", "reviewedType", "count"],
+        "properties": {
+          "suggestedType": {
+            "$ref": "#/$defs/failureType"
+          },
+          "reviewedType": {
+            "$ref": "#/$defs/failureType"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "failureType": {
+      "type": "string",
+      "enum": [
+        "prompt_injection",
+        "wrong_click",
+        "timeout",
+        "verification_gap",
+        "silent_partial_success",
+        "network_failure",
+        "ui_drift",
+        "policy_or_approval",
+        "agent_connection",
+        "console_error",
+        "assertion_failure",
+        "unknown_failure"
+      ]
+    }
+  }
+}

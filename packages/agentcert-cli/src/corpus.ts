@@ -142,6 +142,27 @@ export interface ReviewedFailureDatasetRow {
   sourcePath: string;
 }
 
+export interface FailureClassifierEvaluation {
+  schemaVersion: "1";
+  kind: "agentcert.failure_classifier_evaluation";
+  reviewedRows: number;
+  correctRows: number;
+  incorrectRows: number;
+  precision: number;
+  coverage: number;
+  byType: Array<{
+    type: FailureType;
+    reviewedRows: number;
+    correctRows: number;
+    precision: number;
+  }>;
+  confusion: Array<{
+    suggestedType: FailureType;
+    reviewedType: FailureType;
+    count: number;
+  }>;
+}
+
 export interface SummaryBucket {
   key: string;
   total: number;
@@ -256,6 +277,51 @@ export function reviewedFailureDataset(records: AgentCertCorpusRecord[]): Review
         sourcePath: record.sourcePath,
       })),
   );
+}
+
+export function evaluateFailureClassifier(records: AgentCertCorpusRecord[]): FailureClassifierEvaluation {
+  const rows = reviewedFailureDataset(records);
+  const correctRows = rows.filter((row) => row.suggestedType === row.reviewedType).length;
+  const byTypeBuckets = new Map<FailureType, { reviewedRows: number; correctRows: number }>();
+  const confusionBuckets = new Map<string, { suggestedType: FailureType; reviewedType: FailureType; count: number }>();
+
+  for (const row of rows) {
+    const byType = byTypeBuckets.get(row.reviewedType) ?? { reviewedRows: 0, correctRows: 0 };
+    byType.reviewedRows += 1;
+    if (row.suggestedType === row.reviewedType) byType.correctRows += 1;
+    byTypeBuckets.set(row.reviewedType, byType);
+
+    const confusionKey = `${row.suggestedType}->${row.reviewedType}`;
+    const confusion = confusionBuckets.get(confusionKey) ?? {
+      suggestedType: row.suggestedType,
+      reviewedType: row.reviewedType,
+      count: 0,
+    };
+    confusion.count += 1;
+    confusionBuckets.set(confusionKey, confusion);
+  }
+
+  const totalFailurePatterns = records.reduce((sum, record) => sum + record.failurePatterns.length, 0);
+  return {
+    schemaVersion: "1",
+    kind: "agentcert.failure_classifier_evaluation",
+    reviewedRows: rows.length,
+    correctRows,
+    incorrectRows: rows.length - correctRows,
+    precision: ratio(correctRows, rows.length),
+    coverage: ratio(rows.length, totalFailurePatterns),
+    byType: [...byTypeBuckets.entries()]
+      .map(([type, bucket]) => ({
+        type,
+        reviewedRows: bucket.reviewedRows,
+        correctRows: bucket.correctRows,
+        precision: ratio(bucket.correctRows, bucket.reviewedRows),
+      }))
+      .sort((left, right) => left.type.localeCompare(right.type)),
+    confusion: [...confusionBuckets.values()].sort(
+      (left, right) => right.count - left.count || left.suggestedType.localeCompare(right.suggestedType),
+    ),
+  };
 }
 
 export async function writeReviewedFailureDataset(path: string, records: AgentCertCorpusRecord[]): Promise<ReviewedFailureDatasetRow[]> {

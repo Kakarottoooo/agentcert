@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "1",
+  "kind": "agentcert.failure_classifier_evaluation",
+  "reviewedRows": 2,
+  "correctRows": 1,
+  "incorrectRows": 1,
+  "precision": 0.5,
+  "coverage": 0.14285714285714285,
+  "byType": [
+    {
+      "type": "console_error",
+      "reviewedRows": 1,
+      "correctRows": 0,
+      "precision": 0
+    },
+    {
+      "type": "wrong_click",
+      "reviewedRows": 1,
+      "correctRows": 1,
+      "precision": 1
+    }
+  ],
+  "confusion": [
+    {
+      "suggestedType": "network_failure",
+      "reviewedType": "console_error",
+      "count": 1
+    },
+    {
+      "suggestedType": "wrong_click",
+      "reviewedType": "wrong_click",
+      "count": 1
+    }
+  ]
+}

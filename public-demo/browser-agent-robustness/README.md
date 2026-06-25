@@ -18,6 +18,8 @@ components:
 - `evidence/agentcert-corpus.jsonl`
 - `evidence/agentcert-public-demo/agentcert-evidence.json`
 - `evidence/agentcert-public-demo/agentcert-report.md`
+- `evidence/agentcert-public-demo/agentcert-report.html`
+- `evidence/failure-classifier-evaluation.json`
 
 The Tripwire detail page includes checked-in artifacts from a local browser-agent
 robustness run:

@@ -68,6 +68,7 @@ Artifacts include:
 - `.tripwire/latest/tripwire-report.html`
 - `.tripwire/latest/junit.xml`
 - `.agentcert/latest/agentcert-evidence.json`
+- `.agentcert/latest/agentcert-report.html`
 - `.agentcert/latest/agentcert-report.md`
 - `.agentcert/latest/agentcert-run-manifest.json`
 - `.agentcert/latest/badge.svg`

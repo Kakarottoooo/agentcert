@@ -11,12 +11,20 @@
   },
   "outputDir": ".agentcert/latest",
   "run": {
+    "report": {
+      "enabled": true,
+      "outDir": ".agentcert/latest"
+    },
     "corpus": {
       "path": ".agentcert/corpus/corpus.jsonl",
+      "reviewsPath": ".agentcert/corpus/failure-reviews.jsonl",
       "replace": true
     },
     "monitor": {
-      "outputs": [".agentcert/monitor/monitor.json"]
+      "outputs": [".agentcert/latest/monitor.json"]
+    },
+    "dataset": {
+      "reviewedOut": ".agentcert/latest/reviewed-failure-dataset.jsonl"
     },
     "gate": {
       "failOnVerdict": true

@@ -15,7 +15,7 @@ import { openCorpusStore, parseCorpusStoreKind, type CorpusStoreOptions } from "
 import { applyFailureReviews, readFailureReviews } from "./failure-review.js";
 import { buildMonitorSnapshot, writeMonitorSnapshot } from "./monitor.js";
 import { normalizeMcpBenchResult, normalizeOnegentAuditPacket, normalizeTripwireResult } from "./normalizers.js";
-import { renderMarkdownReport } from "./report.js";
+import { renderHtmlReport, renderMarkdownReport } from "./report.js";
 import type { AgentCertBundle, AgentCertConfig, AgentCertResult } from "./types.js";
 
 export type RunJobKey = "mcpbench" | "tripwire" | "onegent";
@@ -94,6 +94,7 @@ export interface AgentCertRunManifest {
     reportDir?: string;
     evidenceBundle?: string;
     markdownReport?: string;
+    htmlReport?: string;
     badge?: string;
     corpus?: string;
     monitor: string[];
@@ -204,10 +205,10 @@ export function profileFromArtifactFlags(overrides: RunProfileOverrides): AgentC
         replace: overrides.replaceCorpus ?? false,
       },
       monitor: {
-        outputs: [overrides.monitorOut ?? ".agentcert/monitor/monitor.json"],
+        outputs: [overrides.monitorOut ?? ".agentcert/latest/monitor.json"],
       },
       dataset: {
-        reviewedOutputs: [overrides.reviewedDatasetOut ?? ".agentcert/corpus/reviewed-failure-dataset.jsonl"],
+        reviewedOutputs: [overrides.reviewedDatasetOut ?? ".agentcert/latest/reviewed-failure-dataset.jsonl"],
       },
       gate: {
         failOnVerdict: overrides.failOnVerdict ?? false,
@@ -314,11 +315,13 @@ export async function runAgentCertProfile(profileInput: AgentCertRunProfile, opt
     await mkdir(resolvedReportDir, { recursive: true });
     await writeFile(`${resolvedReportDir}/agentcert-evidence.json`, `${JSON.stringify(bundle, null, 2)}\n`);
     await writeFile(`${resolvedReportDir}/agentcert-report.md`, renderMarkdownReport(bundle));
+    await writeFile(`${resolvedReportDir}/agentcert-report.html`, renderHtmlReport(bundle));
     await writeFile(`${resolvedReportDir}/badge.svg`, renderAgentCertBadge(bundle));
     steps.push({ id: "report", status: "passed", artifactPath: reportDir });
     outputs.reportDir = reportDir;
     outputs.evidenceBundle = artifactPath(reportDir, "agentcert-evidence.json");
     outputs.markdownReport = artifactPath(reportDir, "agentcert-report.md");
+    outputs.htmlReport = artifactPath(reportDir, "agentcert-report.html");
     outputs.badge = artifactPath(reportDir, "badge.svg");
   } else {
     steps.push({ id: "report", status: "skipped", message: "Report output disabled." });

@@ -13,6 +13,7 @@ Use an isolated environment. Do not commit API keys.
 
 ```powershell
 python -m venv .venv-browser-use
+.\\.venv-browser-use\\Scripts\\Activate.ps1
 .\\.venv-browser-use\\Scripts\\python -m pip install --upgrade pip
 .\\.venv-browser-use\\Scripts\\python -m pip install --upgrade browser-use
 .\\.venv-browser-use\\Scripts\\python -c "from browser_use.beta import Agent; print('browser-use ok')"
@@ -37,6 +38,9 @@ From the repository root:
 ```powershell
 npm run tripwire:lab-browser-use
 ```
+
+The Tripwire config launches `python`, so keep the venv activated in the shell
+where you run `npm run tripwire:lab-browser-use`.
 
 Tripwire writes:
 

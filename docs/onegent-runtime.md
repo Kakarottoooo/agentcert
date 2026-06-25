@@ -24,9 +24,24 @@ boundary. The default implementation is still local and mock-only, but the
 control flow is the production shape:
 
 ```ts
-import { createOnegentRuntime } from "@agentcert/onegent-runtime";
+import {
+  createInMemoryAuditStore,
+  createLocalEchoAdapter,
+  createOnegentRuntime,
+} from "@agentcert/onegent-runtime";
 
-const runtime = createOnegentRuntime();
+const auditStore = createInMemoryAuditStore();
+const runtime = createOnegentRuntime({
+  approvalAdapter: {
+    name: "manager-approval",
+    requestApproval: async () => ({
+      approved: true,
+      reviewerId: "manager@example.local",
+      reviewerComment: "Approved for demo execution.",
+    }),
+  },
+  auditStore,
+});
 
 const review = runtime.captureAction({
   sourceAgentName: "ProcurementAgent",
@@ -45,20 +60,14 @@ const review = runtime.captureAction({
 
 const risk = runtime.assessRisk(review.action);
 const policy = runtime.evaluatePolicy(review.action, risk);
-const approval = runtime.requestApproval(review.action, "manager@example.local");
+const approval = await runtime.requestApproval(review.action);
 
-runtime.approveAction(review.action, "manager@example.local");
-const observed = await runtime.executeAfterApproval(review.action, {
-  name: "local-adapter",
-  execute: async (action) => ({
-    method: "LOCAL_ADAPTER",
-    previousState: action.beforeState,
-    observedState: action.proposedAfterState,
-  }),
-});
-runtime.verifyOutcome(review.action, observed);
+if (approval.status !== "APPROVED") throw new Error("Action was not approved.");
 
-const auditPacket = runtime.writeAuditPacket(review.action);
+const observed = await runtime.executeAfterApproval(review.action, createLocalEchoAdapter());
+const verification = runtime.verifyOutcome(review.action, observed);
+if (!verification.success) throw new Error("Observed state did not match expected state.");
+const auditPacket = await runtime.writeAuditPacket(review.action);
 ```
 
 The intended integration points are:
@@ -70,9 +79,14 @@ The intended integration points are:
 - `verifyOutcome(action, observed)`;
 - `writeAuditPacket(action)`.
 
-The checked-in adapter path is local and deterministic. Real systems should
-only be added behind explicit credential, approval, rollback, verification, and
-audit boundaries.
+The checked-in adapter path is local and deterministic:
+
+- `createLocalEchoAdapter()` returns the proposed after-state as observed local state.
+- `createInMemoryAuditStore()` captures audit packets for tests and demos.
+- `approvalAdapter.requestApproval()` lets callers plug in their own ticket, Slack, email, or human review system later without changing the core runtime API.
+
+Real systems should only be added behind explicit credential, approval,
+rollback, verification, and audit boundaries.
 
 ## Procurement Walkthrough
 

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { createInMemoryAuditStore, createLocalEchoAdapter } from "../src/local-adapters.js";
 import { createProcurementDemoPurchaseOrder, getPurchaseOrder } from "../src/mock-procurement.js";
 import { createOnegentRuntime } from "../src/sdk.js";
 import { resetActionGatewayStore } from "../src/store.js";
@@ -28,7 +29,7 @@ describe("Onegent Runtime SDK interface", () => {
 
     const execution = await runtime.executeAfterApproval(review.action);
     const verification = runtime.verifyOutcome(review.action);
-    const packet = runtime.writeAuditPacket(review.action);
+    const packet = await runtime.writeAuditPacket(review.action);
 
     expect(execution.status).toBe("COMPLETED");
     expect(getPurchaseOrder(purchaseOrder.id)?.status).toBe("SUBMITTED");
@@ -62,7 +63,7 @@ describe("Onegent Runtime SDK interface", () => {
       fieldsChanged: [{ field: "tier", before: "standard", after: "enterprise" }],
     });
 
-    const approval = runtime.requestApproval(review.action.id, "ops@example.local");
+    const approval = await runtime.requestApproval(review.action.id, "ops@example.local");
 
     expect(approval.assignedTo).toBe(review.approvalRequest?.assignedTo);
     expect(approval.status).toBe("PENDING");
@@ -106,11 +107,76 @@ describe("Onegent Runtime SDK interface", () => {
       }),
     });
     const verification = runtime.verifyOutcome(review.action, execution);
-    const audit = runtime.writeAuditPacket(review.action);
+    const audit = await runtime.writeAuditPacket(review.action);
 
     expect(execution).toMatchObject({ method: "LOCAL_ADAPTER", status: "COMPLETED" });
     expect(verification.success).toBe(true);
     expect(audit.auditEvents.map((event) => event.message)).toContain("Local adapter execution completed.");
+  });
+
+  it("supports approval adapters and local audit stores without real integrations", async () => {
+    const auditStore = createInMemoryAuditStore();
+    const runtime = createOnegentRuntime({
+      auditStore,
+      approvalAdapter: {
+        name: "local-approval-adapter",
+        requestApproval: ({ action, policy }) => ({
+          approved: policy.requiresHumanApproval && action.amount === 4_850,
+          reviewerId: "approver@example.local",
+          reviewerComment: "Approved by local test adapter.",
+        }),
+      },
+    });
+    const purchaseOrder = createProcurementDemoPurchaseOrder();
+    const review = runtime.captureAction(purchaseOrderAction(purchaseOrder.id));
+
+    const approval = await runtime.requestApproval(review.action);
+    const execution = await runtime.executeAfterApproval(review.action, createLocalEchoAdapter());
+    const verification = runtime.verifyOutcome(review.action, execution);
+    const packet = await runtime.writeAuditPacket(review.action);
+
+    expect(approval.status).toBe("APPROVED");
+    expect(execution.method).toBe("LOCAL_ADAPTER");
+    expect(verification.success).toBe(true);
+    expect(auditStore.packets).toEqual([packet]);
+  });
+
+  it("allows callers to provide a deterministic policy engine", () => {
+    const runtime = createOnegentRuntime({
+      policyEngine: {
+        evaluate: () => ({
+          effect: "BLOCK",
+          triggeredPolicies: ["custom-block-all-payments"],
+          reasons: ["Custom policy engine blocked this action."],
+          requiresHumanApproval: false,
+          blocked: true,
+        }),
+      },
+    });
+
+    const review = runtime.captureAction({
+      sourceAgentName: "FinanceAgent",
+      actionType: "PAY",
+      targetSystem: "MockPayables",
+      title: "Pay invoice",
+      description: "Local mock payment action.",
+      businessObjectType: "invoice",
+      businessObjectId: "inv-1",
+      amount: 250,
+      currency: "USD",
+      beforeState: { status: "OPEN" },
+      proposedAfterState: { status: "PAID" },
+    });
+
+    const policy = runtime.evaluatePolicy(review.action, review.riskAssessment);
+
+    expect(policy).toMatchObject({
+      effect: "BLOCK",
+      blocked: true,
+      triggeredPolicies: ["custom-block-all-payments"],
+    });
+    expect(review.blocked).toBe(true);
+    expect(review.action.status).toBe("CANCELLED");
   });
 });
 

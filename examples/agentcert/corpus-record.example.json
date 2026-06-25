@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "1",
+  "kind": "scenario_run",
+  "id": "tripwire:refund-form:http-failure",
+  "ingestedAt": "2026-06-25T00:00:00.000Z",
+  "subject": "demo-browser-agent",
+  "agentName": "Playwright ARIA agent",
+  "agentVersion": "unversioned",
+  "product": "tripwire-ci",
+  "phase": "pre-release",
+  "runId": "refund-form-http-failure-demo",
+  "timestamp": "2026-06-25T00:00:00.000Z",
+  "score": 0,
+  "passed": false,
+  "scenarioName": "refund-form",
+  "faultName": "http-failure",
+  "durationMs": 1400,
+  "stepCount": 2,
+  "evidenceCount": 1,
+  "highOrCriticalEvidenceCount": 0,
+  "failurePatterns": [
+    {
+      "key": "tripwire:network_failure:http-failure:text_exists",
+      "severity": "medium",
+      "message": "Visible success text was missing after the HTTP 503 fault.",
+      "type": "network_failure",
+      "suggestedType": "silent_partial_success",
+      "reviewStatus": "corrected",
+      "reviewConfidence": 0.9,
+      "reviewEvidenceContext": {
+        "firstDivergenceSnippet": "The agent clicked Submit, reached /success, but the expected confirmation text was not visible.",
+        "screenshotPath": "runs/refund-form/http-failure/screenshots/0002.png",
+        "tracePath": "runs/refund-form/http-failure/trace.json",
+        "stepIndex": 2
+      },
+      "taxonomyRationale": {
+        "primaryReason": "The failure was caused by the injected HTTP 503 on the success route.",
+        "supportingSignals": ["fault type http_failure", "assertion type text_exists"],
+        "classifierLimitation": "The rule saw a successful exit before accounting for the injected network fault."
+      },
+      "scenarioName": "refund-form",
+      "faultName": "http-failure"
+    }
+  ],
+  "artifacts": {
+    "result": "tripwire-result.json",
+    "trace": "runs/refund-form/http-failure/trace.json"
+  },
+  "sourcePath": "public-demo/real-agent-robustness/evidence/playwright-agent/tripwire-result.json",
+  "metadata": {
+    "finalUrl": "http://127.0.0.1:3020/success"
+  }
+}

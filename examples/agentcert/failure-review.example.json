@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1",
+  "kind": "agentcert.failure_review",
+  "id": "review_demo_http_failure",
+  "reviewedAt": "2026-06-25T00:00:00.000Z",
+  "reviewer": "qa@example.com",
+  "status": "corrected",
+  "target": {
+    "patternKey": "tripwire:network_failure:http-failure:text_exists",
+    "recordId": "tripwire:refund-form:http-failure",
+    "runId": "refund-form-http-failure-demo",
+    "product": "tripwire-ci",
+    "scenarioName": "refund-form",
+    "faultName": "http-failure"
+  },
+  "suggestedType": "silent_partial_success",
+  "type": "network_failure",
+  "note": "The injected success-route 503 is the root cause.",
+  "confidence": 0.9,
+  "evidenceContext": {
+    "firstDivergenceSnippet": "Submit completed, but the success page did not contain the expected text.",
+    "screenshotPath": "runs/refund-form/http-failure/screenshots/0002.png",
+    "tracePath": "runs/refund-form/http-failure/trace.json",
+    "stepIndex": 2
+  },
+  "taxonomyRationale": {
+    "primaryReason": "The deterministic HTTP failure caused the missing success text.",
+    "supportingSignals": ["fault type http_failure", "assertion type text_exists"],
+    "classifierLimitation": "The automatic rule over-weighted the agent's zero exit code."
+  }
+}

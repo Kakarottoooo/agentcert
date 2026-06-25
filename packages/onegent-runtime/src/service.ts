@@ -12,6 +12,7 @@ import type {
   AuditEventType,
   CreateActionIntentInput,
   LocalActionAdapter,
+  PolicyEngine,
   PolicyRule,
   VerificationMethod,
   VerificationResult,
@@ -19,6 +20,7 @@ import type {
 
 export interface ActionGatewayOptions {
   policyRules?: PolicyRule[];
+  policyEngine?: PolicyEngine;
 }
 
 export interface ApprovalOptions {
@@ -65,10 +67,11 @@ export function captureActionIntent(input: CreateActionIntentInput, options: Act
     riskScore: risk.riskScore,
   });
 
-  const policy = evaluatePolicy(action, risk, options.policyRules);
+  const configuredRules = options.policyRules ?? DEFAULT_POLICY_RULES;
+  const policy = options.policyEngine?.evaluate(action, risk, configuredRules) ?? evaluatePolicy(action, risk, options.policyRules);
   store.policyRulesByAction.set(
     action.id,
-    getPolicyRules(policy.triggeredPolicies, [...(options.policyRules ?? DEFAULT_POLICY_RULES), ...DEFAULT_POLICY_RULES]),
+    getPolicyRules(policy.triggeredPolicies, configuredRules === DEFAULT_POLICY_RULES ? DEFAULT_POLICY_RULES : [...configuredRules, ...DEFAULT_POLICY_RULES]),
   );
   appendAudit(action.id, "POLICY_EVALUATED", "SYSTEM", "onegent-runtime", "Policy evaluation completed.", {
     effect: policy.effect,

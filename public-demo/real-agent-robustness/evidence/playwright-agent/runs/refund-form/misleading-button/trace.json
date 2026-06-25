@@ -1,0 +1,66 @@
+{
+  "runId": "refund-form-misleading-button-mqu0lkr2",
+  "scenarioName": "refund-form",
+  "fault": {
+    "name": "misleading-button",
+    "type": "misleading_button",
+    "text": "Submit"
+  },
+  "startUrl": "http://127.0.0.1:3020/refund",
+  "cdpUrl": "http://127.0.0.1:57265",
+  "startedAt": "2026-06-25T21:29:03.416Z",
+  "completedAt": "2026-06-25T21:29:05.033Z",
+  "warnings": [],
+  "requests": [],
+  "networkErrors": [],
+  "consoleErrors": [],
+  "steps": [
+    {
+      "stepIndex": 1,
+      "timestamp": "2026-06-25T21:29:03.416Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0001.png",
+      "domSnapshotPath": "dom/0001.html",
+      "domHash": "55816c2e42b838663b06af0034a0b5227424fa1655ee08223825378ecc6a765e",
+      "textHash": "ba019f210dc9318a5a715bcdcccf404e5d48f45400e266f1d966b2ade83085b7",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 2,
+      "timestamp": "2026-06-25T21:29:04.962Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0002.png",
+      "domSnapshotPath": "dom/0002.html",
+      "domHash": "39aea272c977c85768a3e65d8d375122519499c64f957fec799fdabb04183b72",
+      "textHash": "ba019f210dc9318a5a715bcdcccf404e5d48f45400e266f1d966b2ade83085b7",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": [
+        {
+          "timestamp": "2026-06-25T21:29:04.611Z",
+          "type": "agent_start",
+          "target": "playwright-aria-agent",
+          "note": "http://127.0.0.1:3020/refund"
+        },
+        {
+          "timestamp": "2026-06-25T21:29:04.640Z",
+          "type": "fill",
+          "target": "label:Order ID",
+          "note": "1234"
+        },
+        {
+          "timestamp": "2026-06-25T21:29:04.649Z",
+          "type": "fill",
+          "target": "label:Reason",
+          "note": "Customer requested a refund."
+        }
+      ]
+    }
+  ]
+}

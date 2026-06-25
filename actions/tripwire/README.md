@@ -36,6 +36,7 @@ Outputs:
 - `.tripwire/latest/junit.xml`
 - `.agentcert/latest/agentcert-evidence.json`
 - `.agentcert/latest/agentcert-report.md`
+- `.agentcert/latest/agentcert-report.html`
 - `.agentcert/latest/badge.svg`
 - `.agentcert/latest/monitor.json`
 - `.agentcert/latest/reviewed-failure-dataset.jsonl`

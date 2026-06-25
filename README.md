@@ -1,23 +1,8 @@
 # AgentCert
 
-AgentCert is an open-source independent evidence layer for tool-using agents. It gives teams one workflow for proving whether an agent should ship, whether its tools are production-ready, and whether high-risk runtime actions were approved, verified, and audited.
-
-It combines two implemented pre-release engines and one local runtime-action MVP today:
-
-- **MCPBench**: runtime behavior benchmarks for MCP servers and agent-exposed tools.
-- **Tripwire CI**: browser/computer-use agent robustness gates that inject realistic UI and network faults in CI.
-- **Onegent Runtime**: a local Action Gateway MVP for policy, approval, mock execution, verification, and audit packets.
-- **AgentCert CLI**: a unified evidence packet and report generator across the lifecycle.
-- **AgentCert Monitor**: a dashboard UI over accumulated corpus snapshots, with filters for agent, fault, version, product, failure type, and review status.
-
-Public monitor: [AgentCert Monitor](https://kakarottoooo.github.io/agentcert/public-demo/agentcert-monitor/)
-
-Real Agent Robustness Lab: [browser-agent comparison matrix](https://kakarottoooo.github.io/agentcert/public-demo/real-agent-robustness/)
-
 ## 5-Minute Quickstart
 
-Use this path when you want AgentCert to act like a tool in your own repo, not
-just a checked-in demo.
+Use this path when you want AgentCert to act like a tool in your own repo.
 
 ```bash
 npx agentcert init --subject my-browser-agent
@@ -27,6 +12,7 @@ This writes:
 
 - `agentcert.config.json`: AgentCert evidence, corpus, monitor, badge, and gate defaults.
 - `tripwire.yml`: starter browser-agent robustness suite with popup, button-text drift, prompt-injection banner, slow-network, and HTTP-failure faults.
+- `.github/workflows/agentcert-tripwire.yml`: GitHub Action template for PR gates.
 
 Edit `tripwire.yml` so `startUrl` points at your local/staging app and
 `agent.command` / `agent.args` launch your browser or computer-use agent. After
@@ -44,11 +30,12 @@ Default outputs:
 
 - `.agentcert/latest/agentcert-evidence.json`
 - `.agentcert/latest/agentcert-report.md`
+- `.agentcert/latest/agentcert-report.html`
 - `.agentcert/latest/agentcert-run-manifest.json`
 - `.agentcert/latest/badge.svg`
 - `.agentcert/corpus/corpus.jsonl`
-- `.agentcert/corpus/reviewed-failure-dataset.jsonl`
-- `.agentcert/monitor/monitor.json`
+- `.agentcert/latest/reviewed-failure-dataset.jsonl`
+- `.agentcert/latest/monitor.json`
 
 GitHub Actions:
 
@@ -64,8 +51,29 @@ GitHub Actions:
 ```
 
 The action uploads JUnit, an HTML Tripwire report, an AgentCert evidence bundle,
-a badge SVG, a run manifest, a corpus JSONL file, a reviewed failure dataset,
-and a monitor snapshot.
+an AgentCert HTML report, a badge SVG, a run manifest, a corpus JSONL file, a
+reviewed failure dataset, and a monitor snapshot.
+
+Public demo pages:
+
+- [AgentCert Monitor](https://kakarottoooo.github.io/agentcert/public-demo/agentcert-monitor/)
+- [Real Agent Robustness Lab](https://kakarottoooo.github.io/agentcert/public-demo/real-agent-robustness/)
+
+## What AgentCert Is
+
+AgentCert is an open-source independent evidence layer for tool-using agents.
+It gives teams one workflow for proving whether an agent should ship, whether
+its tools are production-ready, and whether high-risk runtime actions were
+approved, verified, and audited.
+
+It combines two implemented pre-release engines and one local runtime-action
+MVP today:
+
+- **MCPBench**: runtime behavior benchmarks for MCP servers and agent-exposed tools.
+- **Tripwire CI**: browser/computer-use agent robustness gates that inject realistic UI and network faults in CI.
+- **Onegent Runtime**: a local Action Gateway SDK/MVP for policy, approval, mock execution, verification, and audit packets.
+- **AgentCert CLI**: a unified evidence packet and report generator across the lifecycle.
+- **AgentCert Monitor**: a dashboard UI over accumulated corpus snapshots, with filters for agent, fault, version, product, failure type, and review status.
 
 ## The Lifecycle
 
@@ -162,8 +170,8 @@ node packages/agentcert-cli/dist/cli.js run `
   --onegent .onegent/procurement/audit-packet.json `
   --out .agentcert/latest `
   --corpus .agentcert/corpus/corpus.jsonl `
-  --monitor-out .agentcert/monitor/monitor.json `
-  --reviewed-dataset-out .agentcert/corpus/reviewed-failure-dataset.jsonl `
+  --monitor-out .agentcert/latest/monitor.json `
+  --reviewed-dataset-out .agentcert/latest/reviewed-failure-dataset.jsonl `
   --replace `
   --fail-on-verdict
 ```
@@ -182,6 +190,7 @@ Outputs:
 
 - `.agentcert/latest/agentcert-evidence.json`
 - `.agentcert/latest/agentcert-report.md`
+- `.agentcert/latest/agentcert-report.html`
 
 The unified bundle is the review artifact AgentCert is built around. It can include MCPBench results, Tripwire CI results, and Onegent Runtime audit packets.
 
@@ -242,7 +251,8 @@ Export the reviewed dataset and taxonomy quality metrics:
 
 ```powershell
 node packages/agentcert-cli/dist/cli.js corpus metrics --corpus .agentcert/corpus/corpus.jsonl
-node packages/agentcert-cli/dist/cli.js corpus export-reviewed --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/corpus/reviewed-failure-dataset.jsonl
+node packages/agentcert-cli/dist/cli.js corpus export-reviewed --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/latest/reviewed-failure-dataset.jsonl
+node packages/agentcert-cli/dist/cli.js corpus classifier-eval --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/latest/failure-classifier-evaluation.json
 ```
 
 `agentcert run` writes a reviewed-failure dataset automatically. The monitor

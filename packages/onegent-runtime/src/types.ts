@@ -115,6 +115,10 @@ export interface PolicyEvaluation {
   blocked: boolean;
 }
 
+export interface PolicyEngine {
+  evaluate(action: ActionIntent, risk: RiskAssessment, rules: PolicyRule[]): PolicyEvaluation;
+}
+
 export interface ApprovalRequest {
   id: string;
   actionIntentId: string;
@@ -125,6 +129,24 @@ export interface ApprovalRequest {
   reviewerComment?: string;
   createdAt: string;
   reviewedAt?: string;
+}
+
+export interface ApprovalAdapterDecision {
+  approved?: boolean;
+  reviewerId?: string;
+  reviewerComment?: string;
+}
+
+export interface ApprovalAdapterRequest {
+  action: ActionIntent;
+  risk: RiskAssessment;
+  policy: PolicyEvaluation;
+  approvalRequest: ApprovalRequest;
+}
+
+export interface ApprovalAdapter {
+  name: string;
+  requestApproval(input: ApprovalAdapterRequest): ApprovalAdapterDecision | void | Promise<ApprovalAdapterDecision | void>;
 }
 
 export interface VerificationResult {
@@ -216,6 +238,11 @@ export interface ActionAuditPacket {
   verificationResult?: VerificationResult;
   auditEvents: AuditEvent[];
   disclaimer: string;
+}
+
+export interface AuditStore {
+  name: string;
+  writeAuditPacket(packet: ActionAuditPacket): void | Promise<void>;
 }
 
 export interface ProcurementWalkthroughState {
