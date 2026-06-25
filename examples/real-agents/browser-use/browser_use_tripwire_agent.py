@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from browser_use.beta import Agent, BrowserProfile, ChatOpenAI
@@ -68,7 +68,7 @@ async def event(events_file: str | None, event_type: str, target: str, note: str
         handle.write(
             json.dumps(
                 {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                     "type": event_type,
                     "target": target,
                     "note": note,
