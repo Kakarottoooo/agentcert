@@ -28,7 +28,9 @@ export interface AgentCertResult {
 }
 
 export interface AgentCertBundle {
+  schemaName: "agentcert.evidence_bundle";
   schemaVersion: "1";
+  schemaSemver: "1.0.0";
   kind: "agentcert.evidence_bundle";
   runId: string;
   generatedAt: string;

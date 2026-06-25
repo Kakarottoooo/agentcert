@@ -14,12 +14,21 @@ export interface MonitorSnapshot {
   generatedAt: string;
   subject: string;
   summary: CorpusSummary;
+  filters: MonitorFilters;
   lifecycle: MonitorLifecycleGate[];
   recentRuns: MonitorRun[];
-  failurePatterns: Array<{ key: string; count: number; severity: string; message: string }>;
+  failurePatterns: Array<{ key: string; count: number; severity: string; message: string; type: string }>;
   links: {
     detailUrl?: string;
   };
+}
+
+export interface MonitorFilters {
+  agents: string[];
+  faults: string[];
+  versions: string[];
+  failureTypes: string[];
+  products: string[];
 }
 
 export interface MonitorLifecycleGate {
@@ -39,8 +48,11 @@ export interface MonitorRun {
   product: string;
   phase: string;
   subject: string;
+  agentName: string;
+  agentVersion: string;
   scenarioName?: string;
   faultName?: string;
+  failureTypes: string[];
   passed: boolean;
   score: number;
   timestamp: string;
@@ -58,6 +70,7 @@ export function buildMonitorSnapshot(records: AgentCertCorpusRecord[], options: 
     generatedAt: new Date().toISOString(),
     subject: options.subject,
     summary,
+    filters: buildFilters(records),
     lifecycle: [
       lifecycleGate(records, {
         id: "mcpbench",
@@ -86,8 +99,11 @@ export function buildMonitorSnapshot(records: AgentCertCorpusRecord[], options: 
         product: record.product,
         phase: record.phase,
         subject: record.subject,
+        agentName: record.agentName,
+        agentVersion: record.agentVersion,
         scenarioName: record.scenarioName,
         faultName: record.faultName,
+        failureTypes: [...new Set(record.failurePatterns.map((pattern) => pattern.type))],
         passed: record.passed,
         score: record.score,
         timestamp: record.timestamp,
@@ -101,6 +117,20 @@ export function buildMonitorSnapshot(records: AgentCertCorpusRecord[], options: 
       detailUrl: options.detailUrl,
     },
   };
+}
+
+function buildFilters(records: AgentCertCorpusRecord[]): MonitorFilters {
+  return {
+    agents: unique(records.map((record) => record.agentName)),
+    faults: unique(records.map((record) => record.faultName).filter((value): value is string => Boolean(value))),
+    versions: unique(records.map((record) => record.agentVersion)),
+    failureTypes: unique(records.flatMap((record) => record.failurePatterns.map((pattern) => pattern.type))),
+    products: unique(records.map((record) => record.product)),
+  };
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
 export async function writeMonitorSnapshot(path: string, snapshot: MonitorSnapshot): Promise<void> {

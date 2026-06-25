@@ -8,7 +8,7 @@ It combines two implemented pre-release engines and one local runtime-action MVP
 - **Tripwire CI**: browser/computer-use agent robustness gates that inject realistic UI and network faults in CI.
 - **Onegent Runtime**: a local Action Gateway MVP for policy, approval, mock execution, verification, and audit packets.
 - **AgentCert CLI**: a unified evidence packet and report generator across the lifecycle.
-- **AgentCert Monitor**: a dashboard UI over accumulated corpus snapshots.
+- **AgentCert Monitor**: a dashboard UI over accumulated corpus snapshots, with filters for agent, fault, version, product, and failure type.
 
 Public monitor: [AgentCert Monitor](https://kakarottoooo.github.io/agentcert/public-demo/agentcert-monitor/)
 
@@ -158,6 +158,8 @@ node packages/agentcert-cli/dist/cli.js monitor build --store postgres --out pac
 
 The frontend does not connect to SQLite or Postgres directly. It reads the generated `monitor.json` snapshot, so the UI stays the same whether the corpus came from JSONL, SQLite, or Postgres.
 
+Corpus records include `agentName`, `agentVersion`, and an AgentCert failure taxonomy so repeated runs become a data flywheel instead of one-off demo output. Current failure buckets include `prompt_injection`, `wrong_click`, `timeout`, `verification_gap`, `silent_partial_success`, `network_failure`, `ui_drift`, `policy_or_approval`, `agent_connection`, `console_error`, `assertion_failure`, and `unknown_failure`.
+
 Build the monitor snapshot and UI:
 
 ```powershell
@@ -195,6 +197,7 @@ The monitor reads a generated `monitor.json` snapshot from the AgentCert corpus 
 
 - lifecycle gate status for MCPBench, Tripwire CI, and Onegent Runtime;
 - accumulated corpus record counts and pass rate;
+- filters for agent, fault, version, product, and failure type;
 - top failure patterns;
 - recent evidence runs and run-level inspection.
 
@@ -392,6 +395,49 @@ Use policy-as-code:
 npm --prefix packages/onegent-runtime run demo:procurement -- --policy onegent.policy.json
 ```
 
+Use it as a local SDK around high-risk actions:
+
+```ts
+import { createOnegentRuntime } from "@agentcert/onegent-runtime";
+import type { CreateActionIntentInput } from "@agentcert/onegent-runtime";
+
+const runtime = createOnegentRuntime();
+const yourActionInput: CreateActionIntentInput = {
+  sourceAgentName: "YourAgent",
+  actionType: "SUBMIT",
+  targetSystem: "YourSystem",
+  title: "Submit high-risk action",
+  description: "A local or wrapped action that needs governance.",
+  businessObjectType: "business_object",
+  businessObjectId: "object-1",
+  beforeState: { status: "DRAFT" },
+  proposedAfterState: { status: "SUBMITTED" },
+};
+
+const review = runtime.captureAction(yourActionInput);
+const risk = runtime.assessRisk(review.action);
+const policy = runtime.evaluatePolicy(review.action, risk);
+const approval = runtime.requestApproval(review.action);
+
+runtime.approveAction(review.action);
+runtime.executeAfterApproval(review.action);
+runtime.verifyOutcome(review.action);
+
+const auditPacket = runtime.writeAuditPacket(review.action);
+```
+
+The SDK surface is intentionally small: `assessRisk(action)`, `evaluatePolicy(action)`, `requestApproval(action)`, `executeAfterApproval(action)`, `verifyOutcome(action)`, and `writeAuditPacket(action)`.
+
+The current implementation remains local and mock-only. Real integrations should be added only behind explicit adapters, credential boundaries, approvals, rollback/compensation design, verification, and audit.
+
+## Evidence Schema
+
+The AgentCert evidence bundle is versioned as `agentcert.evidence_bundle` schema family `1`, semver `1.0.0`. The schema defines required bundle/result/evidence fields, optional metadata, corpus fields, monitor snapshot fields, and the failure taxonomy used by the data flywheel.
+
+Read the schema guide:
+
+[docs/standards/evidence-schema.md](docs/standards/evidence-schema.md)
+
 ## What Feedback Looks Like
 
 MCPBench report excerpt:
@@ -474,6 +520,9 @@ Implemented:
 - Tripwire CI TypeScript CLI, Playwright/CDP browser harness, fault injection, trace capture, deterministic grading, HTML/JUnit reports, diffing, GitHub Action metadata, unit tests, and e2e demo tests.
 - Onegent Runtime TypeScript Action Gateway MVP with risk assessment, policy evaluation, approval, local mock ERP execution, verification, audit packet export, local API routes, demo HTML pages, and tests.
 - AgentCert CLI unified evidence bundle and markdown report generation across MCPBench, Tripwire CI, and Onegent Runtime artifacts.
+- AgentCert corpus data flywheel with JSONL, SQLite, and Postgres storage, automatic run ingestion, monitor snapshot generation, and failure taxonomy.
+- Onegent Runtime SDK surface for wrapping high-risk actions with risk, policy, approval, execution, verification, and audit steps.
+- AgentCert evidence schema v1.0.0 documentation for required fields, optional metadata, failure taxonomy, and standards mapping language.
 - Initial failure scenario library and standards mapping docs.
 
 Planned:

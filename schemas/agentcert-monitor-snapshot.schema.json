@@ -2,9 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agentcert.dev/schemas/agentcert-monitor-snapshot.schema.json",
   "title": "AgentCertMonitorSnapshot",
+  "description": "Static dashboard contract generated from JSONL, SQLite, or Postgres corpus storage. The UI reads this snapshot instead of connecting to storage directly.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "kind", "generatedAt", "subject", "summary", "lifecycle", "recentRuns", "failurePatterns", "links"],
+  "required": ["schemaVersion", "kind", "generatedAt", "subject", "summary", "filters", "lifecycle", "recentRuns", "failurePatterns", "links"],
   "properties": {
     "schemaVersion": {
       "type": "string",
@@ -24,7 +25,55 @@
     "summary": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["totalRecords", "passedRecords", "failedRecords", "passRate"]
+      "required": [
+        "totalRecords",
+        "passedRecords",
+        "failedRecords",
+        "passRate",
+        "byProduct",
+        "byFault",
+        "byAgent",
+        "byVersion",
+        "byFailureType",
+        "topFailurePatterns"
+      ]
+    },
+    "filters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agents", "faults", "versions", "failureTypes", "products"],
+      "properties": {
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "faults": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "versions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "failureTypes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "products": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
     },
     "lifecycle": {
       "type": "array",
@@ -76,7 +125,20 @@
       "items": {
         "type": "object",
         "additionalProperties": true,
-        "required": ["id", "product", "phase", "subject", "passed", "score", "timestamp", "evidenceCount", "artifacts"]
+        "required": [
+          "id",
+          "product",
+          "phase",
+          "subject",
+          "agentName",
+          "agentVersion",
+          "failureTypes",
+          "passed",
+          "score",
+          "timestamp",
+          "evidenceCount",
+          "artifacts"
+        ]
       }
     },
     "failurePatterns": {
@@ -84,7 +146,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["key", "count", "severity", "message"],
+        "required": ["key", "count", "severity", "message", "type"],
         "properties": {
           "key": {
             "type": "string"
@@ -97,6 +159,9 @@
             "type": "string"
           },
           "message": {
+            "type": "string"
+          },
+          "type": {
             "type": "string"
           }
         }

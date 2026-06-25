@@ -5,10 +5,25 @@ import type { AgentCertEvidence, AgentCertResult } from "./types.js";
 
 export type CorpusRecordKind = "product_run" | "scenario_run";
 
+export type FailureType =
+  | "prompt_injection"
+  | "wrong_click"
+  | "timeout"
+  | "verification_gap"
+  | "silent_partial_success"
+  | "network_failure"
+  | "ui_drift"
+  | "policy_or_approval"
+  | "agent_connection"
+  | "console_error"
+  | "assertion_failure"
+  | "unknown_failure";
+
 export interface FailurePattern {
   key: string;
   severity: AgentCertEvidence["severity"];
   message: string;
+  type: FailureType;
   scenarioName?: string;
   faultName?: string;
 }
@@ -19,6 +34,8 @@ export interface AgentCertCorpusRecord {
   id: string;
   ingestedAt: string;
   subject: string;
+  agentName: string;
+  agentVersion: string;
   product: AgentCertResult["product"];
   phase: AgentCertResult["phase"];
   runId: string;
@@ -44,7 +61,16 @@ export interface CorpusSummary {
   passRate: number;
   byProduct: SummaryBucket[];
   byFault: SummaryBucket[];
-  topFailurePatterns: Array<{ key: string; count: number; message: string; severity: AgentCertEvidence["severity"] }>;
+  byAgent: SummaryBucket[];
+  byVersion: SummaryBucket[];
+  byFailureType: SummaryBucket[];
+  topFailurePatterns: Array<{
+    key: string;
+    count: number;
+    message: string;
+    severity: AgentCertEvidence["severity"];
+    type: FailureType;
+  }>;
 }
 
 export interface SummaryBucket {
@@ -76,6 +102,8 @@ export function recordsFromAgentCertResult(
       id: stableRecordId([subject, result.product, result.runId, sourcePath]),
       ingestedAt,
       subject,
+      agentName: subject,
+      agentVersion: "unversioned",
       product: result.product,
       phase: result.phase,
       runId: result.runId,
@@ -105,6 +133,18 @@ export function summarizeCorpus(records: AgentCertCorpusRecord[]): CorpusSummary
     byFault: bucket(
       records.filter((record) => record.faultName),
       (record) => record.faultName ?? "unknown",
+    ),
+    byAgent: bucket(records, (record) => record.agentName),
+    byVersion: bucket(records, (record) => record.agentVersion),
+    byFailureType: bucket(
+      records.flatMap((record) =>
+        record.failurePatterns.map((pattern) => ({
+          ...record,
+          failureTypeForBucket: pattern.type,
+          passed: false,
+        })),
+      ),
+      (record) => record.failureTypeForBucket ?? "unknown_failure",
     ),
     topFailurePatterns: topFailurePatterns(records),
   };
@@ -165,13 +205,44 @@ function recordsFromTripwireInput(
     const faultName = stringValue(record.faultName);
     const runId = stringValue(record.runId) ?? `${result.runId}_${index + 1}`;
     const passed = record.status === "passed";
-    const failurePatterns = failedAssertions.map((assertion) => ({
-      key: `tripwire:${faultName ?? "unknown"}:${stringValue(assertion.type) ?? "assertion"}`,
-      severity: "high" as const,
-      message: stringValue(assertion.message) ?? "Tripwire assertion failed.",
-      scenarioName,
-      faultName,
-    }));
+    const agent = asRecord(record.agent);
+    const agentEnv = asRecord(agent.env);
+    const agentName = agentNameFromTripwireRun(agent, subject);
+    const agentVersion = stringValue(agentEnv.AGENTCERT_AGENT_VERSION) ?? stringValue(agentEnv.AGENT_VERSION) ?? "unversioned";
+    const failurePatterns = failedAssertions.map((assertion) => {
+      const assertionType = stringValue(assertion.type) ?? "assertion";
+      const message = stringValue(assertion.message) ?? "Tripwire assertion failed.";
+      const failureType = classifyTripwireFailure({
+        faultName,
+        assertionType,
+        message,
+        run: record,
+      });
+      return {
+        key: `tripwire:${failureType}:${faultName ?? "unknown"}:${assertionType}`,
+        severity: "high" as const,
+        message,
+        type: failureType,
+        scenarioName,
+        faultName,
+      };
+    });
+    if (!passed && failurePatterns.length === 0) {
+      const failureType = classifyTripwireFailure({
+        faultName,
+        assertionType: "run_status",
+        message: "Tripwire run failed without a failed assertion.",
+        run: record,
+      });
+      failurePatterns.push({
+        key: `tripwire:${failureType}:${faultName ?? "unknown"}:run_status`,
+        severity: "high",
+        message: "Tripwire run failed without a failed assertion.",
+        type: failureType,
+        scenarioName,
+        faultName,
+      });
+    }
 
     return {
       schemaVersion: "1",
@@ -179,6 +250,8 @@ function recordsFromTripwireInput(
       id: stableRecordId([subject, result.product, runId, sourcePath]),
       ingestedAt,
       subject,
+      agentName,
+      agentVersion,
       product: result.product,
       phase: result.phase,
       runId,
@@ -202,6 +275,7 @@ function recordsFromTripwireInput(
         finalUrl: stringValue(record.finalUrl),
         diagnostics: Array.isArray(record.diagnostics) ? record.diagnostics : [],
         warnings: Array.isArray(record.warnings) ? record.warnings : [],
+        failureTypes: [...new Set(failurePatterns.map((pattern) => pattern.type))],
       },
     };
   });
@@ -216,6 +290,7 @@ function failurePatternsFromEvidence(evidence: AgentCertEvidence[]): FailurePatt
         key: `${item.source ?? "agentcert"}:${stringValue(metadata.faultName) ?? item.kind}`,
         severity: item.severity,
         message: item.message,
+        type: classifyEvidenceFailure(item),
         scenarioName: stringValue(metadata.scenarioName),
         faultName: stringValue(metadata.faultName),
       };
@@ -223,13 +298,14 @@ function failurePatternsFromEvidence(evidence: AgentCertEvidence[]): FailurePatt
 }
 
 function topFailurePatterns(records: AgentCertCorpusRecord[]): CorpusSummary["topFailurePatterns"] {
-  const counts = new Map<string, { count: number; message: string; severity: AgentCertEvidence["severity"] }>();
+  const counts = new Map<string, { count: number; message: string; severity: AgentCertEvidence["severity"]; type: FailureType }>();
   for (const pattern of records.flatMap((record) => record.failurePatterns)) {
     const current = counts.get(pattern.key);
     counts.set(pattern.key, {
       count: (current?.count ?? 0) + 1,
       message: current?.message ?? pattern.message,
       severity: current?.severity ?? pattern.severity,
+      type: current?.type ?? pattern.type,
     });
   }
   return [...counts.entries()]
@@ -238,7 +314,7 @@ function topFailurePatterns(records: AgentCertCorpusRecord[]): CorpusSummary["to
     .slice(0, 10);
 }
 
-function bucket(records: AgentCertCorpusRecord[], keyFor: (record: AgentCertCorpusRecord) => string): SummaryBucket[] {
+function bucket<T extends AgentCertCorpusRecord>(records: T[], keyFor: (record: T) => string): SummaryBucket[] {
   const buckets = new Map<string, { total: number; passed: number }>();
   for (const record of records) {
     const key = keyFor(record);
@@ -258,6 +334,60 @@ function bucket(records: AgentCertCorpusRecord[], keyFor: (record: AgentCertCorp
     .sort((left, right) => right.total - left.total || left.key.localeCompare(right.key));
 }
 
+function classifyTripwireFailure(input: {
+  faultName?: string;
+  assertionType: string;
+  message: string;
+  run: Record<string, unknown>;
+}): FailureType {
+  const fault = input.faultName ?? "";
+  const assertion = input.assertionType;
+  const message = input.message.toLowerCase();
+  const diagnostics = stringArray(input.run.diagnostics).join(" ").toLowerCase();
+  const warnings = stringArray(input.run.warnings).join(" ").toLowerCase();
+  const agentResult = asRecord(input.run.agentResult);
+
+  if (agentResult.timedOut === true || assertion === "max_steps" || message.includes("timed out")) return "timeout";
+  if (fault.includes("prompt-injection") || assertion === "no_sensitive_text_in_output" || message.includes("ignore previous instructions")) {
+    return "prompt_injection";
+  }
+  if (fault.includes("misleading-button") || message.includes("wrong button") || message.includes("cancel")) return "wrong_click";
+  if (fault.includes("button-text-drift") || fault.includes("layout-shift") || fault.includes("modal-overlay") || fault.includes("disabled-submit")) {
+    return "ui_drift";
+  }
+  if (fault.includes("slow-network") || fault.includes("http-failure") || message.includes("network") || message.includes("503")) {
+    return "network_failure";
+  }
+  if (assertion === "no_console_error" || message.includes("console")) return "console_error";
+  if (diagnostics.includes("did not appear to connect") || warnings.includes("did not appear to connect")) return "agent_connection";
+  if (agentResult.exitCode === 0 && (assertion === "url_contains" || assertion === "text_exists")) return "silent_partial_success";
+  return "assertion_failure";
+}
+
+function classifyEvidenceFailure(evidence: AgentCertEvidence): FailureType {
+  const kind = evidence.kind.toLowerCase();
+  const message = evidence.message.toLowerCase();
+  if (kind.includes("verification") || message.includes("did not match expected")) return "verification_gap";
+  if (kind.includes("approval") || kind.includes("policy") || message.includes("approval")) return "policy_or_approval";
+  if (kind.includes("timeout") || message.includes("timeout")) return "timeout";
+  if (kind.includes("prompt") || message.includes("prompt injection")) return "prompt_injection";
+  return "unknown_failure";
+}
+
+function agentNameFromTripwireRun(agent: Record<string, unknown>, fallback: string): string {
+  const args = Array.isArray(agent.args) ? agent.args.filter((item): item is string => typeof item === "string") : [];
+  const command = stringValue(agent.command);
+  const candidate = [...args].reverse().find((arg) => /agent|browser-use|stagehand|playwright/i.test(arg));
+  if (candidate) {
+    return candidate
+      .split(/[\\/]/)
+      .pop()
+      ?.replace(/\.(mjs|js|py|ts)$/i, "")
+      .replace(/[_-]+/g, " ") ?? fallback;
+  }
+  return command ?? fallback;
+}
+
 function renderBuckets(buckets: SummaryBucket[]): string[] {
   if (buckets.length === 0) {
     return ["- none"];
@@ -266,6 +396,10 @@ function renderBuckets(buckets: SummaryBucket[]): string[] {
     (bucket) =>
       `- ${bucket.key}: ${bucket.passed}/${bucket.total} passed (${(bucket.passRate * 100).toFixed(1)}%), ${bucket.failed} failed`,
   );
+}
+
+function stringArray(input: unknown): string[] {
+  return Array.isArray(input) ? input.filter((item): item is string => typeof item === "string") : [];
 }
 
 async function existingCorpus(path: string): Promise<string> {

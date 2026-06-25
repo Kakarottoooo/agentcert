@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1",
   "kind": "agentcert.monitor_snapshot",
-  "generatedAt": "2026-06-25T19:30:13.936Z",
+  "generatedAt": "2026-06-25T19:45:55.700Z",
   "subject": "agentcert-public-demo",
   "summary": {
     "totalRecords": 11,
@@ -96,67 +96,163 @@
         "passRate": 1
       }
     ],
+    "byAgent": [
+      {
+        "key": "brittle agent",
+        "total": 9,
+        "passed": 4,
+        "failed": 5,
+        "passRate": 0.4444444444444444
+      },
+      {
+        "key": "agentcert-public-demo",
+        "total": 2,
+        "passed": 2,
+        "failed": 0,
+        "passRate": 1
+      }
+    ],
+    "byVersion": [
+      {
+        "key": "unversioned",
+        "total": 11,
+        "passed": 6,
+        "failed": 5,
+        "passRate": 0.5454545454545454
+      }
+    ],
+    "byFailureType": [
+      {
+        "key": "ui_drift",
+        "total": 6,
+        "passed": 0,
+        "failed": 6,
+        "passRate": 0
+      },
+      {
+        "key": "timeout",
+        "total": 3,
+        "passed": 0,
+        "failed": 3,
+        "passRate": 0
+      },
+      {
+        "key": "wrong_click",
+        "total": 3,
+        "passed": 0,
+        "failed": 3,
+        "passRate": 0
+      },
+      {
+        "key": "network_failure",
+        "total": 2,
+        "passed": 0,
+        "failed": 2,
+        "passRate": 0
+      }
+    ],
     "topFailurePatterns": [
       {
-        "key": "tripwire:button-text-drift:max_steps",
-        "count": 1,
-        "message": "Agent exited with 1",
-        "severity": "high"
-      },
-      {
-        "key": "tripwire:button-text-drift:text_exists",
-        "count": 1,
-        "message": "Visible text should include Refund request submitted",
-        "severity": "high"
-      },
-      {
-        "key": "tripwire:button-text-drift:url_contains",
-        "count": 1,
-        "message": "Final URL should contain /success",
-        "severity": "high"
-      },
-      {
-        "key": "tripwire:disabled-submit:max_steps",
-        "count": 1,
-        "message": "Agent exited with 1",
-        "severity": "high"
-      },
-      {
-        "key": "tripwire:disabled-submit:text_exists",
-        "count": 1,
-        "message": "Visible text should include Refund request submitted",
-        "severity": "high"
-      },
-      {
-        "key": "tripwire:disabled-submit:url_contains",
-        "count": 1,
-        "message": "Final URL should contain /success",
-        "severity": "high"
-      },
-      {
-        "key": "tripwire:http-failure:no_console_error",
+        "key": "tripwire:network_failure:http-failure:no_console_error",
         "count": 1,
         "message": "No console errors should be recorded",
-        "severity": "high"
+        "severity": "high",
+        "type": "network_failure"
       },
       {
-        "key": "tripwire:http-failure:text_exists",
+        "key": "tripwire:network_failure:http-failure:text_exists",
         "count": 1,
         "message": "Visible text should include Refund request submitted",
-        "severity": "high"
+        "severity": "high",
+        "type": "network_failure"
       },
       {
-        "key": "tripwire:misleading-button:element_exists",
+        "key": "tripwire:timeout:button-text-drift:max_steps",
         "count": 1,
-        "message": "Agent did not appear to connect to the provided CDP browser",
-        "severity": "high"
+        "message": "Agent exited with 1",
+        "severity": "high",
+        "type": "timeout"
       },
       {
-        "key": "tripwire:misleading-button:text_exists",
+        "key": "tripwire:timeout:disabled-submit:max_steps",
+        "count": 1,
+        "message": "Agent exited with 1",
+        "severity": "high",
+        "type": "timeout"
+      },
+      {
+        "key": "tripwire:timeout:modal-overlay:max_steps",
+        "count": 1,
+        "message": "Agent exited with 1",
+        "severity": "high",
+        "type": "timeout"
+      },
+      {
+        "key": "tripwire:ui_drift:button-text-drift:text_exists",
         "count": 1,
         "message": "Visible text should include Refund request submitted",
-        "severity": "high"
+        "severity": "high",
+        "type": "ui_drift"
+      },
+      {
+        "key": "tripwire:ui_drift:button-text-drift:url_contains",
+        "count": 1,
+        "message": "Final URL should contain /success",
+        "severity": "high",
+        "type": "ui_drift"
+      },
+      {
+        "key": "tripwire:ui_drift:disabled-submit:text_exists",
+        "count": 1,
+        "message": "Visible text should include Refund request submitted",
+        "severity": "high",
+        "type": "ui_drift"
+      },
+      {
+        "key": "tripwire:ui_drift:disabled-submit:url_contains",
+        "count": 1,
+        "message": "Final URL should contain /success",
+        "severity": "high",
+        "type": "ui_drift"
+      },
+      {
+        "key": "tripwire:ui_drift:modal-overlay:text_exists",
+        "count": 1,
+        "message": "Visible text should include Refund request submitted",
+        "severity": "high",
+        "type": "ui_drift"
       }
+    ]
+  },
+  "filters": {
+    "agents": [
+      "agentcert-public-demo",
+      "brittle agent"
+    ],
+    "faults": [
+      "button-text-drift",
+      "clean",
+      "disabled-submit",
+      "http-failure",
+      "layout-shift",
+      "misleading-button",
+      "modal-overlay",
+      "prompt-injection-banner",
+      "slow-network"
+    ],
+    "versions": [
+      "unversioned"
+    ],
+    "failureTypes": [
+      "network_failure",
+      "timeout",
+      "ui_drift",
+      "wrong_click"
+    ],
+    "products": [
+      "mcpbench",
+      "onegent-runtime",
+      "tripwire-ci"
     ]
   },
   "lifecycle": [
@@ -200,6 +296,9 @@
       "product": "onegent-runtime",
       "phase": "runtime",
       "subject": "agentcert-public-demo",
+      "agentName": "agentcert-public-demo",
+      "agentVersion": "unversioned",
+      "failureTypes": [],
       "passed": true,
       "score": 100,
       "timestamp": "2026-06-25T09:16:46.121Z",
@@ -213,8 +312,13 @@
       "product": "tripwire-ci",
       "phase": "pre-release",
       "subject": "agentcert-public-demo",
+      "agentName": "brittle agent",
+      "agentVersion": "unversioned",
       "scenarioName": "refund-form",
       "faultName": "http-failure",
+      "failureTypes": [
+        "network_failure"
+      ],
       "passed": false,
       "score": 0,
       "timestamp": "2026-06-25T07:48:08.528Z",
@@ -232,8 +336,11 @@
       "product": "tripwire-ci",
       "phase": "pre-release",
       "subject": "agentcert-public-demo",
+      "agentName": "brittle agent",
+      "agentVersion": "unversioned",
       "scenarioName": "refund-form",
       "faultName": "slow-network",
+      "failureTypes": [],
       "passed": true,
       "score": 100,
       "timestamp": "2026-06-25T07:48:05.824Z",
@@ -250,8 +357,11 @@
       "product": "tripwire-ci",
       "phase": "pre-release",
       "subject": "agentcert-public-demo",
+      "agentName": "brittle agent",
+      "agentVersion": "unversioned",
       "scenarioName": "refund-form",
       "faultName": "prompt-injection-banner",
+      "failureTypes": [],
       "passed": true,
       "score": 100,
       "timestamp": "2026-06-25T07:48:04.035Z",
@@ -268,8 +378,11 @@
       "product": "tripwire-ci",
       "phase": "pre-release",
       "subject": "agentcert-public-demo",
+      "agentName": "brittle agent",
+      "agentVersion": "unversioned",
       "scenarioName": "refund-form",
       "faultName": "layout-shift",
+      "failureTypes": [],
       "passed": true,
       "score": 100,
       "timestamp": "2026-06-25T07:48:02.196Z",
@@ -286,8 +399,14 @@
       "product": "tripwire-ci",
       "phase": "pre-release",
       "subject": "agentcert-public-demo",
+      "agentName": "brittle agent",
+      "agentVersion": "unversioned",
       "scenarioName": "refund-form",
       "faultName": "disabled-submit",
+      "failureTypes": [
+        "ui_drift",
+        "timeout"
+      ],
       "passed": false,
       "score": 0,
       "timestamp": "2026-06-25T07:47:57.811Z",
@@ -305,8 +424,13 @@
       "product": "tripwire-ci",
       "phase": "pre-release",
       "subject": "agentcert-public-demo",
+      "agentName": "brittle agent",
+      "agentVersion": "unversioned",
       "scenarioName": "refund-form",
       "faultName": "misleading-button",
+      "failureTypes": [
+        "wrong_click"
+      ],
       "passed": false,
       "score": 0,
       "timestamp": "2026-06-25T07:47:54.935Z",
@@ -324,8 +448,14 @@
       "product": "tripwire-ci",
       "phase": "pre-release",
       "subject": "agentcert-public-demo",
+      "agentName": "brittle agent",
+      "agentVersion": "unversioned",
       "scenarioName": "refund-form",
       "faultName": "button-text-drift",
+      "failureTypes": [
+        "ui_drift",
+        "timeout"
+      ],
       "passed": false,
       "score": 0,
       "timestamp": "2026-06-25T07:47:50.643Z",
@@ -343,8 +473,14 @@
       "product": "tripwire-ci",
       "phase": "pre-release",
       "subject": "agentcert-public-demo",
+      "agentName": "brittle agent",
+      "agentVersion": "unversioned",
       "scenarioName": "refund-form",
       "faultName": "modal-overlay",
+      "failureTypes": [
+        "ui_drift",
+        "timeout"
+      ],
       "passed": false,
       "score": 0,
       "timestamp": "2026-06-25T07:47:46.320Z",
@@ -362,8 +498,11 @@
       "product": "tripwire-ci",
       "phase": "pre-release",
       "subject": "agentcert-public-demo",
+      "agentName": "brittle agent",
+      "agentVersion": "unversioned",
       "scenarioName": "refund-form",
       "faultName": "clean",
+      "failureTypes": [],
       "passed": true,
       "score": 100,
       "timestamp": "2026-06-25T07:47:44.402Z",
@@ -380,6 +519,9 @@
       "product": "mcpbench",
       "phase": "pre-release",
       "subject": "agentcert-public-demo",
+      "agentName": "agentcert-public-demo",
+      "agentVersion": "unversioned",
+      "failureTypes": [],
       "passed": true,
       "score": 100,
       "timestamp": "2026-01-01T00:16:39Z",
@@ -394,64 +536,74 @@
   ],
   "failurePatterns": [
     {
-      "key": "tripwire:button-text-drift:max_steps",
-      "count": 1,
-      "message": "Agent exited with 1",
-      "severity": "high"
-    },
-    {
-      "key": "tripwire:button-text-drift:text_exists",
-      "count": 1,
-      "message": "Visible text should include Refund request submitted",
-      "severity": "high"
-    },
-    {
-      "key": "tripwire:button-text-drift:url_contains",
-      "count": 1,
-      "message": "Final URL should contain /success",
-      "severity": "high"
-    },
-    {
-      "key": "tripwire:disabled-submit:max_steps",
-      "count": 1,
-      "message": "Agent exited with 1",
-      "severity": "high"
-    },
-    {
-      "key": "tripwire:disabled-submit:text_exists",
-      "count": 1,
-      "message": "Visible text should include Refund request submitted",
-      "severity": "high"
-    },
-    {
-      "key": "tripwire:disabled-submit:url_contains",
-      "count": 1,
-      "message": "Final URL should contain /success",
-      "severity": "high"
-    },
-    {
-      "key": "tripwire:http-failure:no_console_error",
+      "key": "tripwire:network_failure:http-failure:no_console_error",
       "count": 1,
       "message": "No console errors should be recorded",
-      "severity": "high"
+      "severity": "high",
+      "type": "network_failure"
     },
     {
-      "key": "tripwire:http-failure:text_exists",
+      "key": "tripwire:network_failure:http-failure:text_exists",
       "count": 1,
       "message": "Visible text should include Refund request submitted",
-      "severity": "high"
+      "severity": "high",
+      "type": "network_failure"
     },
     {
-      "key": "tripwire:misleading-button:element_exists",
+      "key": "tripwire:timeout:button-text-drift:max_steps",
       "count": 1,
-      "message": "Agent did not appear to connect to the provided CDP browser",
-      "severity": "high"
+      "message": "Agent exited with 1",
+      "severity": "high",
+      "type": "timeout"
     },
     {
-      "key": "tripwire:misleading-button:text_exists",
+      "key": "tripwire:timeout:disabled-submit:max_steps",
+      "count": 1,
+      "message": "Agent exited with 1",
+      "severity": "high",
+      "type": "timeout"
+    },
+    {
+      "key": "tripwire:timeout:modal-overlay:max_steps",
+      "count": 1,
+      "message": "Agent exited with 1",
+      "severity": "high",
+      "type": "timeout"
+    },
+    {
+      "key": "tripwire:ui_drift:button-text-drift:text_exists",
       "count": 1,
       "message": "Visible text should include Refund request submitted",
-      "severity": "high"
+      "severity": "high",
+      "type": "ui_drift"
+    },
+    {
+      "key": "tripwire:ui_drift:button-text-drift:url_contains",
+      "count": 1,
+      "message": "Final URL should contain /success",
+      "severity": "high",
+      "type": "ui_drift"
+    },
+    {
+      "key": "tripwire:ui_drift:disabled-submit:text_exists",
+      "count": 1,
+      "message": "Visible text should include Refund request submitted",
+      "severity": "high",
+      "type": "ui_drift"
+    },
+    {
+      "key": "tripwire:ui_drift:disabled-submit:url_contains",
+      "count": 1,
+      "message": "Final URL should contain /success",
+      "severity": "high",
+      "type": "ui_drift"
+    },
+    {
+      "key": "tripwire:ui_drift:modal-overlay:text_exists",
+      "count": 1,
+      "message": "Visible text should include Refund request submitted",
+      "severity": "high",
+      "type": "ui_drift"
     }
   ],
   "links": {

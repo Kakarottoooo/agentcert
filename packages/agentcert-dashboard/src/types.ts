@@ -4,6 +4,7 @@ export interface MonitorSnapshot {
   generatedAt: string;
   subject: string;
   summary: CorpusSummary;
+  filters: MonitorFilters;
   lifecycle: LifecycleGate[];
   recentRuns: MonitorRun[];
   failurePatterns: FailurePattern[];
@@ -19,7 +20,18 @@ export interface CorpusSummary {
   passRate: number;
   byProduct: SummaryBucket[];
   byFault: SummaryBucket[];
+  byAgent: SummaryBucket[];
+  byVersion: SummaryBucket[];
+  byFailureType: SummaryBucket[];
   topFailurePatterns: FailurePattern[];
+}
+
+export interface MonitorFilters {
+  agents: string[];
+  faults: string[];
+  versions: string[];
+  failureTypes: string[];
+  products: string[];
 }
 
 export interface SummaryBucket {
@@ -47,8 +59,11 @@ export interface MonitorRun {
   product: string;
   phase: string;
   subject: string;
+  agentName: string;
+  agentVersion: string;
   scenarioName?: string;
   faultName?: string;
+  failureTypes: string[];
   passed: boolean;
   score: number;
   timestamp: string;
@@ -63,11 +78,12 @@ export interface FailurePattern {
   count: number;
   severity: string;
   message: string;
+  type: string;
 }
 
 export interface RunDetail {
   record: CorpusRecord;
-  failurePatterns: Array<{ key: string; severity: string; message: string; scenarioName?: string; faultName?: string }>;
+  failurePatterns: Array<{ key: string; severity: string; message: string; type: string; scenarioName?: string; faultName?: string }>;
   assertions: AssertionResult[];
   timeline: EvidenceTimelineItem[];
   artifacts: EvidenceArtifact[];
@@ -89,7 +105,7 @@ export interface CorpusRecord extends MonitorRun {
   runId: string;
   stepCount?: number;
   highOrCriticalEvidenceCount: number;
-  failurePatterns: Array<{ key: string; severity: string; message: string; scenarioName?: string; faultName?: string }>;
+  failurePatterns: Array<{ key: string; severity: string; message: string; type: string; scenarioName?: string; faultName?: string }>;
   sourcePath: string;
   metadata?: Record<string, unknown>;
 }

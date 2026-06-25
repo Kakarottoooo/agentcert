@@ -3,6 +3,14 @@ import { compactBytes, compactDate, compactDuration, loadMonitorSnapshot, loadRu
 import type { EvidenceArtifact, EvidenceTimelineItem, LifecycleGate, MonitorRun, MonitorSnapshot, RunDetail, SummaryBucket } from "./types";
 
 type View = "overview" | "runs" | "patterns";
+type FilterState = {
+  agent: string;
+  fault: string;
+  version: string;
+  failureType: string;
+};
+
+const ALL = "__all__";
 
 export default function App() {
   const [snapshot, setSnapshot] = useState<MonitorSnapshot>();
@@ -12,6 +20,12 @@ export default function App() {
   const [selectedRunId, setSelectedRunId] = useState<string>();
   const [runDetail, setRunDetail] = useState<RunDetail>();
   const [detailLoading, setDetailLoading] = useState(false);
+  const [filters, setFilters] = useState<FilterState>({
+    agent: ALL,
+    fault: ALL,
+    version: ALL,
+    failureType: ALL,
+  });
 
   useEffect(() => {
     loadMonitorSnapshot()
@@ -22,10 +36,15 @@ export default function App() {
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
 
+  const filteredRuns = useMemo(() => {
+    if (!snapshot) return [];
+    return snapshot.recentRuns.filter((run) => runMatchesFilters(run, filters));
+  }, [filters, snapshot]);
+
   const selectedRun = useMemo(() => {
     if (!snapshot) return undefined;
-    return snapshot.recentRuns.find((run) => run.id === selectedRunId) ?? snapshot.recentRuns[0];
-  }, [selectedRunId, snapshot]);
+    return filteredRuns.find((run) => run.id === selectedRunId) ?? filteredRuns[0];
+  }, [filteredRuns, selectedRunId, snapshot]);
 
   useEffect(() => {
     if (!selectedRun || source !== "api") {
@@ -96,12 +115,22 @@ export default function App() {
           ))}
         </section>
 
+        <FilterBar snapshot={snapshot} filters={filters} onChange={setFilters} filteredCount={filteredRuns.length} />
+
         {view === "overview" ? (
-          <Overview snapshot={snapshot} selectedRun={selectedRun} runDetail={runDetail} source={source} onSelectRun={setSelectedRunId} />
+          <Overview
+            snapshot={snapshot}
+            runs={filteredRuns}
+            selectedRun={selectedRun}
+            runDetail={runDetail}
+            source={source}
+            onSelectRun={setSelectedRunId}
+          />
         ) : null}
         {view === "runs" ? (
           <RunsView
             snapshot={snapshot}
+            runs={filteredRuns}
             selectedRun={selectedRun}
             runDetail={runDetail}
             detailLoading={detailLoading}
@@ -117,12 +146,14 @@ export default function App() {
 
 function Overview({
   snapshot,
+  runs,
   selectedRun,
   runDetail,
   source,
   onSelectRun,
 }: {
   snapshot: MonitorSnapshot;
+  runs: MonitorRun[];
   selectedRun?: MonitorRun;
   runDetail?: RunDetail;
   source: "api" | "static";
@@ -161,8 +192,8 @@ function Overview({
       </section>
 
       <section className="wide-panel">
-        <PanelHeader title="Recent Runs" action="Click a row to inspect" />
-        <RunTable runs={snapshot.recentRuns.slice(0, 8)} selectedRun={selectedRun} onSelectRun={onSelectRun} />
+        <PanelHeader title="Recent Runs" action={`${runs.length} matching records`} />
+        <RunTable runs={runs.slice(0, 8)} selectedRun={selectedRun} onSelectRun={onSelectRun} />
       </section>
 
       <RunInspector run={selectedRun} detailUrl={snapshot.links.detailUrl} />
@@ -174,6 +205,7 @@ function Overview({
 
 function RunsView({
   snapshot,
+  runs,
   selectedRun,
   runDetail,
   detailLoading,
@@ -181,6 +213,7 @@ function RunsView({
   onSelectRun,
 }: {
   snapshot: MonitorSnapshot;
+  runs: MonitorRun[];
   selectedRun?: MonitorRun;
   runDetail?: RunDetail;
   detailLoading: boolean;
@@ -190,8 +223,8 @@ function RunsView({
   return (
     <div className="evidence-grid">
       <section className="wide-panel">
-        <PanelHeader title="All Recent Runs" action={`${snapshot.recentRuns.length} records shown`} />
-        <RunTable runs={snapshot.recentRuns} selectedRun={selectedRun} onSelectRun={onSelectRun} />
+        <PanelHeader title="All Recent Runs" action={`${runs.length}/${snapshot.recentRuns.length} records shown`} />
+        <RunTable runs={runs} selectedRun={selectedRun} onSelectRun={onSelectRun} />
       </section>
       <EvidenceTimelinePanel run={selectedRun} detail={runDetail} loading={detailLoading} source={source} />
       <ArtifactPanel run={selectedRun} detail={runDetail} detailUrl={snapshot.links.detailUrl} source={source} />
@@ -244,6 +277,77 @@ function LifecycleCard({ gate }: { gate: LifecycleGate }) {
         <span>{gate.recordCount === 0 ? "-" : percent(gate.passRate)}</span>
       </div>
     </section>
+  );
+}
+
+function FilterBar({
+  snapshot,
+  filters,
+  filteredCount,
+  onChange,
+}: {
+  snapshot: MonitorSnapshot;
+  filters: FilterState;
+  filteredCount: number;
+  onChange: (filters: FilterState) => void;
+}) {
+  return (
+    <section className="filter-bar" aria-label="Corpus filters">
+      <FilterSelect
+        label="Agent"
+        value={filters.agent}
+        options={snapshot.filters.agents}
+        onChange={(agent) => onChange({ ...filters, agent })}
+      />
+      <FilterSelect
+        label="Fault"
+        value={filters.fault}
+        options={snapshot.filters.faults}
+        onChange={(fault) => onChange({ ...filters, fault })}
+      />
+      <FilterSelect
+        label="Version"
+        value={filters.version}
+        options={snapshot.filters.versions}
+        onChange={(version) => onChange({ ...filters, version })}
+      />
+      <FilterSelect
+        label="Failure type"
+        value={filters.failureType}
+        options={snapshot.filters.failureTypes}
+        onChange={(failureType) => onChange({ ...filters, failureType })}
+      />
+      <div className="filter-count">
+        <strong>{filteredCount}</strong>
+        <span>matching runs</span>
+      </div>
+    </section>
+  );
+}
+
+function FilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="filter-control">
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value={ALL}>All</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {formatFilterValue(option)}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -308,18 +412,21 @@ function RunTable({
           onClick={() => onSelectRun(run.id)}
         >
           <span>
-            <strong>{run.product}</strong>
-            <small>{run.phase}</small>
+            <strong>{run.agentName}</strong>
+            <small>
+              {run.product} | {run.agentVersion}
+            </small>
           </span>
           <span>
             <strong>{run.faultName ?? "product-run"}</strong>
-            <small>{run.scenarioName ?? run.subject}</small>
+            <small>{run.failureTypes.length > 0 ? run.failureTypes.map(formatFilterValue).join(", ") : (run.scenarioName ?? run.subject)}</small>
           </span>
           <Status passed={run.passed} />
           <span>{run.evidenceCount}</span>
           <span>{compactDuration(run.durationMs)}</span>
         </button>
       ))}
+      {runs.length === 0 ? <EmptyLine text="No runs match the active filters." /> : null}
     </div>
   );
 }
@@ -335,6 +442,14 @@ function RunInspector({ run, detailUrl }: { run?: MonitorRun; detailUrl?: string
             <strong>{run.faultName ?? run.product}</strong>
           </div>
           <dl>
+            <div>
+              <dt>Agent</dt>
+              <dd>{run.agentName}</dd>
+            </div>
+            <div>
+              <dt>Version</dt>
+              <dd>{run.agentVersion}</dd>
+            </div>
             <div>
               <dt>Product</dt>
               <dd>{run.product}</dd>
@@ -366,6 +481,18 @@ function RunInspector({ run, detailUrl }: { run?: MonitorRun; detailUrl?: string
       )}
     </section>
   );
+}
+
+function runMatchesFilters(run: MonitorRun, filters: FilterState): boolean {
+  if (filters.agent !== ALL && run.agentName !== filters.agent) return false;
+  if (filters.fault !== ALL && run.faultName !== filters.fault) return false;
+  if (filters.version !== ALL && run.agentVersion !== filters.version) return false;
+  if (filters.failureType !== ALL && !run.failureTypes.includes(filters.failureType)) return false;
+  return true;
+}
+
+function formatFilterValue(value: string): string {
+  return value.replaceAll("_", " ").replaceAll("-", " ");
 }
 
 function EvidencePreview({ run, detail, source }: { run?: MonitorRun; detail?: RunDetail; source: "api" | "static" }) {

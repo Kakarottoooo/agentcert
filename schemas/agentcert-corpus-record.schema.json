@@ -10,6 +10,8 @@
     "id",
     "ingestedAt",
     "subject",
+    "agentName",
+    "agentVersion",
     "product",
     "phase",
     "runId",
@@ -40,6 +42,14 @@
     },
     "subject": {
       "type": "string"
+    },
+    "agentName": {
+      "type": "string",
+      "description": "Agent or adapter name derived from the source artifact or subject."
+    },
+    "agentVersion": {
+      "type": "string",
+      "description": "Agent version label for trend analysis. Use unversioned when no version is available."
     },
     "product": {
       "type": "string",
@@ -91,7 +101,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["key", "severity", "message"],
+        "required": ["key", "severity", "message", "type"],
         "properties": {
           "key": {
             "type": "string"
@@ -102,6 +112,24 @@
           },
           "message": {
             "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "description": "AgentCert failure taxonomy bucket for filtering and long-term corpus analysis.",
+            "enum": [
+              "prompt_injection",
+              "wrong_click",
+              "timeout",
+              "verification_gap",
+              "silent_partial_success",
+              "network_failure",
+              "ui_drift",
+              "policy_or_approval",
+              "agent_connection",
+              "console_error",
+              "assertion_failure",
+              "unknown_failure"
+            ]
           },
           "scenarioName": {
             "type": "string"

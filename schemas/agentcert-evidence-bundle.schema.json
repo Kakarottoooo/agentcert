@@ -2,13 +2,39 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agentcert.dev/schemas/agentcert-evidence-bundle.schema.json",
   "title": "AgentCertEvidenceBundle",
+  "description": "Stable AgentCert evidence packet contract. Required fields identify the subject, verdict, source results, evidence items, artifacts, and standards mappings needed for independent review.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "kind", "runId", "generatedAt", "subject", "verdict", "summary", "results", "evidence", "artifacts", "standards"],
+  "required": [
+    "schemaName",
+    "schemaVersion",
+    "schemaSemver",
+    "kind",
+    "runId",
+    "generatedAt",
+    "subject",
+    "verdict",
+    "summary",
+    "results",
+    "evidence",
+    "artifacts",
+    "standards"
+  ],
   "properties": {
+    "schemaName": {
+      "type": "string",
+      "const": "agentcert.evidence_bundle",
+      "description": "Stable schema identifier for external evidence consumers."
+    },
     "schemaVersion": {
       "type": "string",
-      "const": "1"
+      "const": "1",
+      "description": "Compatibility family for AgentCert evidence bundles."
+    },
+    "schemaSemver": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Semver release of the evidence bundle schema."
     },
     "kind": {
       "type": "string",

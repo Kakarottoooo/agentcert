@@ -2,13 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agentcert.dev/schemas/agentcert-result.schema.json",
   "title": "AgentCertResult",
+  "description": "One normalized engine result inside an AgentCert evidence bundle. Required fields describe provenance, lifecycle phase, verdict, artifacts, and evidence.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "product", "runId", "timestamp", "score", "passed", "artifacts", "evidence"],
+  "required": ["schemaVersion", "product", "runId", "timestamp", "phase", "score", "passed", "artifacts", "evidence"],
   "properties": {
     "schemaVersion": {
       "type": "string",
-      "const": "1"
+      "const": "1",
+      "description": "Compatibility family for normalized AgentCert product results."
     },
     "product": {
       "type": "string",
@@ -42,6 +44,7 @@
     },
     "artifacts": {
       "type": "object",
+      "description": "Named local or hosted artifact paths that support this result.",
       "additionalProperties": {
         "type": "string"
       }

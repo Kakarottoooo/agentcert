@@ -4,6 +4,7 @@ export * from "./policies.js";
 export * from "./policy-config.js";
 export * from "./procurement-walkthrough.js";
 export * from "./risk.js";
+export * from "./sdk.js";
 export * from "./service.js";
 export * from "./store.js";
 export * from "./types.js";

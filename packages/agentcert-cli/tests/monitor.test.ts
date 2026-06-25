@@ -15,6 +15,12 @@ describe("AgentCert monitor snapshots", () => {
     expect(snapshot.kind).toBe("agentcert.monitor_snapshot");
     expect(snapshot.subject).toBe("demo-agent");
     expect(snapshot.summary.totalRecords).toBe(2);
+    expect(snapshot.filters).toMatchObject({
+      agents: ["demo-agent"],
+      faults: ["clean", "modal-overlay"],
+      versions: ["unversioned"],
+      failureTypes: ["ui_drift"],
+    });
     expect(snapshot.lifecycle.find((gate) => gate.id === "tripwire-ci")).toMatchObject({
       recordCount: 2,
       passedCount: 1,
@@ -37,6 +43,8 @@ function record(product: AgentCertCorpusRecord["product"], passed: boolean, faul
     id: `${product}_${faultName}`,
     ingestedAt: "2026-01-01T00:00:00Z",
     subject: "demo-agent",
+    agentName: "demo-agent",
+    agentVersion: "unversioned",
     product,
     phase: product === "onegent-runtime" ? "runtime" : "pre-release",
     runId: `${product}_${faultName}`,
@@ -48,7 +56,16 @@ function record(product: AgentCertCorpusRecord["product"], passed: boolean, faul
     evidenceCount: failure ? 1 : 0,
     highOrCriticalEvidenceCount: failure ? 1 : 0,
     failurePatterns: failure
-      ? [{ key: `${product}:${faultName}:url_contains`, severity: "high", message: failure, scenarioName: "refund-form", faultName }]
+      ? [
+          {
+            key: `${product}:ui_drift:${faultName}:url_contains`,
+            severity: "high",
+            message: failure,
+            type: "ui_drift",
+            scenarioName: "refund-form",
+            faultName,
+          },
+        ]
       : [],
     artifacts: { result: "tripwire-result.json" },
     sourcePath: "corpus.jsonl",

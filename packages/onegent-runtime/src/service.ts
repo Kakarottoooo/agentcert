@@ -20,6 +20,10 @@ export interface ActionGatewayOptions {
   policyRules?: PolicyRule[];
 }
 
+export interface ApprovalOptions {
+  autoExecute?: boolean;
+}
+
 export function captureActionIntent(input: CreateActionIntentInput, options: ActionGatewayOptions = {}): ActionReview {
   const action: ActionIntent = {
     id: nextId("act"),
@@ -104,6 +108,7 @@ export function approveAction(
   actionId: string,
   reviewerId = "human-approver@example.local",
   reviewerComment = "Approved for local demo execution.",
+  options: ApprovalOptions = {},
 ): ActionReview {
   const action = requireAction(actionId);
   const approval = requireApproval(actionId);
@@ -123,9 +128,44 @@ export function approveAction(
     reviewerComment,
   });
 
-  executeMockAction(action.id);
-  verifyAction(action.id);
+  if (options.autoExecute ?? true) {
+    executeMockAction(action.id);
+    verifyAction(action.id);
+  }
   return getActionReview(action.id);
+}
+
+export function requestApproval(
+  actionId: string,
+  assignedTo = "human-approver@example.local",
+  requestedBy = "onegent-runtime",
+): ApprovalRequest {
+  const action = requireAction(actionId);
+  const existingApproval = store.approvals.get(actionId);
+  if (existingApproval) {
+    return existingApproval;
+  }
+  if (action.status === "REJECTED" || action.status === "EXECUTED" || action.status === "VERIFIED") {
+    throw new Error(`Action ${actionId} cannot request approval from status ${action.status}.`);
+  }
+  const risk = store.riskAssessments.get(actionId) ?? assessRisk(action);
+  store.riskAssessments.set(actionId, risk);
+  const approvalRequest: ApprovalRequest = {
+    id: nextId("approval"),
+    actionIntentId: action.id,
+    riskAssessmentId: risk.id,
+    requestedBy,
+    assignedTo,
+    status: "PENDING",
+    createdAt: nowIso(),
+  };
+  action.status = "NEEDS_REVIEW";
+  store.actions.set(action.id, action);
+  store.approvals.set(action.id, approvalRequest);
+  appendAudit(action.id, "APPROVAL_REQUESTED", "SYSTEM", "onegent-runtime", "Human approval requested.", {
+    assignedTo: approvalRequest.assignedTo,
+  });
+  return approvalRequest;
 }
 
 export function rejectAction(
@@ -151,6 +191,21 @@ export function rejectAction(
     reviewerComment,
   });
   return getActionReview(action.id);
+}
+
+export function executeAfterApproval(actionId: string): ActionExecutionSummary {
+  const action = requireAction(actionId);
+  const approval = store.approvals.get(actionId);
+  if (approval && approval.status !== "APPROVED") {
+    throw new Error(`Action ${actionId} cannot execute while approval status is ${approval.status}.`);
+  }
+  if (action.status === "REJECTED" || action.status === "CANCELLED") {
+    throw new Error(`Action ${actionId} cannot execute from status ${action.status}.`);
+  }
+  if (action.status === "EXECUTED" || action.status === "VERIFIED" || action.status === "FAILED_VERIFICATION") {
+    return buildExecutionSummary(action);
+  }
+  return executeMockAction(actionId);
 }
 
 export function executeMockAction(actionId: string): ActionExecutionSummary {
@@ -194,6 +249,10 @@ export function executeMockAction(actionId: string): ActionExecutionSummary {
     previousState,
     observedState,
   };
+}
+
+export function verifyOutcome(actionId: string, observedState?: Record<string, unknown>): VerificationResult {
+  return verifyAction(actionId, observedState);
 }
 
 export function verifyAction(actionId: string, observedState?: Record<string, unknown>): VerificationResult {
@@ -259,6 +318,10 @@ export function getActionReview(actionId: string): ActionReview {
 
 export function listActionReviews(): ActionReview[] {
   return [...store.actions.keys()].map((actionId) => getActionReview(actionId));
+}
+
+export function writeAuditPacket(actionId: string): ActionAuditPacket {
+  return generateAuditPacket(actionId);
 }
 
 export function generateAuditPacket(actionId: string): ActionAuditPacket {

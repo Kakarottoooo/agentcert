@@ -12,6 +12,7 @@ The current mappings are intentionally practical:
 
 ## Mappings
 
+- [AgentCert evidence schema v1.0.0](./evidence-schema.md)
 - [AIUC-1 mapping](./aiuc-1-mapping.md)
 - [NIST AI Agent Standards Initiative mapping](./nist-ai-agent-standards-mapping.md)
 - [OWASP Agentic AI mapping](./owasp-agentic-ai-mapping.md)

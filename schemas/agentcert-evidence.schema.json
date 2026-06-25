@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agentcert.dev/schemas/agentcert-evidence.schema.json",
   "title": "AgentCertEvidence",
+  "description": "A single evidence finding. Required fields make the finding auditable; optional fields link it to sources, artifacts, remediation, and engine-specific metadata.",
   "type": "object",
   "additionalProperties": true,
   "required": ["id", "kind", "severity", "message"],
@@ -28,6 +29,11 @@
     },
     "suggestedFix": {
       "type": "string"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Optional engine-specific context such as scenario name, fault name, policy id, or verification details.",
+      "additionalProperties": true
     }
   }
 }

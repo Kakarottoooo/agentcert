@@ -162,6 +162,8 @@ CREATE TABLE IF NOT EXISTS ${table} (
   subject TEXT NOT NULL,
   product TEXT NOT NULL,
   phase TEXT NOT NULL,
+  agent_name TEXT NOT NULL,
+  agent_version TEXT NOT NULL,
   run_id TEXT NOT NULL,
   timestamp TEXT NOT NULL,
   passed BOOLEAN NOT NULL,
@@ -170,6 +172,7 @@ CREATE TABLE IF NOT EXISTS ${table} (
   fault_name TEXT,
   evidence_count INTEGER NOT NULL,
   high_or_critical_evidence_count INTEGER NOT NULL,
+  failure_types TEXT NOT NULL,
   source_path TEXT NOT NULL,
   record_json ${jsonType} NOT NULL
 )`;
@@ -180,14 +183,16 @@ function indexSqls(tableName: string, table: string): string[] {
     `CREATE INDEX IF NOT EXISTS ${quoteIdentifier(`${tableName}_product_idx`)} ON ${table} (product)`,
     `CREATE INDEX IF NOT EXISTS ${quoteIdentifier(`${tableName}_timestamp_idx`)} ON ${table} (timestamp)`,
     `CREATE INDEX IF NOT EXISTS ${quoteIdentifier(`${tableName}_fault_idx`)} ON ${table} (fault_name)`,
+    `CREATE INDEX IF NOT EXISTS ${quoteIdentifier(`${tableName}_agent_idx`)} ON ${table} (agent_name)`,
+    `CREATE INDEX IF NOT EXISTS ${quoteIdentifier(`${tableName}_version_idx`)} ON ${table} (agent_version)`,
   ];
 }
 
 function insertSql(table: string, placeholderPrefix = "?"): string {
   const values =
     placeholderPrefix === "?"
-      ? new Array(15).fill("?").join(", ")
-      : new Array(15)
+      ? new Array(18).fill("?").join(", ")
+      : new Array(18)
           .fill(undefined)
           .map((_, index) => `$${index + 1}`)
           .join(", ");
@@ -198,6 +203,8 @@ INSERT INTO ${table} (
   subject,
   product,
   phase,
+  agent_name,
+  agent_version,
   run_id,
   timestamp,
   passed,
@@ -206,6 +213,7 @@ INSERT INTO ${table} (
   fault_name,
   evidence_count,
   high_or_critical_evidence_count,
+  failure_types,
   source_path,
   record_json
 ) VALUES (${values})
@@ -214,6 +222,8 @@ ON CONFLICT(id) DO UPDATE SET
   subject = excluded.subject,
   product = excluded.product,
   phase = excluded.phase,
+  agent_name = excluded.agent_name,
+  agent_version = excluded.agent_version,
   run_id = excluded.run_id,
   timestamp = excluded.timestamp,
   passed = excluded.passed,
@@ -222,6 +232,7 @@ ON CONFLICT(id) DO UPDATE SET
   fault_name = excluded.fault_name,
   evidence_count = excluded.evidence_count,
   high_or_critical_evidence_count = excluded.high_or_critical_evidence_count,
+  failure_types = excluded.failure_types,
   source_path = excluded.source_path,
   record_json = excluded.record_json`;
 }
@@ -235,6 +246,8 @@ function recordSqlValues(record: AgentCertCorpusRecord, dialect: "sqlite" | "pos
     record.subject,
     record.product,
     record.phase,
+    record.agentName,
+    record.agentVersion,
     record.runId,
     record.timestamp,
     dialect === "sqlite" ? Number(record.passed) : record.passed,
@@ -243,6 +256,7 @@ function recordSqlValues(record: AgentCertCorpusRecord, dialect: "sqlite" | "pos
     record.faultName ?? null,
     record.evidenceCount,
     record.highOrCriticalEvidenceCount,
+    [...new Set(record.failurePatterns.map((pattern) => pattern.type))].join(","),
     record.sourcePath,
   ];
 }

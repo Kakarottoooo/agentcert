@@ -45,6 +45,8 @@ describe("AgentCert corpus", () => {
     expect(records[0]).toMatchObject({
       kind: "scenario_run",
       subject: "demo-agent",
+      agentName: "demo-agent",
+      agentVersion: "unversioned",
       product: "tripwire-ci",
       faultName: "clean",
       passed: true,
@@ -58,7 +60,8 @@ describe("AgentCert corpus", () => {
       highOrCriticalEvidenceCount: 1,
     });
     expect(records[1].failurePatterns[0]).toMatchObject({
-      key: "tripwire:modal-overlay:url_contains",
+      key: "tripwire:ui_drift:modal-overlay:url_contains",
+      type: "ui_drift",
       message: "Expected URL to contain /success",
     });
   });
@@ -76,6 +79,9 @@ describe("AgentCert corpus", () => {
     expect(summary.passRate).toBe(1 / 3);
     expect(summary.byProduct).toEqual([{ key: "tripwire-ci", total: 3, passed: 1, failed: 2, passRate: 1 / 3 }]);
     expect(summary.byFault.find((bucket) => bucket.key === "modal-overlay")).toMatchObject({ total: 1, failed: 1 });
+    expect(summary.byAgent).toEqual([{ key: "demo-agent", total: 3, passed: 1, failed: 2, passRate: 1 / 3 }]);
+    expect(summary.byVersion).toEqual([{ key: "unversioned", total: 3, passed: 1, failed: 2, passRate: 1 / 3 }]);
+    expect(summary.byFailureType).toEqual([{ key: "assertion_failure", total: 2, passed: 0, failed: 2, passRate: 0 }]);
     expect(summary.topFailurePatterns.map((pattern) => pattern.key)).toEqual([
       "tripwire:button-text-drift:url_contains",
       "tripwire:modal-overlay:url_contains",
@@ -122,6 +128,8 @@ function record(faultName: string, passed: boolean, failureKeys: string[]) {
     id: `id_${faultName}`,
     ingestedAt: "2026-01-01T00:00:00Z",
     subject: "demo-agent",
+    agentName: "demo-agent",
+    agentVersion: "unversioned",
     product: "tripwire-ci" as const,
     phase: "pre-release" as const,
     runId: `run_${faultName}`,
@@ -136,6 +144,7 @@ function record(faultName: string, passed: boolean, failureKeys: string[]) {
       key,
       severity: "high" as const,
       message: `${key} failed`,
+      type: "assertion_failure" as const,
       scenarioName: "refund-form",
       faultName,
     })),

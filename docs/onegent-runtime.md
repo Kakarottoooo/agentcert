@@ -17,6 +17,56 @@ Unlike MCPBench and Tripwire CI, it does not ask whether an agent should ship. I
 - records audit events;
 - exports an audit packet.
 
+## SDK Surface
+
+Onegent Runtime can now be embedded as a small SDK around a high-risk action
+boundary. The default implementation is still local and mock-only, but the
+control flow is the production shape:
+
+```ts
+import { createOnegentRuntime } from "@agentcert/onegent-runtime";
+
+const runtime = createOnegentRuntime();
+
+const review = runtime.captureAction({
+  sourceAgentName: "ProcurementAgent",
+  actionType: "SUBMIT",
+  targetSystem: "MockERP",
+  title: "Submit purchase order",
+  description: "Submit a high-value purchase order for approval.",
+  businessObjectType: "purchase_order",
+  businessObjectId: "PO-1001",
+  amount: 4850,
+  currency: "USD",
+  vendorName: "Acme Industrial Supply",
+  beforeState: { status: "DRAFT" },
+  proposedAfterState: { status: "SUBMITTED" },
+});
+
+const risk = runtime.assessRisk(review.action);
+const policy = runtime.evaluatePolicy(review.action, risk);
+const approval = runtime.requestApproval(review.action, "manager@example.local");
+
+runtime.approveAction(review.action, "manager@example.local");
+runtime.executeAfterApproval(review.action);
+runtime.verifyOutcome(review.action);
+
+const auditPacket = runtime.writeAuditPacket(review.action);
+```
+
+The intended integration points are:
+
+- `assessRisk(action)`;
+- `evaluatePolicy(action)`;
+- `requestApproval(action)`;
+- `executeAfterApproval(action)`;
+- `verifyOutcome(action)`;
+- `writeAuditPacket(action)`.
+
+Adapters for real systems should wrap `executeAfterApproval` and
+`verifyOutcome` behind explicit credential, approval, rollback, and audit
+boundaries. The repository implementation remains local and deterministic.
+
 ## Procurement Walkthrough
 
 The demo scenario is a `ProcurementAgent` submitting a `$4,850` purchase order to `Acme Industrial Supply`. The purchase order starts in local mock ERP state `DRAFT`. Because purchase orders over `$1,000` require human approval, the action is classified as `HIGH` risk and waits for approval before execution.
