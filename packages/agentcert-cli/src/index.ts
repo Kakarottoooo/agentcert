@@ -6,4 +6,5 @@ export * from "./local-server.js";
 export * from "./monitor.js";
 export * from "./normalizers.js";
 export * from "./report.js";
+export * from "./schema-validator.js";
 export * from "./types.js";

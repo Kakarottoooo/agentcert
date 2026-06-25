@@ -27,6 +27,7 @@ describe("AgentCert unified runner", () => {
     expect(outcome.manifest.outputs.evidenceBundle).toBe(slashPath(join(dir, "report", "agentcert-evidence.json")));
     expect(outcome.manifest.outputs.badge).toBe(slashPath(join(dir, "report", "badge.svg")));
     expect(outcome.manifest.outputs.monitor).toEqual([join(dir, "monitor.json")]);
+    expect(outcome.manifest.outputs.reviewedDataset).toEqual([join(dir, "reviewed-dataset.jsonl")]);
 
     const report = await readFile(join(dir, "report", "agentcert-report.md"), "utf8");
     expect(report).toContain("- mcpbench: PASS");
@@ -44,6 +45,7 @@ describe("AgentCert unified runner", () => {
     const manifest = JSON.parse(await readFile(join(dir, "report", "agentcert-run-manifest.json"), "utf8"));
     expect(manifest.kind).toBe("agentcert.run_manifest");
     expect(manifest.steps.map((step: { id: string }) => step.id)).toContain("corpus");
+    expect(manifest.steps.map((step: { id: string }) => step.id)).toContain("dataset");
   });
 
   it("returns a CI failure code when failOnVerdict is enabled", async () => {
@@ -91,6 +93,16 @@ describe("AgentCert unified runner", () => {
     });
 
     expect(profile.run?.monitor?.outputs).toEqual([".agentcert/monitor/monitor.json"]);
+    expect(profile.run?.dataset?.reviewedOutputs).toEqual([".agentcert/corpus/reviewed-failure-dataset.jsonl"]);
+  });
+
+  it("lets CI place the reviewed dataset beside the evidence bundle", () => {
+    const profile = profileFromArtifactFlags({
+      tripwire: ".tripwire/latest/tripwire-result.json",
+      reviewedDatasetOut: ".agentcert/latest/reviewed-failure-dataset.jsonl",
+    });
+
+    expect(profile.run?.dataset?.reviewedOutputs).toEqual([".agentcert/latest/reviewed-failure-dataset.jsonl"]);
   });
 });
 
@@ -147,6 +159,7 @@ async function createRunProfile(dir: string, failOnVerdict: boolean): Promise<Ag
     run: {
       corpus: { path: join(dir, "corpus.jsonl"), replace: true },
       monitor: { outputs: [join(dir, "monitor.json")] },
+      dataset: { reviewedOutputs: [join(dir, "reviewed-dataset.jsonl")] },
       gate: { failOnVerdict },
     },
   };

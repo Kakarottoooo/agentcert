@@ -190,7 +190,7 @@ button {
 
 .filter-bar {
   display: grid;
-  grid-template-columns: repeat(4, minmax(150px, 1fr)) 150px;
+  grid-template-columns: repeat(5, minmax(140px, 1fr)) 150px;
   gap: 12px;
   align-items: end;
   margin-bottom: 18px;
@@ -356,7 +356,7 @@ button {
 
 .metrics-panel {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   grid-column: 1 / -1;
   overflow: hidden;
 }

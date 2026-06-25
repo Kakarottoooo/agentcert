@@ -19,6 +19,7 @@ type FilterState = {
   fault: string;
   version: string;
   failureType: string;
+  reviewStatus: string;
 };
 
 const ALL = "__all__";
@@ -52,6 +53,7 @@ export default function App() {
     fault: ALL,
     version: ALL,
     failureType: ALL,
+    reviewStatus: ALL,
   });
 
   useEffect(() => {
@@ -157,6 +159,9 @@ export default function App() {
           </div>
           <div className="header-actions">
             <span className={`source-badge ${source}`}>{source === "api" ? "Local server" : "Static demo"}</span>
+            <a href={source === "api" ? "/api/corpus/reviewed-dataset" : "../browser-agent-robustness/evidence/reviewed-failure-dataset.jsonl"}>
+              Export reviewed dataset
+            </a>
             {snapshot.links.detailUrl ? <a href={snapshot.links.detailUrl}>Open evidence detail</a> : null}
             <a href="https://github.com/Kakarottoooo/agentcert">GitHub</a>
           </div>
@@ -234,6 +239,11 @@ function Overview({
           label="Taxonomy reviewed"
           value={`${snapshot.summary.taxonomy.reviewedFailurePatterns}/${snapshot.summary.taxonomy.totalFailurePatterns}`}
           detail={`${snapshot.summary.taxonomy.correctedFailurePatterns} corrected labels`}
+        />
+        <Metric
+          label="Review coverage"
+          value={percent(snapshot.summary.taxonomy.reviewCoverage)}
+          detail={`${percent(snapshot.summary.taxonomy.autoLabelPrecision)} reviewed-label precision`}
         />
         <Metric label="Last generated" value={compactDate(snapshot.generatedAt)} detail="Monitor snapshot timestamp" />
       </section>
@@ -394,6 +404,12 @@ function FilterBar({
         value={filters.failureType}
         options={snapshot.filters.failureTypes}
         onChange={(failureType) => onChange({ ...filters, failureType })}
+      />
+      <FilterSelect
+        label="Review status"
+        value={filters.reviewStatus}
+        options={snapshot.filters.reviewStatuses}
+        onChange={(reviewStatus) => onChange({ ...filters, reviewStatus })}
       />
       <div className="filter-count">
         <strong>{filteredCount}</strong>
@@ -575,6 +591,7 @@ function runMatchesFilters(run: MonitorRun, filters: FilterState): boolean {
   if (filters.fault !== ALL && run.faultName !== filters.fault) return false;
   if (filters.version !== ALL && run.agentVersion !== filters.version) return false;
   if (filters.failureType !== ALL && !run.failureTypes.includes(filters.failureType)) return false;
+  if (filters.reviewStatus !== ALL && run.taxonomyReviewStatus !== filters.reviewStatus) return false;
   return true;
 }
 

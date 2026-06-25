@@ -2,7 +2,14 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { AgentCertCorpusRecord, FailurePattern, FailureReviewEvidenceContext, FailureTaxonomyRationale } from "./corpus.js";
+import {
+  reviewedFailureDataset,
+  summarizeCorpus,
+  type AgentCertCorpusRecord,
+  type FailurePattern,
+  type FailureReviewEvidenceContext,
+  type FailureTaxonomyRationale,
+} from "./corpus.js";
 import { openCorpusStore, type CorpusStoreOptions } from "./corpus-store.js";
 import {
   applyFailureReviews,
@@ -154,6 +161,29 @@ async function handleRequest(
     await withStore(options.store, async (store) => {
       const records = applyFailureReviews(await store.readAll(), await readFailureReviews(options.reviewsPath));
       sendJson(response, 200, { runs: records.sort((left, right) => right.timestamp.localeCompare(left.timestamp)) });
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/corpus/metrics") {
+    await withStore(options.store, async (store) => {
+      const records = applyFailureReviews(await store.readAll(), await readFailureReviews(options.reviewsPath));
+      sendJson(response, 200, summarizeCorpus(records).taxonomy);
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/corpus/reviewed-dataset") {
+    await withStore(options.store, async (store) => {
+      const records = applyFailureReviews(await store.readAll(), await readFailureReviews(options.reviewsPath));
+      const rows = reviewedFailureDataset(records);
+      response.writeHead(200, {
+        "content-type": "application/x-ndjson; charset=utf-8",
+        "cache-control": "no-cache",
+        "content-disposition": 'attachment; filename="agentcert-reviewed-failure-dataset.jsonl"',
+      });
+      const payload = rows.map((row) => JSON.stringify(row)).join("\n");
+      response.end(`${payload}${payload.length > 0 ? "\n" : ""}`);
     });
     return;
   }

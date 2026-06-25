@@ -4,7 +4,13 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { renderAgentCertBadge } from "./badge.js";
 import { dirname, join, resolve } from "node:path";
 import { buildEvidenceBundle } from "./bundle.js";
-import { recordsFromAgentCertResult, renderCorpusSummary, summarizeCorpus, type AgentCertCorpusRecord } from "./corpus.js";
+import {
+  recordsFromAgentCertResult,
+  renderCorpusSummary,
+  summarizeCorpus,
+  writeReviewedFailureDataset,
+  type AgentCertCorpusRecord,
+} from "./corpus.js";
 import { openCorpusStore, parseCorpusStoreKind, type CorpusStoreOptions } from "./corpus-store.js";
 import { applyFailureReviews, readFailureReviews } from "./failure-review.js";
 import { buildMonitorSnapshot, writeMonitorSnapshot } from "./monitor.js";
@@ -43,6 +49,10 @@ export interface AgentCertRunProfile extends AgentCertConfig {
       detailUrl?: string;
       subject?: string;
     };
+    dataset?: {
+      reviewedOut?: string;
+      reviewedOutputs?: string[];
+    };
     gate?: {
       failOnVerdict?: boolean;
     };
@@ -60,6 +70,7 @@ export interface RunProfileOverrides {
   outDir?: string;
   corpusPath?: string;
   monitorOut?: string;
+  reviewedDatasetOut?: string;
   reviewsPath?: string;
   replaceCorpus?: boolean;
   failOnVerdict?: boolean;
@@ -86,6 +97,7 @@ export interface AgentCertRunManifest {
     badge?: string;
     corpus?: string;
     monitor: string[];
+    reviewedDataset: string[];
     manifest?: string;
   };
   verdict: AgentCertBundle["verdict"];
@@ -93,7 +105,7 @@ export interface AgentCertRunManifest {
 }
 
 export interface AgentCertRunStep {
-  id: RunJobKey | "corpus" | "report" | "monitor";
+  id: RunJobKey | "corpus" | "report" | "monitor" | "dataset";
   status: "passed" | "failed" | "skipped";
   artifactPath?: string;
   command?: string;
@@ -144,6 +156,9 @@ export function publicDemoRunProfile(): AgentCertRunProfile {
         ],
         detailUrl: "../browser-agent-robustness/",
       },
+      dataset: {
+        reviewedOutputs: ["public-demo/browser-agent-robustness/evidence/reviewed-failure-dataset.jsonl"],
+      },
       gate: {
         failOnVerdict: false,
       },
@@ -191,6 +206,9 @@ export function profileFromArtifactFlags(overrides: RunProfileOverrides): AgentC
       monitor: {
         outputs: [overrides.monitorOut ?? ".agentcert/monitor/monitor.json"],
       },
+      dataset: {
+        reviewedOutputs: [overrides.reviewedDatasetOut ?? ".agentcert/corpus/reviewed-failure-dataset.jsonl"],
+      },
       gate: {
         failOnVerdict: overrides.failOnVerdict ?? false,
       },
@@ -223,6 +241,10 @@ export function applyRunOverrides(profile: AgentCertRunProfile, overrides: RunPr
       monitor: {
         ...profile.run?.monitor,
         ...(overrides.monitorOut ? { outputs: [overrides.monitorOut] } : {}),
+      },
+      dataset: {
+        ...profile.run?.dataset,
+        ...(overrides.reviewedDatasetOut ? { reviewedOutputs: [overrides.reviewedDatasetOut] } : {}),
       },
       gate: {
         ...profile.run?.gate,
@@ -283,7 +305,7 @@ export async function runAgentCertProfile(profileInput: AgentCertRunProfile, opt
     loaded.flatMap(({ result, path, raw }) => recordsFromAgentCertResult(result, path, profile.subject.name, raw)),
     reviews,
   );
-  const outputs: AgentCertRunManifest["outputs"] = { monitor: [] };
+  const outputs: AgentCertRunManifest["outputs"] = { monitor: [], reviewedDataset: [] };
 
   const reportEnabled = profile.run?.report?.enabled ?? true;
   const reportDir = profile.run?.report?.outDir ?? profile.outputDir;
@@ -319,6 +341,17 @@ export async function runAgentCertProfile(profileInput: AgentCertRunProfile, opt
       await writeMonitorSnapshot(resolve(cwd, outPath), snapshot);
       outputs.monitor.push(outPath);
     }
+    const reviewedDatasetOutputs = reviewedDatasetOutputsFor(profile);
+    for (const outPath of reviewedDatasetOutputs) {
+      await writeReviewedFailureDataset(resolve(cwd, outPath), allRecords);
+      outputs.reviewedDataset.push(outPath);
+    }
+    steps.push({
+      id: "dataset",
+      status: reviewedDatasetOutputs.length > 0 ? "passed" : "skipped",
+      artifactPath: reviewedDatasetOutputs.join(", "),
+      message: reviewedDatasetOutputs.length > 0 ? undefined : "No reviewed dataset output configured.",
+    });
     steps.push({
       id: "monitor",
       status: monitorOutputs.length > 0 ? "passed" : "skipped",
@@ -429,6 +462,11 @@ function corpusStoreOptions(profile: AgentCertRunProfile, cwd: string): CorpusSt
 function monitorOutputsFor(profile: AgentCertRunProfile): string[] {
   const monitor = profile.run?.monitor;
   return [...(monitor?.outputs ?? []), ...(monitor?.out ? [monitor.out] : [])];
+}
+
+function reviewedDatasetOutputsFor(profile: AgentCertRunProfile): string[] {
+  const dataset = profile.run?.dataset;
+  return [...(dataset?.reviewedOutputs ?? []), ...(dataset?.reviewedOut ? [dataset.reviewedOut] : [])];
 }
 
 function artifactPath(base: string, file: string): string {

@@ -35,8 +35,15 @@ const policy = runtime.evaluatePolicy(review.action, risk);
 const approval = runtime.requestApproval(review.action);
 
 runtime.approveAction(review.action);
-runtime.executeAfterApproval(review.action);
-runtime.verifyOutcome(review.action);
+const observed = await runtime.executeAfterApproval(review.action, {
+  name: "local-adapter",
+  execute: async (action) => ({
+    method: "LOCAL_ADAPTER",
+    previousState: action.beforeState,
+    observedState: action.proposedAfterState,
+  }),
+});
+runtime.verifyOutcome(review.action, observed);
 
 const auditPacket = runtime.writeAuditPacket(review.action);
 ```

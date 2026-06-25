@@ -8,7 +8,7 @@ It combines two implemented pre-release engines and one local runtime-action MVP
 - **Tripwire CI**: browser/computer-use agent robustness gates that inject realistic UI and network faults in CI.
 - **Onegent Runtime**: a local Action Gateway MVP for policy, approval, mock execution, verification, and audit packets.
 - **AgentCert CLI**: a unified evidence packet and report generator across the lifecycle.
-- **AgentCert Monitor**: a dashboard UI over accumulated corpus snapshots, with filters for agent, fault, version, product, and failure type.
+- **AgentCert Monitor**: a dashboard UI over accumulated corpus snapshots, with filters for agent, fault, version, product, failure type, and review status.
 
 Public monitor: [AgentCert Monitor](https://kakarottoooo.github.io/agentcert/public-demo/agentcert-monitor/)
 
@@ -47,6 +47,7 @@ Default outputs:
 - `.agentcert/latest/agentcert-run-manifest.json`
 - `.agentcert/latest/badge.svg`
 - `.agentcert/corpus/corpus.jsonl`
+- `.agentcert/corpus/reviewed-failure-dataset.jsonl`
 - `.agentcert/monitor/monitor.json`
 
 GitHub Actions:
@@ -63,7 +64,8 @@ GitHub Actions:
 ```
 
 The action uploads JUnit, an HTML Tripwire report, an AgentCert evidence bundle,
-a badge SVG, a run manifest, a corpus JSONL file, and a monitor snapshot.
+a badge SVG, a run manifest, a corpus JSONL file, a reviewed failure dataset,
+and a monitor snapshot.
 
 ## The Lifecycle
 
@@ -161,6 +163,7 @@ node packages/agentcert-cli/dist/cli.js run `
   --out .agentcert/latest `
   --corpus .agentcert/corpus/corpus.jsonl `
   --monitor-out .agentcert/monitor/monitor.json `
+  --reviewed-dataset-out .agentcert/corpus/reviewed-failure-dataset.jsonl `
   --replace `
   --fail-on-verdict
 ```
@@ -235,6 +238,17 @@ The dashboard shows `suggestedType`, effective `type`, and review status for eac
 
 Reviewed labels can also carry reviewer confidence, the first observed divergence, screenshot/trace pointers, supporting signals, and a structured rationale. That turns the review ledger into a higher-quality failure dataset for future automatic taxonomy classifiers instead of a rules-only label override file.
 
+Export the reviewed dataset and taxonomy quality metrics:
+
+```powershell
+node packages/agentcert-cli/dist/cli.js corpus metrics --corpus .agentcert/corpus/corpus.jsonl
+node packages/agentcert-cli/dist/cli.js corpus export-reviewed --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/corpus/reviewed-failure-dataset.jsonl
+```
+
+`agentcert run` writes a reviewed-failure dataset automatically. The monitor
+shows review coverage, reviewed-label precision, correction rate, and filters
+for agent, fault, version, failure type, and review status.
+
 Build the monitor snapshot and UI:
 
 ```powershell
@@ -258,6 +272,8 @@ http://127.0.0.1:8765
 The local server keeps the same dashboard UI but adds API-backed inspection:
 
 - `GET /api/monitor` returns the current monitor snapshot from the selected corpus store.
+- `GET /api/corpus/metrics` returns taxonomy coverage, reviewed-label precision, and correction rate.
+- `GET /api/corpus/reviewed-dataset` exports reviewed failure rows as JSONL.
 - `GET /api/runs` returns accumulated run records.
 - `GET /api/runs/:id` returns assertion failures, trace timeline, diagnostics, warnings, and linked artifacts.
 - `POST /api/runs/:id/failure-reviews` writes a human taxonomy review, reapplies the review ledger, and updates the corpus store.
@@ -273,7 +289,7 @@ The monitor reads a generated `monitor.json` snapshot from the AgentCert corpus 
 
 - lifecycle gate status for MCPBench, Tripwire CI, and Onegent Runtime;
 - accumulated corpus record counts and pass rate;
-- filters for agent, fault, version, product, and failure type;
+- filters for agent, fault, version, product, failure type, and review status;
 - top failure patterns;
 - recent evidence runs and run-level inspection.
 
@@ -497,19 +513,33 @@ const policy = runtime.evaluatePolicy(review.action, risk);
 const approval = runtime.requestApproval(review.action);
 
 runtime.approveAction(review.action);
-runtime.executeAfterApproval(review.action);
-runtime.verifyOutcome(review.action);
+const observed = await runtime.executeAfterApproval(review.action, {
+  name: "local-adapter",
+  execute: async (action) => ({
+    method: "LOCAL_ADAPTER",
+    previousState: action.beforeState,
+    observedState: action.proposedAfterState,
+  }),
+});
+runtime.verifyOutcome(review.action, observed);
 
 const auditPacket = runtime.writeAuditPacket(review.action);
 ```
 
-The SDK surface is intentionally small: `assessRisk(action)`, `evaluatePolicy(action)`, `requestApproval(action)`, `executeAfterApproval(action)`, `verifyOutcome(action)`, and `writeAuditPacket(action)`.
+The SDK surface is intentionally small: `assessRisk(action)`, `evaluatePolicy(action)`, `requestApproval(action)`, `executeAfterApproval(action, adapter?)`, `verifyOutcome(action, observed)`, and `writeAuditPacket(action)`.
 
 The current implementation remains local and mock-only. Real integrations should be added only behind explicit adapters, credential boundaries, approvals, rollback/compensation design, verification, and audit.
 
 ## Evidence Schema
 
 The AgentCert evidence bundle is versioned as `agentcert.evidence_bundle` schema family `1`, semver `1.0.0`. The schema defines required bundle/result/evidence fields, optional metadata, corpus fields, monitor snapshot fields, and the failure taxonomy used by the data flywheel.
+
+Validate evidence artifacts locally:
+
+```powershell
+node packages/agentcert-cli/dist/cli.js schema validate --schema evidence-bundle --file examples/agentcert/evidence-bundle.example.json
+node packages/agentcert-cli/dist/cli.js schema validate --schema monitor-snapshot --file public-demo/agentcert-monitor/data/monitor.json
+```
 
 Read the schema guide:
 

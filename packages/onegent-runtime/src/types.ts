@@ -18,7 +18,7 @@ export type PolicyEffect = "ALLOW" | "REQUIRE_APPROVAL" | "BLOCK";
 
 export type ApprovalStatus = "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED";
 
-export type VerificationMethod = "MOCK" | "LOCAL_MOCK_ERP";
+export type VerificationMethod = "MOCK" | "LOCAL_MOCK_ERP" | "LOCAL_ADAPTER";
 
 export interface ActionFieldChange {
   field: string;
@@ -185,11 +185,23 @@ export interface ActionReview {
 }
 
 export interface ActionExecutionSummary {
-  method: "MOCK" | "LOCAL_MOCK_ERP";
+  method: VerificationMethod;
   status: "NOT_EXECUTED" | "COMPLETED";
   targetSystem: string;
   previousState?: Record<string, unknown>;
   observedState?: Record<string, unknown>;
+}
+
+export interface LocalActionAdapterResult {
+  method?: VerificationMethod;
+  targetSystem?: string;
+  previousState?: Record<string, unknown>;
+  observedState: Record<string, unknown>;
+}
+
+export interface LocalActionAdapter {
+  name: string;
+  execute(action: ActionIntent): LocalActionAdapterResult | Promise<LocalActionAdapterResult>;
 }
 
 export interface ActionAuditPacket {

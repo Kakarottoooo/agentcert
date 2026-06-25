@@ -1,8 +1,8 @@
 {
   "schemaVersion": "1",
   "kind": "agentcert.run_manifest",
-  "runId": "agentcert_run_edd9d9353063",
-  "generatedAt": "2026-06-25T20:44:27.892Z",
+  "runId": "agentcert_run_e541dfefd4e6",
+  "generatedAt": "2026-06-25T21:02:15.305Z",
   "subject": {
     "name": "agentcert-public-demo",
     "type": "agent"
@@ -34,6 +34,11 @@
       "artifactPath": "public-demo/browser-agent-robustness/evidence/agentcert-corpus.jsonl"
     },
     {
+      "id": "dataset",
+      "status": "passed",
+      "artifactPath": "public-demo/browser-agent-robustness/evidence/reviewed-failure-dataset.jsonl"
+    },
+    {
       "id": "monitor",
       "status": "passed",
       "artifactPath": "packages/agentcert-dashboard/public/data/monitor.json, public-demo/agentcert-monitor/data/monitor.json"
@@ -43,6 +48,9 @@
     "monitor": [
       "packages/agentcert-dashboard/public/data/monitor.json",
       "public-demo/agentcert-monitor/data/monitor.json"
+    ],
+    "reviewedDataset": [
+      "public-demo/browser-agent-robustness/evidence/reviewed-failure-dataset.jsonl"
     ],
     "reportDir": "public-demo/browser-agent-robustness/evidence/agentcert-public-demo",
     "evidenceBundle": "public-demo/browser-agent-robustness/evidence/agentcert-public-demo/agentcert-evidence.json",

@@ -48,8 +48,15 @@ const policy = runtime.evaluatePolicy(review.action, risk);
 const approval = runtime.requestApproval(review.action, "manager@example.local");
 
 runtime.approveAction(review.action, "manager@example.local");
-runtime.executeAfterApproval(review.action);
-runtime.verifyOutcome(review.action);
+const observed = await runtime.executeAfterApproval(review.action, {
+  name: "local-adapter",
+  execute: async (action) => ({
+    method: "LOCAL_ADAPTER",
+    previousState: action.beforeState,
+    observedState: action.proposedAfterState,
+  }),
+});
+runtime.verifyOutcome(review.action, observed);
 
 const auditPacket = runtime.writeAuditPacket(review.action);
 ```
@@ -59,13 +66,13 @@ The intended integration points are:
 - `assessRisk(action)`;
 - `evaluatePolicy(action)`;
 - `requestApproval(action)`;
-- `executeAfterApproval(action)`;
-- `verifyOutcome(action)`;
+- `executeAfterApproval(action, adapter?)`;
+- `verifyOutcome(action, observed)`;
 - `writeAuditPacket(action)`.
 
-Adapters for real systems should wrap `executeAfterApproval` and
-`verifyOutcome` behind explicit credential, approval, rollback, and audit
-boundaries. The repository implementation remains local and deterministic.
+The checked-in adapter path is local and deterministic. Real systems should
+only be added behind explicit credential, approval, rollback, verification, and
+audit boundaries.
 
 ## Procurement Walkthrough
 

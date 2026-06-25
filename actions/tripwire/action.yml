@@ -47,6 +47,9 @@ outputs:
   monitor:
     description: Path to AgentCert monitor snapshot.
     value: ${{ inputs.agentcert-out }}/monitor.json
+  reviewed-dataset:
+    description: Path to reviewed failure dataset JSONL.
+    value: ${{ inputs.agentcert-out }}/reviewed-failure-dataset.jsonl
 runs:
   using: composite
   steps:
@@ -94,6 +97,7 @@ runs:
           --out "${{ inputs.agentcert-out }}"
           --corpus "${{ inputs.agentcert-out }}/corpus.jsonl"
           --monitor-out "${{ inputs.agentcert-out }}/monitor.json"
+          --reviewed-dataset-out "${{ inputs.agentcert-out }}/reviewed-failure-dataset.jsonl"
           --subject "$subject"
           --replace
         )
@@ -121,6 +125,7 @@ runs:
           echo "- Evidence bundle: \`${{ inputs.agentcert-out }}/agentcert-evidence.json\`"
           echo "- Badge: \`${{ inputs.agentcert-out }}/badge.svg\`"
           echo "- Monitor snapshot: \`${{ inputs.agentcert-out }}/monitor.json\`"
+          echo "- Reviewed dataset: \`${{ inputs.agentcert-out }}/reviewed-failure-dataset.jsonl\`"
         } >> "$GITHUB_STEP_SUMMARY"
         if [ -f "${{ inputs.agentcert-out }}/agentcert-report.md" ]; then
           {

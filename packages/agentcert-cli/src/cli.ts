@@ -3,7 +3,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { renderAgentCertBadge } from "./badge.js";
 import { buildEvidenceBundle } from "./bundle.js";
-import { recordsFromAgentCertResult, renderCorpusSummary, summarizeCorpus } from "./corpus.js";
+import {
+  recordsFromAgentCertResult,
+  renderCorpusSummary,
+  summarizeCorpus,
+  writeReviewedFailureDataset,
+} from "./corpus.js";
 import { openCorpusStore, parseCorpusStoreKind, type CorpusStoreOptions } from "./corpus-store.js";
 import {
   applyFailureReviews,
@@ -19,6 +24,7 @@ import { buildMonitorSnapshot, writeMonitorSnapshot } from "./monitor.js";
 import { normalizeMcpBenchResult, normalizeOnegentAuditPacket, normalizeTripwireResult } from "./normalizers.js";
 import { renderMarkdownReport } from "./report.js";
 import { serveAgentCertMonitor } from "./local-server.js";
+import { parseSchemaId, validateAgentCertSchema } from "./schema-validator.js";
 import {
   loadRunProfile,
   profileFromArtifactFlags,
@@ -135,6 +141,25 @@ Next:
     } finally {
       await store.close();
     }
+  } else if (action === "metrics") {
+    const store = await openCorpusStore(readCorpusStoreOptions(".agentcert/corpus/corpus.jsonl"));
+    try {
+      const records = applyFailureReviews(await store.readAll(), await readFailureReviews(readReviewsPath()));
+      const summary = summarizeCorpus(records);
+      process.stdout.write(`${JSON.stringify(summary.taxonomy, null, 2)}\n`);
+    } finally {
+      await store.close();
+    }
+  } else if (action === "export-reviewed") {
+    const outPath = readFlag("--out") ?? ".agentcert/corpus/reviewed-failure-dataset.jsonl";
+    const store = await openCorpusStore(readCorpusStoreOptions(".agentcert/corpus/corpus.jsonl"));
+    try {
+      const records = applyFailureReviews(await store.readAll(), await readFailureReviews(readReviewsPath()));
+      const rows = await writeReviewedFailureDataset(outPath, records);
+      process.stdout.write(`Wrote ${rows.length} reviewed failure rows to ${resolve(outPath)}\n`);
+    } finally {
+      await store.close();
+    }
   } else if (action === "review") {
     const storeOptions = readCorpusStoreOptions(".agentcert/corpus/corpus.jsonl");
     const reviewPath = readReviewsPath() ?? ".agentcert/corpus/failure-reviews.jsonl";
@@ -177,6 +202,8 @@ Next:
   agentcert corpus ingest --tripwire .tripwire/latest/tripwire-result.json --out .agentcert/corpus/corpus.jsonl --subject my-agent
   agentcert corpus ingest --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --tripwire .tripwire/latest/tripwire-result.json --subject my-agent
   agentcert corpus review --corpus .agentcert/corpus/corpus.jsonl --reviews .agentcert/corpus/failure-reviews.jsonl --pattern-key tripwire:ui_drift:modal-overlay:url_contains --type ui_drift --status confirmed --reviewer you@example.com --confidence 0.8 --why "Visible evidence supports the ui_drift label."
+  agentcert corpus metrics --corpus .agentcert/corpus/corpus.jsonl
+  agentcert corpus export-reviewed --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/corpus/reviewed-failure-dataset.jsonl
   agentcert corpus summary --corpus .agentcert/corpus/corpus.jsonl
   agentcert corpus summary --store postgres --database-url "$DATABASE_URL"
 `);
@@ -246,6 +273,28 @@ Next:
     store: readCorpusStoreOptions("public-demo/browser-agent-robustness/evidence/agentcert-corpus.jsonl"),
     reviewsPath: readReviewsPath() ?? "public-demo/browser-agent-robustness/evidence/failure-reviews.jsonl",
   });
+} else if (command === "schema") {
+  const action = process.argv[3] ?? "help";
+  if (action === "validate") {
+    const schema = parseSchemaId(readFlag("--schema"));
+    const file = requiredFlag("--file");
+    const result = validateAgentCertSchema(schema, await readJson(file));
+    if (result.valid) {
+      process.stdout.write(`Valid ${schema}: ${resolve(file)}\n`);
+    } else {
+      process.stdout.write(`Invalid ${schema}: ${resolve(file)}\n`);
+      for (const error of result.errors) {
+        process.stdout.write(`- ${error}\n`);
+      }
+      process.exitCode = 1;
+    }
+  } else {
+    process.stdout.write(`Usage:
+  agentcert schema validate --schema evidence-bundle --file .agentcert/latest/agentcert-evidence.json
+  agentcert schema validate --schema monitor-snapshot --file .agentcert/monitor/monitor.json
+  agentcert schema validate --schema corpus-record --file examples/agentcert/corpus-record.example.json
+`);
+  }
 } else {
   process.stdout.write(`Usage:
   agentcert init --subject my-browser-agent
@@ -257,9 +306,10 @@ Next:
   agentcert monitor build --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/monitor/monitor.json --subject my-agent
   agentcert monitor build --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --out .agentcert/monitor/monitor.json --subject my-agent
   agentcert run --profile public-demo
-  agentcert run --mcpbench .mcpbench/latest/results.json --tripwire .tripwire/latest/tripwire-result.json --onegent .onegent/procurement/audit-packet.json --out .agentcert/latest --corpus .agentcert/corpus/corpus.jsonl --monitor-out .agentcert/monitor/monitor.json
+  agentcert run --mcpbench .mcpbench/latest/results.json --tripwire .tripwire/latest/tripwire-result.json --onegent .onegent/procurement/audit-packet.json --out .agentcert/latest --corpus .agentcert/corpus/corpus.jsonl --monitor-out .agentcert/monitor/monitor.json --reviewed-dataset-out .agentcert/corpus/reviewed-failure-dataset.jsonl
   agentcert lab build --config examples/real-agents/robustness-lab/lab.config.json --out public-demo/real-agent-robustness/evidence/lab-snapshot.json
   agentcert serve --corpus .agentcert/corpus/corpus.jsonl --static public-demo/agentcert-monitor --artifact-root public-demo/browser-agent-robustness/evidence/tripwire-public-demo
+  agentcert schema validate --schema evidence-bundle --file .agentcert/latest/agentcert-evidence.json
 `);
 }
 
@@ -361,6 +411,7 @@ function readRunOverrides(): RunProfileOverrides {
     outDir: readFlag("--out"),
     corpusPath: readFlag("--corpus"),
     monitorOut: readFlag("--monitor-out"),
+    reviewedDatasetOut: readFlag("--reviewed-dataset-out"),
     reviewsPath: readReviewsPath(),
     replaceCorpus: readBoolFlag("--replace") ? true : undefined,
     failOnVerdict: readBoolFlag("--fail-on-verdict") ? true : undefined,

@@ -20,11 +20,14 @@ describe("AgentCert monitor snapshots", () => {
       faults: ["clean", "modal-overlay"],
       versions: ["unversioned"],
       failureTypes: ["ui_drift"],
+      reviewStatuses: ["needs_review", "none"],
     });
     expect(snapshot.summary.taxonomy).toMatchObject({
       totalFailurePatterns: 1,
       reviewedFailurePatterns: 0,
       unreviewedFailurePatterns: 1,
+      reviewCoverage: 0,
+      autoLabelPrecision: 0,
     });
     expect(snapshot.lifecycle.find((gate) => gate.id === "tripwire-ci")).toMatchObject({
       recordCount: 2,

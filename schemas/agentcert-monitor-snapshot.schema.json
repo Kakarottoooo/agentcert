@@ -42,7 +42,7 @@
     "filters": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["agents", "faults", "versions", "failureTypes", "products"],
+      "required": ["agents", "faults", "versions", "failureTypes", "products", "reviewStatuses"],
       "properties": {
         "agents": {
           "type": "array",
@@ -72,6 +72,13 @@
           "type": "array",
           "items": {
             "type": "string"
+          }
+        },
+        "reviewStatuses": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["none", "needs_review", "reviewed"]
           }
         }
       }

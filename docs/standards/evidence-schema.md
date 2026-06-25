@@ -98,7 +98,7 @@ Each corpus record now includes:
 
 The dashboard does not read the database directly. It reads
 `agentcert.monitor_snapshot`, which contains filters for agents, faults,
-versions, products, and failure types.
+versions, products, failure types, and review status.
 
 ## Failure Reviews
 
@@ -130,6 +130,28 @@ Optional fields include `target.recordId`, `target.runId`, `target.product`,
 `supportingSignals`, optional `contradictingSignals`, and an optional
 `classifierLimitation`. These fields make reviewed labels usable as a
 training and evaluation dataset instead of only a UI correction ledger.
+
+## Validator CLI
+
+AgentCert includes a local structural validator for checked-in examples,
+generated bundles, corpus records, failure reviews, monitor snapshots, and lab
+snapshots:
+
+```powershell
+node packages/agentcert-cli/dist/cli.js schema validate --schema evidence-bundle --file examples/agentcert/evidence-bundle.example.json
+node packages/agentcert-cli/dist/cli.js schema validate --schema monitor-snapshot --file public-demo/agentcert-monitor/data/monitor.json
+```
+
+The validator checks the stable contract fields and common enum values. It is
+not a cryptographic signature, certification authority, or proof that the
+underlying test run was honestly produced.
+
+## Compatibility
+
+Consumers should treat `schemaVersion` as the compatibility family and
+`schemaSemver` as the documentation/changelog release. AgentCert v1 consumers
+should ignore unknown optional metadata fields and fail closed only when a
+required field, required enum, or required artifact kind is missing.
 
 ## Failure Taxonomy
 

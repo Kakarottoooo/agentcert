@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { recordsFromAgentCertResult, renderCorpusSummary, summarizeCorpus } from "../src/corpus.js";
+import { recordsFromAgentCertResult, renderCorpusSummary, reviewedFailureDataset, summarizeCorpus } from "../src/corpus.js";
 import { normalizeTripwireResult } from "../src/normalizers.js";
 import type { AgentCertResult } from "../src/types.js";
 
@@ -83,11 +83,58 @@ describe("AgentCert corpus", () => {
     expect(summary.byVersion).toEqual([{ key: "unversioned", total: 3, passed: 1, failed: 2, passRate: 1 / 3 }]);
     expect(summary.byFailureType).toEqual([{ key: "assertion_failure", total: 2, passed: 0, failed: 2, passRate: 0 }]);
     expect(summary.taxonomy).toMatchObject({ totalFailurePatterns: 2, reviewedFailurePatterns: 0, unreviewedFailurePatterns: 2 });
+    expect(summary.taxonomy.reviewCoverage).toBe(0);
+    expect(summary.taxonomy.autoLabelPrecision).toBe(0);
     expect(summary.topFailurePatterns.map((pattern) => pattern.key)).toEqual([
       "tripwire:button-text-drift:url_contains",
       "tripwire:modal-overlay:url_contains",
     ]);
     expect(renderCorpusSummary(summary)).toContain("Total records: 3");
+  });
+
+  it("exports reviewed failure rows and taxonomy precision metrics", () => {
+    const records = [
+      record("misleading-button", false, ["tripwire:wrong_click:misleading-button:url_contains"], {
+        reviewStatus: "confirmed",
+        type: "wrong_click",
+        suggestedType: "wrong_click",
+        reviewConfidence: 0.9,
+      }),
+      record("http-failure", false, ["tripwire:network_failure:http-failure:no_console_error"], {
+        reviewStatus: "corrected",
+        type: "console_error",
+        suggestedType: "network_failure",
+        reviewConfidence: 0.8,
+      }),
+      record("modal-overlay", false, ["tripwire:ui_drift:modal-overlay:url_contains"]),
+    ];
+
+    const summary = summarizeCorpus(records);
+    const dataset = reviewedFailureDataset(records);
+
+    expect(summary.taxonomy).toMatchObject({
+      totalFailurePatterns: 3,
+      reviewedFailurePatterns: 2,
+      confirmedFailurePatterns: 1,
+      correctedFailurePatterns: 1,
+      reviewCoverage: 2 / 3,
+      autoLabelPrecision: 0.5,
+      correctionRate: 0.5,
+      meanReviewerConfidence: 0.8500000000000001,
+    });
+    expect(dataset).toHaveLength(2);
+    expect(dataset[0]).toMatchObject({
+      kind: "agentcert.reviewed_failure",
+      patternKey: "tripwire:wrong_click:misleading-button:url_contains",
+      suggestedType: "wrong_click",
+      reviewedType: "wrong_click",
+      reviewStatus: "confirmed",
+    });
+    expect(dataset[1]).toMatchObject({
+      suggestedType: "network_failure",
+      reviewedType: "console_error",
+      reviewStatus: "corrected",
+    });
   });
 
   it("does not treat high-risk evidence on a passing product run as a failure pattern", () => {
@@ -122,7 +169,12 @@ describe("AgentCert corpus", () => {
   });
 });
 
-function record(faultName: string, passed: boolean, failureKeys: string[]) {
+function record(
+  faultName: string,
+  passed: boolean,
+  failureKeys: string[],
+  patternOverrides: Partial<ReturnType<typeof pattern>> = {},
+) {
   return {
     schemaVersion: "1" as const,
     kind: "scenario_run" as const,
@@ -141,17 +193,22 @@ function record(faultName: string, passed: boolean, failureKeys: string[]) {
     faultName,
     evidenceCount: failureKeys.length,
     highOrCriticalEvidenceCount: failureKeys.length,
-    failurePatterns: failureKeys.map((key) => ({
-      key,
-      severity: "high" as const,
-      message: `${key} failed`,
-      type: "assertion_failure" as const,
-      suggestedType: "assertion_failure" as const,
-      reviewStatus: "unreviewed" as const,
-      scenarioName: "refund-form",
-      faultName,
-    })),
+    failurePatterns: failureKeys.map((key) => pattern(key, faultName, patternOverrides)),
     artifacts: { result: "tripwire-result.json" },
     sourcePath: "tripwire-result.json",
+  };
+}
+
+function pattern(key: string, faultName: string, overrides = {}) {
+  return {
+    key,
+    severity: "high" as const,
+    message: `${key} failed`,
+    type: "assertion_failure" as const,
+    suggestedType: "assertion_failure" as const,
+    reviewStatus: "unreviewed" as const,
+    scenarioName: "refund-form",
+    faultName,
+    ...overrides,
   };
 }

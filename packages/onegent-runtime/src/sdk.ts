@@ -4,6 +4,7 @@ import {
   approveAction,
   captureActionIntent,
   executeAfterApproval as executeApprovedAction,
+  executeAfterApprovalWithAdapter,
   generateAuditPacket,
   getActionReview,
   listActionReviews,
@@ -18,6 +19,7 @@ import type {
   ActionReview,
   ApprovalRequest,
   CreateActionIntentInput,
+  LocalActionAdapter,
   PolicyEvaluation,
   PolicyRule,
   RiskAssessment,
@@ -35,8 +37,8 @@ export interface OnegentRuntime {
   requestApproval(action: ActionIntent | string, assignedTo?: string): ApprovalRequest;
   approveAction(action: ActionIntent | string, reviewerId?: string, reviewerComment?: string): ActionReview;
   rejectAction(action: ActionIntent | string, reviewerId?: string, reviewerComment?: string): ActionReview;
-  executeAfterApproval(action: ActionIntent | string): ActionExecutionSummary;
-  verifyOutcome(action: ActionIntent | string, observedState?: Record<string, unknown>): VerificationResult;
+  executeAfterApproval(action: ActionIntent | string, adapter?: LocalActionAdapter): Promise<ActionExecutionSummary>;
+  verifyOutcome(action: ActionIntent | string, observedState?: ActionExecutionSummary | Record<string, unknown>): VerificationResult;
   writeAuditPacket(action: ActionIntent | string): ActionAuditPacket;
   getActionReview(action: ActionIntent | string): ActionReview;
   listActionReviews(): ActionReview[];
@@ -51,8 +53,9 @@ export function createOnegentRuntime(options: OnegentRuntimeOptions = {}): Onege
     approveAction: (action, reviewerId, reviewerComment) =>
       approveAction(actionId(action), reviewerId, reviewerComment, { autoExecute: false }),
     rejectAction: (action, reviewerId, reviewerComment) => rejectAction(actionId(action), reviewerId, reviewerComment),
-    executeAfterApproval: (action) => executeApprovedAction(actionId(action)),
-    verifyOutcome: (action, observedState) => verifyActionOutcome(actionId(action), observedState),
+    executeAfterApproval: async (action, adapter) =>
+      adapter ? executeAfterApprovalWithAdapter(actionId(action), adapter) : executeApprovedAction(actionId(action)),
+    verifyOutcome: (action, observedState) => verifyActionOutcome(actionId(action), observedStateForVerification(observedState)),
     writeAuditPacket: (action) => generateAuditPacket(actionId(action)),
     getActionReview: (action) => getActionReview(actionId(action)),
     listActionReviews: () => listActionReviews(),
@@ -61,4 +64,16 @@ export function createOnegentRuntime(options: OnegentRuntimeOptions = {}): Onege
 
 function actionId(action: ActionIntent | string): string {
   return typeof action === "string" ? action : action.id;
+}
+
+function observedStateForVerification(input: ActionExecutionSummary | Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!input) return undefined;
+  if (isActionExecutionSummary(input)) {
+    return input.observedState;
+  }
+  return input as Record<string, unknown>;
+}
+
+function isActionExecutionSummary(input: ActionExecutionSummary | Record<string, unknown>): input is ActionExecutionSummary {
+  return typeof input.method === "string" && typeof input.status === "string" && typeof input.targetSystem === "string";
 }

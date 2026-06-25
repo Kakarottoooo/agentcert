@@ -38,6 +38,7 @@ Outputs:
 - `.agentcert/latest/agentcert-report.md`
 - `.agentcert/latest/badge.svg`
 - `.agentcert/latest/monitor.json`
+- `.agentcert/latest/reviewed-failure-dataset.jsonl`
 - `.agentcert/latest/agentcert-run-manifest.json`
 
 The action installs and builds AgentCert from this repository at the requested

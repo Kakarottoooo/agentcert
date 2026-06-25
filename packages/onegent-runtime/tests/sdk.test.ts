@@ -9,7 +9,7 @@ describe("Onegent Runtime SDK interface", () => {
     resetActionGatewayStore();
   });
 
-  it("wraps a high-risk action with risk, policy, approval, execution, verification, and audit", () => {
+  it("wraps a high-risk action with risk, policy, approval, execution, verification, and audit", async () => {
     const runtime = createOnegentRuntime();
     const purchaseOrder = createProcurementDemoPurchaseOrder();
     const review = runtime.captureAction(purchaseOrderAction(purchaseOrder.id));
@@ -26,7 +26,7 @@ describe("Onegent Runtime SDK interface", () => {
     expect(approved.action.status).toBe("APPROVED");
     expect(getPurchaseOrder(purchaseOrder.id)?.status).toBe("DRAFT");
 
-    const execution = runtime.executeAfterApproval(review.action);
+    const execution = await runtime.executeAfterApproval(review.action);
     const verification = runtime.verifyOutcome(review.action);
     const packet = runtime.writeAuditPacket(review.action);
 
@@ -36,7 +36,7 @@ describe("Onegent Runtime SDK interface", () => {
     expect(packet.verificationResult?.success).toBe(true);
   });
 
-  it("exposes pending approvals before explicit SDK execution", () => {
+  it("exposes pending approvals before explicit SDK execution", async () => {
     const runtime = createOnegentRuntime({
       policyRules: [
         {
@@ -66,7 +66,51 @@ describe("Onegent Runtime SDK interface", () => {
 
     expect(approval.assignedTo).toBe(review.approvalRequest?.assignedTo);
     expect(approval.status).toBe("PENDING");
-    expect(() => runtime.executeAfterApproval(review.action.id)).toThrow(/approval status is PENDING/);
+    await expect(runtime.executeAfterApproval(review.action.id)).rejects.toThrow(/approval status is PENDING/);
+  });
+
+  it("executes approved actions through a local adapter and verifies the observed state", async () => {
+    const runtime = createOnegentRuntime({
+      policyRules: [
+        {
+          id: "send-requires-approval",
+          name: "Send requires approval",
+          description: "Outbound send actions require local review in SDK tests.",
+          actionTypes: ["SEND"],
+          effect: "REQUIRE_APPROVAL",
+          enabled: true,
+        },
+      ],
+    });
+    const review = runtime.captureAction({
+      sourceAgentName: "SupportAgent",
+      actionType: "SEND",
+      targetSystem: "LocalOutbox",
+      title: "Send customer update",
+      description: "Write a local mock outbound message.",
+      businessObjectType: "message",
+      businessObjectId: "msg-1",
+      recipient: "customer@example.local",
+      beforeState: { status: "DRAFT" },
+      proposedAfterState: { status: "SENT", recipient: "customer@example.local" },
+      fieldsChanged: [{ field: "status", before: "DRAFT", after: "SENT" }],
+    });
+    runtime.approveAction(review.action, "ops@example.local", "Approved local adapter execution.");
+
+    const execution = await runtime.executeAfterApproval(review.action, {
+      name: "local-outbox-adapter",
+      execute: (action) => ({
+        method: "LOCAL_ADAPTER",
+        previousState: action.beforeState,
+        observedState: { status: "SENT", recipient: action.recipient },
+      }),
+    });
+    const verification = runtime.verifyOutcome(review.action, execution);
+    const audit = runtime.writeAuditPacket(review.action);
+
+    expect(execution).toMatchObject({ method: "LOCAL_ADAPTER", status: "COMPLETED" });
+    expect(verification.success).toBe(true);
+    expect(audit.auditEvents.map((event) => event.message)).toContain("Local adapter execution completed.");
   });
 });
 

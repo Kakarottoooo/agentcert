@@ -23,7 +23,16 @@ Default outputs:
 - `.agentcert/latest/agentcert-run-manifest.json`
 - `.agentcert/latest/badge.svg`
 - `.agentcert/corpus/corpus.jsonl`
+- `.agentcert/corpus/reviewed-failure-dataset.jsonl`
 - `.agentcert/monitor/monitor.json`
+
+Review/export helpers:
+
+```bash
+npx agentcert corpus metrics --corpus .agentcert/corpus/corpus.jsonl
+npx agentcert corpus export-reviewed --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/corpus/reviewed-failure-dataset.jsonl
+npx agentcert schema validate --schema evidence-bundle --file .agentcert/latest/agentcert-evidence.json
+```
 
 CI users can run Tripwire and AgentCert together with
 `Kakarottoooo/agentcert/actions/tripwire@v0`.

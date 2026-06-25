@@ -11,6 +11,7 @@ import type {
   AuditEvent,
   AuditEventType,
   CreateActionIntentInput,
+  LocalActionAdapter,
   PolicyRule,
   VerificationMethod,
   VerificationResult,
@@ -196,16 +197,44 @@ export function rejectAction(
 export function executeAfterApproval(actionId: string): ActionExecutionSummary {
   const action = requireAction(actionId);
   const approval = store.approvals.get(actionId);
-  if (approval && approval.status !== "APPROVED") {
-    throw new Error(`Action ${actionId} cannot execute while approval status is ${approval.status}.`);
-  }
-  if (action.status === "REJECTED" || action.status === "CANCELLED") {
-    throw new Error(`Action ${actionId} cannot execute from status ${action.status}.`);
-  }
+  assertExecutableAfterApproval(action, approval);
   if (action.status === "EXECUTED" || action.status === "VERIFIED" || action.status === "FAILED_VERIFICATION") {
     return buildExecutionSummary(action);
   }
   return executeMockAction(actionId);
+}
+
+export async function executeAfterApprovalWithAdapter(
+  actionId: string,
+  adapter: LocalActionAdapter,
+): Promise<ActionExecutionSummary> {
+  const action = requireAction(actionId);
+  const approval = store.approvals.get(actionId);
+  assertExecutableAfterApproval(action, approval);
+  if (action.status === "EXECUTED" || action.status === "VERIFIED" || action.status === "FAILED_VERIFICATION") {
+    return buildExecutionSummary(action);
+  }
+
+  appendAudit(action.id, "MOCK_EXECUTION_STARTED", "SYSTEM", "onegent-runtime", "Local adapter execution started.", {
+    adapter: adapter.name,
+    targetSystem: action.targetSystem,
+  });
+  const result = await adapter.execute(action);
+  action.status = "EXECUTED";
+  store.actions.set(action.id, action);
+  appendAudit(action.id, "MOCK_EXECUTION_COMPLETED", "SYSTEM", "onegent-runtime", "Local adapter execution completed.", {
+    adapter: adapter.name,
+    method: result.method ?? "LOCAL_ADAPTER",
+    observedState: result.observedState,
+  });
+
+  return {
+    method: result.method ?? "LOCAL_ADAPTER",
+    status: "COMPLETED",
+    targetSystem: result.targetSystem ?? action.targetSystem,
+    previousState: result.previousState ?? action.beforeState,
+    observedState: result.observedState,
+  };
 }
 
 export function executeMockAction(actionId: string): ActionExecutionSummary {
@@ -406,6 +435,15 @@ function buildExecutionSummary(action: ActionIntent): ActionExecutionSummary {
     previousState: action.beforeState,
     observedState: verification?.observedState,
   };
+}
+
+function assertExecutableAfterApproval(action: ActionIntent, approval: ApprovalRequest | undefined): void {
+  if (approval && approval.status !== "APPROVED") {
+    throw new Error(`Action ${action.id} cannot execute while approval status is ${approval.status}.`);
+  }
+  if (action.status === "REJECTED" || action.status === "CANCELLED") {
+    throw new Error(`Action ${action.id} cannot execute from status ${action.status}.`);
+  }
 }
 
 function appendAudit(

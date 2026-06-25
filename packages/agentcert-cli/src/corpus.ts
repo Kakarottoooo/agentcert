@@ -96,6 +96,10 @@ export interface CorpusSummary {
     unreviewedFailurePatterns: number;
     confirmedFailurePatterns: number;
     correctedFailurePatterns: number;
+    reviewCoverage: number;
+    autoLabelPrecision: number;
+    correctionRate: number;
+    meanReviewerConfidence?: number;
   };
   topFailurePatterns: Array<{
     key: string;
@@ -104,6 +108,38 @@ export interface CorpusSummary {
     severity: AgentCertEvidence["severity"];
     type: FailureType;
   }>;
+}
+
+export interface ReviewedFailureDatasetRow {
+  schemaVersion: "1";
+  kind: "agentcert.reviewed_failure";
+  id: string;
+  recordId: string;
+  subject: string;
+  agentName: string;
+  agentVersion: string;
+  product: AgentCertResult["product"];
+  phase: AgentCertResult["phase"];
+  runId: string;
+  timestamp: string;
+  scenarioName?: string;
+  faultName?: string;
+  patternKey: string;
+  severity: AgentCertEvidence["severity"];
+  message: string;
+  suggestedType: FailureType;
+  reviewedType: FailureType;
+  reviewStatus: Extract<FailureReviewStatus, "confirmed" | "corrected">;
+  reviewer?: string;
+  reviewedAt?: string;
+  reviewConfidence?: number;
+  firstDivergenceSnippet?: string;
+  screenshotPath?: string;
+  screenshotUrl?: string;
+  tracePath?: string;
+  stepIndex?: number;
+  taxonomyRationale?: FailureTaxonomyRationale;
+  sourcePath: string;
 }
 
 export interface SummaryBucket {
@@ -184,6 +220,53 @@ export function summarizeCorpus(records: AgentCertCorpusRecord[]): CorpusSummary
   };
 }
 
+export function reviewedFailureDataset(records: AgentCertCorpusRecord[]): ReviewedFailureDatasetRow[] {
+  return records.flatMap((record) =>
+    record.failurePatterns
+      .filter(isReviewedPattern)
+      .map((pattern) => ({
+        schemaVersion: "1" as const,
+        kind: "agentcert.reviewed_failure" as const,
+        id: stableRecordId([record.id, pattern.key, pattern.reviewId ?? pattern.reviewedAt ?? pattern.type]),
+        recordId: record.id,
+        subject: record.subject,
+        agentName: record.agentName,
+        agentVersion: record.agentVersion,
+        product: record.product,
+        phase: record.phase,
+        runId: record.runId,
+        timestamp: record.timestamp,
+        scenarioName: record.scenarioName,
+        faultName: record.faultName,
+        patternKey: pattern.key,
+        severity: pattern.severity,
+        message: pattern.message,
+        suggestedType: pattern.suggestedType ?? pattern.type,
+        reviewedType: pattern.type,
+        reviewStatus: pattern.reviewStatus,
+        reviewer: pattern.reviewer,
+        reviewedAt: pattern.reviewedAt,
+        reviewConfidence: pattern.reviewConfidence,
+        firstDivergenceSnippet: pattern.reviewEvidenceContext?.firstDivergenceSnippet,
+        screenshotPath: pattern.reviewEvidenceContext?.screenshotPath,
+        screenshotUrl: pattern.reviewEvidenceContext?.screenshotUrl,
+        tracePath: pattern.reviewEvidenceContext?.tracePath,
+        stepIndex: pattern.reviewEvidenceContext?.stepIndex,
+        taxonomyRationale: pattern.taxonomyRationale,
+        sourcePath: record.sourcePath,
+      })),
+  );
+}
+
+export async function writeReviewedFailureDataset(path: string, records: AgentCertCorpusRecord[]): Promise<ReviewedFailureDatasetRow[]> {
+  const rows = reviewedFailureDataset(records);
+  const outPath = resolve(path);
+  await mkdir(dirname(outPath), { recursive: true });
+  const payload = rows.map((row) => JSON.stringify(row)).join("\n");
+  await writeFile(outPath, `${payload}${payload.length > 0 ? "\n" : ""}`);
+  return rows;
+}
+
 export async function appendCorpusRecords(path: string, records: AgentCertCorpusRecord[], replace = false): Promise<void> {
   const outPath = resolve(path);
   await mkdir(dirname(outPath), { recursive: true });
@@ -209,6 +292,9 @@ export function renderCorpusSummary(summary: CorpusSummary): string {
     `Passed: ${summary.passedRecords}`,
     `Failed: ${summary.failedRecords}`,
     `Pass rate: ${(summary.passRate * 100).toFixed(1)}%`,
+    `Taxonomy review coverage: ${(summary.taxonomy.reviewCoverage * 100).toFixed(1)}%`,
+    `Reviewed-label precision: ${(summary.taxonomy.autoLabelPrecision * 100).toFixed(1)}%`,
+    `Correction rate: ${(summary.taxonomy.correctionRate * 100).toFixed(1)}%`,
     "",
     "## By Product",
     ...renderBuckets(summary.byProduct),
@@ -342,12 +428,20 @@ function taxonomySummary(records: AgentCertCorpusRecord[]): CorpusSummary["taxon
   const confirmedFailurePatterns = patterns.filter((pattern) => pattern.reviewStatus === "confirmed").length;
   const correctedFailurePatterns = patterns.filter((pattern) => pattern.reviewStatus === "corrected").length;
   const reviewedFailurePatterns = confirmedFailurePatterns + correctedFailurePatterns;
+  const reviewedPatterns = patterns.filter(isReviewedPattern);
+  const confidenceValues = reviewedPatterns
+    .map((pattern) => pattern.reviewConfidence)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   return {
     totalFailurePatterns: patterns.length,
     reviewedFailurePatterns,
     unreviewedFailurePatterns: patterns.length - reviewedFailurePatterns,
     confirmedFailurePatterns,
     correctedFailurePatterns,
+    reviewCoverage: ratio(reviewedFailurePatterns, patterns.length),
+    autoLabelPrecision: ratio(confirmedFailurePatterns, reviewedFailurePatterns),
+    correctionRate: ratio(correctedFailurePatterns, reviewedFailurePatterns),
+    meanReviewerConfidence: confidenceValues.length === 0 ? undefined : confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length,
   };
 }
 
@@ -416,6 +510,12 @@ function classifyTripwireFailure(input: {
   if (diagnostics.includes("did not appear to connect") || warnings.includes("did not appear to connect")) return "agent_connection";
   if (agentResult.exitCode === 0 && (assertion === "url_contains" || assertion === "text_exists")) return "silent_partial_success";
   return "assertion_failure";
+}
+
+function isReviewedPattern(pattern: FailurePattern): pattern is FailurePattern & {
+  reviewStatus: Extract<FailureReviewStatus, "confirmed" | "corrected">;
+} {
+  return pattern.reviewStatus === "confirmed" || pattern.reviewStatus === "corrected";
 }
 
 function classifyEvidenceFailure(evidence: AgentCertEvidence): FailureType {

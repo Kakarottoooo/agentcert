@@ -29,6 +29,10 @@ export interface CorpusSummary {
     unreviewedFailurePatterns: number;
     confirmedFailurePatterns: number;
     correctedFailurePatterns: number;
+    reviewCoverage: number;
+    autoLabelPrecision: number;
+    correctionRate: number;
+    meanReviewerConfidence?: number;
   };
   topFailurePatterns: FailurePattern[];
 }
@@ -39,6 +43,7 @@ export interface MonitorFilters {
   versions: string[];
   failureTypes: string[];
   products: string[];
+  reviewStatuses: Array<"none" | "needs_review" | "reviewed">;
 }
 
 export interface SummaryBucket {

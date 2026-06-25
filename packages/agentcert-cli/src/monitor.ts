@@ -29,6 +29,7 @@ export interface MonitorFilters {
   versions: string[];
   failureTypes: string[];
   products: string[];
+  reviewStatuses: MonitorRun["taxonomyReviewStatus"][];
 }
 
 export interface MonitorLifecycleGate {
@@ -134,6 +135,7 @@ function buildFilters(records: AgentCertCorpusRecord[]): MonitorFilters {
     versions: unique(records.map((record) => record.agentVersion)),
     failureTypes: unique(records.flatMap((record) => record.failurePatterns.map((pattern) => pattern.type))),
     products: unique(records.map((record) => record.product)),
+    reviewStatuses: unique(records.map((record) => taxonomyReviewStatus(record.failurePatterns))),
   };
 }
 
@@ -142,7 +144,7 @@ function taxonomyReviewStatus(patterns: FailurePattern[]): MonitorRun["taxonomyR
   return patterns.every((pattern) => pattern.reviewStatus === "confirmed" || pattern.reviewStatus === "corrected") ? "reviewed" : "needs_review";
 }
 
-function unique(values: string[]): string[] {
+function unique<T extends string>(values: T[]): T[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 

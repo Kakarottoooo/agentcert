@@ -32,8 +32,8 @@ Artifacts include `events.jsonl`, `results.json`, `report.md`, and `badge.svg`.
 
 Use this when the caller repository has a `tripwire.yml` that launches the
 browser or computer-use agent under test. The action runs Tripwire, then writes
-the AgentCert evidence bundle, corpus, monitor snapshot, badge, manifest, and
-JUnit/HTML reports.
+the AgentCert evidence bundle, corpus, reviewed failure dataset, monitor
+snapshot, badge, manifest, and JUnit/HTML reports.
 
 ```yaml
 name: AgentCert Tripwire
@@ -72,4 +72,5 @@ Artifacts include:
 - `.agentcert/latest/agentcert-run-manifest.json`
 - `.agentcert/latest/badge.svg`
 - `.agentcert/latest/corpus.jsonl`
+- `.agentcert/latest/reviewed-failure-dataset.jsonl`
 - `.agentcert/latest/monitor.json`
