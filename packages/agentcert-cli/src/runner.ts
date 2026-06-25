@@ -188,7 +188,9 @@ export function profileFromArtifactFlags(overrides: RunProfileOverrides): AgentC
         path: overrides.corpusPath ?? ".agentcert/corpus/corpus.jsonl",
         replace: overrides.replaceCorpus ?? false,
       },
-      monitor: overrides.monitorOut ? { outputs: [overrides.monitorOut] } : undefined,
+      monitor: {
+        outputs: [overrides.monitorOut ?? ".agentcert/monitor/monitor.json"],
+      },
       gate: {
         failOnVerdict: overrides.failOnVerdict ?? false,
       },

@@ -104,6 +104,11 @@
         "finalUrl": { "type": "string" },
         "primaryFailure": { "type": "string" },
         "firstDivergence": { "$ref": "#/$defs/firstDivergence" },
+        "taxonomyLabel": { "$ref": "#/$defs/failureType" },
+        "suggestedTaxonomyLabel": { "$ref": "#/$defs/failureType" },
+        "taxonomyReviewStatus": { "enum": ["unreviewed", "confirmed", "corrected"] },
+        "reviewerConfidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "taxonomyRationale": { "$ref": "#/$defs/taxonomyRationale" },
         "tracePath": { "type": "string" },
         "reportPath": { "type": "string" },
         "screenshotPath": { "type": "string" }
@@ -121,6 +126,39 @@
         "note": { "type": "string" },
         "screenshotPath": { "type": "string" },
         "domSnapshotPath": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "failureType": {
+      "enum": [
+        "prompt_injection",
+        "wrong_click",
+        "timeout",
+        "verification_gap",
+        "silent_partial_success",
+        "network_failure",
+        "ui_drift",
+        "policy_or_approval",
+        "agent_connection",
+        "console_error",
+        "assertion_failure",
+        "unknown_failure"
+      ]
+    },
+    "taxonomyRationale": {
+      "type": "object",
+      "required": ["primaryReason"],
+      "properties": {
+        "primaryReason": { "type": "string" },
+        "supportingSignals": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "contradictingSignals": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "classifierLimitation": { "type": "string" }
       },
       "additionalProperties": false
     }

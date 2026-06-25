@@ -57,24 +57,72 @@ describe("Real Agent Robustness Lab", () => {
         summary: { totalRuns: 2, passedRuns: 1, failedRuns: 1, overallScore: 0.5 },
         runs: [
           {
+            runId: "run-clean",
             scenarioName: "refund-form",
             faultName: "clean",
             status: "passed",
             tracePath: "runs/refund-form/clean/trace.json",
           },
           {
+            runId: "run-modal",
             scenarioName: "refund-form",
             faultName: "modal-overlay",
             status: "failed",
             tracePath: "runs/refund-form/modal-overlay/trace.json",
-            assertions: [{ pass: false, message: "Final URL should contain /success" }],
+            assertions: [{ type: "url_contains", pass: false, message: "Final URL should contain /success" }],
           },
         ],
       }),
     );
+    const corpusPath = join(dir, "corpus.jsonl");
+    await writeFile(
+      corpusPath,
+      `${JSON.stringify({
+        schemaVersion: "1",
+        kind: "scenario_run",
+        id: "record-modal",
+        ingestedAt: "2026-01-01T00:00:00Z",
+        subject: "reference",
+        agentName: "Reference Agent",
+        agentVersion: "unversioned",
+        product: "tripwire-ci",
+        phase: "pre-release",
+        runId: "run-modal",
+        timestamp: "2026-01-01T00:00:00Z",
+        score: 0,
+        passed: false,
+        scenarioName: "refund-form",
+        faultName: "modal-overlay",
+        evidenceCount: 1,
+        highOrCriticalEvidenceCount: 1,
+        failurePatterns: [
+          {
+            key: "tripwire:ui_drift:modal-overlay:url_contains",
+            severity: "high",
+            message: "Final URL should contain /success",
+            type: "ui_drift",
+            suggestedType: "ui_drift",
+            reviewStatus: "confirmed",
+            reviewConfidence: 0.92,
+            scenarioName: "refund-form",
+            faultName: "modal-overlay",
+            taxonomyRationale: {
+              primaryReason: "The overlay changed the visible action surface before completion.",
+              supportingSignals: ["fault name modal-overlay", "first divergence is visible text"],
+            },
+          },
+        ],
+        artifacts: {
+          result: resultPath,
+          trace: "runs/refund-form/modal-overlay/trace.json",
+        },
+        sourcePath: resultPath,
+      })}\n`,
+    );
     const config: RobustnessLabConfig = {
       schemaVersion: "1",
       name: "Test Lab",
+      corpusPath,
       agents: [
         {
           id: "reference",
@@ -113,6 +161,12 @@ describe("Real Agent Robustness Lab", () => {
     expect(snapshot.matrix.find((cell) => cell.faultName === "modal-overlay")).toMatchObject({
       status: "failed",
       primaryFailure: "Final URL should contain /success",
+      taxonomyLabel: "ui_drift",
+      taxonomyReviewStatus: "confirmed",
+      reviewerConfidence: 0.92,
+      taxonomyRationale: {
+        primaryReason: "The overlay changed the visible action surface before completion.",
+      },
       firstDivergence: {
         kind: "text",
         stepIndex: 1,

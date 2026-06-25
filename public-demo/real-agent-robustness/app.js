@@ -20,7 +20,10 @@ main();
 async function main() {
   const response = await fetch("./evidence/lab-snapshot.json", { cache: "no-cache" });
   state.snapshot = await response.json();
-  state.selected = state.snapshot.matrix.find((cell) => cell.status === "failed") ?? state.snapshot.matrix[0];
+  state.selected =
+    state.snapshot.matrix.find((cell) => cell.status === "failed" && typeof cell.reviewerConfidence === "number") ??
+    state.snapshot.matrix.find((cell) => cell.status === "failed") ??
+    state.snapshot.matrix[0];
   render();
 }
 
@@ -74,7 +77,7 @@ function renderMatrix() {
           if (!cell) return `<div></div>`;
           return `<button class="matrix-cell ${statusClass(cell.status)}" data-agent="${cell.agentId}" data-fault="${cell.faultName}">
             <strong>${cell.status}</strong>
-            <span>${cell.stepCount ?? "-"} steps</span>
+            <span>${escapeHtml(cell.taxonomyLabel ? formatTaxonomy(cell.taxonomyLabel) : `${cell.stepCount ?? "-"} steps`)}</span>
           </button>`;
         })
         .join("");
@@ -122,6 +125,7 @@ function renderDetail(cell) {
       <span class="badge ${cell.status === "failed" ? "missing" : ""}">${cell.status}</span>
       <h3>${escapeHtml(cell.agentName)} on ${escapeHtml(faultLabels[cell.faultName] ?? cell.faultName)}</h3>
       <p>${escapeHtml(cell.primaryFailure ?? "No failure recorded for this run.")}</p>
+      ${renderTaxonomy(cell)}
       ${renderDivergence(cell.firstDivergence)}
       <p>Final URL: ${escapeHtml(cell.finalUrl ?? "-")}<br>Duration: ${formatDuration(cell.durationMs)} | Steps: ${cell.stepCount ?? "-"}</p>
       <div class="detail-links">
@@ -131,6 +135,30 @@ function renderDetail(cell) {
         ${cell.firstDivergence?.domSnapshotPath ? `<a href="${cell.firstDivergence.domSnapshotPath}">Divergence DOM</a>` : ""}
       </div>
     </div>`;
+}
+
+function renderTaxonomy(cell) {
+  const label = cell.taxonomyLabel;
+  const suggested = cell.suggestedTaxonomyLabel && cell.suggestedTaxonomyLabel !== label ? cell.suggestedTaxonomyLabel : undefined;
+  const status = cell.taxonomyReviewStatus ?? (label ? "unreviewed" : undefined);
+  const confidence = formatConfidence(cell.reviewerConfidence);
+  const rationale = cell.taxonomyRationale;
+  if (!label && !status && !rationale) {
+    return "";
+  }
+  return `<div class="taxonomy">
+    <div>
+      <strong>Taxonomy</strong>
+      <span>${escapeHtml(label ? formatTaxonomy(label) : "Not classified")}</span>
+    </div>
+    <dl>
+      <div><dt>Review</dt><dd>${escapeHtml(status ?? "-")}</dd></div>
+      <div><dt>Confidence</dt><dd>${escapeHtml(confidence)}</dd></div>
+      ${suggested ? `<div><dt>Suggested</dt><dd>${escapeHtml(formatTaxonomy(suggested))}</dd></div>` : ""}
+    </dl>
+    ${rationale?.primaryReason ? `<p>${escapeHtml(rationale.primaryReason)}</p>` : ""}
+    ${rationale?.supportingSignals?.length ? `<ul>${rationale.supportingSignals.map((signal) => `<li>${escapeHtml(signal)}</li>`).join("")}</ul>` : ""}
+  </div>`;
 }
 
 function renderDivergence(divergence) {
@@ -162,6 +190,14 @@ function percent(value) {
 function formatDuration(ms) {
   if (ms === undefined) return "-";
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+function formatTaxonomy(value) {
+  return String(value).replaceAll("_", " ");
+}
+
+function formatConfidence(value) {
+  return typeof value === "number" ? `${Math.round(value * 100)}%` : "-";
 }
 
 function statusClass(status) {

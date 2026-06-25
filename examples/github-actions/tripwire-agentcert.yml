@@ -20,3 +20,5 @@ jobs:
           out: .tripwire/latest
           fail-under: "0.8"
           subject: my-browser-agent
+          agentcert-out: .agentcert/latest
+          fail-on-verdict: "true"

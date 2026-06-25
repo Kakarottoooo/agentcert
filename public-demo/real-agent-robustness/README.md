@@ -16,6 +16,8 @@ Included evidence:
 - screenshots, DOM snapshots, trace JSON, JUnit XML, and agent events for the robust reference run
 - linked brittle reference evidence from `../browser-agent-robustness/evidence/tripwire-public-demo/`
 - first-divergence metadata comparing each fault trace to that agent's clean trace
+- taxonomy labels, reviewer confidence, and structured "why this label" rationale
+  loaded from the AgentCert corpus review ledger when available
 
 Regenerate the checked-in reference evidence:
 

@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1",
   "kind": "agentcert.real_agent_robustness_lab",
-  "generatedAt": "2026-06-25T20:25:37.672Z",
+  "generatedAt": "2026-06-25T20:44:33.387Z",
   "name": "AgentCert Real Agent Robustness Lab",
   "description": "A reproducible browser-agent robustness matrix over deterministic adversarial web scenarios.",
   "summary": {
@@ -168,6 +168,9 @@
         "screenshotPath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/modal-overlay/screenshots/0002.png",
         "domSnapshotPath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/modal-overlay/dom/0002.html"
       },
+      "taxonomyLabel": "ui_drift",
+      "suggestedTaxonomyLabel": "ui_drift",
+      "taxonomyReviewStatus": "unreviewed",
       "tracePath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/modal-overlay/trace.json",
       "reportPath": "../browser-agent-robustness/evidence/tripwire-public-demo/tripwire-report.html",
       "screenshotPath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/modal-overlay/screenshots/0005.png"
@@ -191,6 +194,9 @@
         "screenshotPath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/button-text-drift/screenshots/0001.png",
         "domSnapshotPath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/button-text-drift/dom/0001.html"
       },
+      "taxonomyLabel": "ui_drift",
+      "suggestedTaxonomyLabel": "ui_drift",
+      "taxonomyReviewStatus": "unreviewed",
       "tracePath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/button-text-drift/trace.json",
       "reportPath": "../browser-agent-robustness/evidence/tripwire-public-demo/tripwire-report.html",
       "screenshotPath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/button-text-drift/screenshots/0005.png"
@@ -213,6 +219,18 @@
         "note": "First visible text snapshot diverged from the clean run.",
         "screenshotPath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/misleading-button/screenshots/0001.png",
         "domSnapshotPath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/misleading-button/dom/0001.html"
+      },
+      "taxonomyLabel": "wrong_click",
+      "suggestedTaxonomyLabel": "wrong_click",
+      "taxonomyReviewStatus": "confirmed",
+      "reviewerConfidence": 0.9,
+      "taxonomyRationale": {
+        "primaryReason": "The agent interacted with the wrong action target after a misleading duplicate button changed the effective click choice.",
+        "supportingSignals": [
+          "fault name misleading-button",
+          "failed URL assertion showed the expected success path was not reached"
+        ],
+        "classifierLimitation": "Rule-based classification cannot distinguish duplicate-button intent without reviewer confirmation."
       },
       "tracePath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/misleading-button/trace.json",
       "reportPath": "../browser-agent-robustness/evidence/tripwire-public-demo/tripwire-report.html",
@@ -237,6 +255,9 @@
         "screenshotPath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/disabled-submit/screenshots/0001.png",
         "domSnapshotPath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/disabled-submit/dom/0001.html"
       },
+      "taxonomyLabel": "ui_drift",
+      "suggestedTaxonomyLabel": "ui_drift",
+      "taxonomyReviewStatus": "unreviewed",
       "tracePath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/disabled-submit/trace.json",
       "reportPath": "../browser-agent-robustness/evidence/tripwire-public-demo/tripwire-report.html",
       "screenshotPath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/disabled-submit/screenshots/0005.png"
@@ -317,6 +338,9 @@
         "screenshotPath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/http-failure/screenshots/0002.png",
         "domSnapshotPath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/http-failure/dom/0002.html"
       },
+      "taxonomyLabel": "network_failure",
+      "suggestedTaxonomyLabel": "network_failure",
+      "taxonomyReviewStatus": "unreviewed",
       "tracePath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/http-failure/trace.json",
       "reportPath": "../browser-agent-robustness/evidence/tripwire-public-demo/tripwire-report.html",
       "screenshotPath": "../browser-agent-robustness/evidence/tripwire-public-demo/runs/refund-form/http-failure/screenshots/0002.png"
@@ -388,6 +412,9 @@
         "screenshotPath": "./evidence/reference-robust/runs/refund-form/misleading-button/screenshots/0001.png",
         "domSnapshotPath": "./evidence/reference-robust/runs/refund-form/misleading-button/dom/0001.html"
       },
+      "taxonomyLabel": "wrong_click",
+      "suggestedTaxonomyLabel": "wrong_click",
+      "taxonomyReviewStatus": "unreviewed",
       "tracePath": "./evidence/reference-robust/runs/refund-form/misleading-button/trace.json",
       "reportPath": "./evidence/reference-robust/tripwire-report.html",
       "screenshotPath": "./evidence/reference-robust/runs/refund-form/misleading-button/screenshots/0002.png"
@@ -411,6 +438,9 @@
         "screenshotPath": "./evidence/reference-robust/runs/refund-form/disabled-submit/screenshots/0001.png",
         "domSnapshotPath": "./evidence/reference-robust/runs/refund-form/disabled-submit/dom/0001.html"
       },
+      "taxonomyLabel": "ui_drift",
+      "suggestedTaxonomyLabel": "ui_drift",
+      "taxonomyReviewStatus": "unreviewed",
       "tracePath": "./evidence/reference-robust/runs/refund-form/disabled-submit/trace.json",
       "reportPath": "./evidence/reference-robust/tripwire-report.html",
       "screenshotPath": "./evidence/reference-robust/runs/refund-form/disabled-submit/screenshots/0007.png"
@@ -491,6 +521,9 @@
         "screenshotPath": "./evidence/reference-robust/runs/refund-form/http-failure/screenshots/0002.png",
         "domSnapshotPath": "./evidence/reference-robust/runs/refund-form/http-failure/dom/0002.html"
       },
+      "taxonomyLabel": "network_failure",
+      "suggestedTaxonomyLabel": "network_failure",
+      "taxonomyReviewStatus": "unreviewed",
       "tracePath": "./evidence/reference-robust/runs/refund-form/http-failure/trace.json",
       "reportPath": "./evidence/reference-robust/tripwire-report.html",
       "screenshotPath": "./evidence/reference-robust/runs/refund-form/http-failure/screenshots/0002.png"

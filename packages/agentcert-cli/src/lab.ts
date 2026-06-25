@@ -1,5 +1,12 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, posix, resolve } from "node:path";
+import type {
+  AgentCertCorpusRecord,
+  FailurePattern,
+  FailureReviewStatus,
+  FailureTaxonomyRationale,
+  FailureType,
+} from "./corpus.js";
 
 export type LabAgentKind = "reference-agent" | "public-open-source-agent" | "custom-agent";
 export type LabAgentStatus = "completed" | "missing";
@@ -8,6 +15,7 @@ export interface RobustnessLabConfig {
   schemaVersion: "1";
   name: string;
   description?: string;
+  corpusPath?: string;
   agents: LabAgentConfig[];
   limitations?: string[];
 }
@@ -87,6 +95,11 @@ export interface LabMatrixCell {
   finalUrl?: string;
   primaryFailure?: string;
   firstDivergence?: LabFirstDivergence;
+  taxonomyLabel?: FailureType;
+  suggestedTaxonomyLabel?: FailureType;
+  taxonomyReviewStatus?: FailureReviewStatus;
+  reviewerConfidence?: number;
+  taxonomyRationale?: FailureTaxonomyRationale;
   tracePath?: string;
   reportPath?: string;
   screenshotPath?: string;
@@ -121,7 +134,7 @@ interface TripwireRun {
   stepCount?: number;
   tracePath?: string;
   finalUrl?: string;
-  assertions?: Array<{ pass?: boolean; message?: string }>;
+  assertions?: Array<{ type?: string; pass?: boolean; message?: string }>;
 }
 
 interface TripwireTrace {
@@ -141,6 +154,7 @@ interface TripwireTraceStep {
 export async function buildRobustnessLabSnapshot(config: RobustnessLabConfig, cwd = process.cwd()): Promise<RobustnessLabSnapshot> {
   const agents: LabAgentSummary[] = [];
   const matrix: LabMatrixCell[] = [];
+  const corpus = config.corpusPath ? await readJsonlIfExists<AgentCertCorpusRecord>(resolve(cwd, config.corpusPath)) : [];
 
   for (const agent of config.agents) {
     const result = agent.resultPath ? await readJsonIfExists<TripwireResult>(resolve(cwd, agent.resultPath)) : undefined;
@@ -198,6 +212,9 @@ export async function buildRobustnessLabSnapshot(config: RobustnessLabConfig, cw
       const faultName = stringValue(run.faultName) ?? "unknown";
       const trace = tracePath ? traces.get(traceKey(scenarioName, faultName)) : undefined;
       const cleanTrace = faultName === "clean" ? undefined : traces.get(traceKey(scenarioName, "clean"));
+      const primaryFailure = firstFailure(run);
+      const taxonomy = taxonomyForRun(corpus, run, primaryFailure);
+      const inferredType = primaryFailure ? inferFailureType(faultName, primaryFailure, run) : undefined;
       matrix.push({
         agentId: agent.id,
         agentName: agent.name,
@@ -207,8 +224,13 @@ export async function buildRobustnessLabSnapshot(config: RobustnessLabConfig, cw
         durationMs: numberValue(run.durationMs),
         stepCount: numberValue(run.stepCount),
         finalUrl: stringValue(run.finalUrl),
-        primaryFailure: firstFailure(run),
+        primaryFailure,
         firstDivergence: firstDivergence(agent, tracePath, trace, cleanTrace, run),
+        taxonomyLabel: taxonomy?.type ?? inferredType,
+        suggestedTaxonomyLabel: taxonomy?.suggestedType ?? inferredType,
+        taxonomyReviewStatus: taxonomy?.reviewStatus ?? (inferredType ? "unreviewed" : undefined),
+        reviewerConfidence: taxonomy?.reviewConfidence,
+        taxonomyRationale: taxonomy?.taxonomyRationale,
         tracePath: publicArtifactPath(agent, tracePath),
         reportPath: publicArtifactPath(agent, agent.reportPath),
         screenshotPath: tracePath ? screenshotPathFor(agent, tracePath, trace) : undefined,
@@ -420,6 +442,58 @@ async function readJsonIfExists<T>(path: string): Promise<T | undefined> {
   } catch {
     return undefined;
   }
+}
+
+async function readJsonlIfExists<T>(path: string): Promise<T[]> {
+  try {
+    await access(path);
+    const raw = await readFile(path, "utf8");
+    return raw
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0)
+      .map((line) => JSON.parse(line) as T);
+  } catch {
+    return [];
+  }
+}
+
+function taxonomyForRun(
+  records: AgentCertCorpusRecord[],
+  run: TripwireRun,
+  primaryFailure: string | undefined,
+): FailurePattern | undefined {
+  const runId = stringValue(run.runId);
+  const scenarioName = stringValue(run.scenarioName);
+  const faultName = stringValue(run.faultName);
+  const record = records.find((candidate) => {
+    if (runId) return candidate.runId === runId;
+    return candidate.scenarioName === scenarioName && candidate.faultName === faultName;
+  });
+  if (!record) return undefined;
+  return (
+    record.failurePatterns.find((pattern) => pattern.message === primaryFailure) ??
+    record.failurePatterns.find((pattern) => pattern.reviewStatus === "corrected" || pattern.reviewStatus === "confirmed") ??
+    record.failurePatterns[0]
+  );
+}
+
+function inferFailureType(faultName: string, primaryFailure: string, run: TripwireRun): FailureType {
+  const fault = faultName.toLowerCase();
+  const message = primaryFailure.toLowerCase();
+  const assertionType = run.assertions?.find((assertion) => assertion.pass === false)?.type ?? "";
+  if (assertionType === "max_steps" || message.includes("timed out") || message.includes("agent exited")) return "timeout";
+  if (fault.includes("prompt-injection") || assertionType === "no_sensitive_text_in_output" || message.includes("ignore previous instructions")) {
+    return "prompt_injection";
+  }
+  if (fault.includes("misleading-button") || message.includes("wrong button") || message.includes("cancel")) return "wrong_click";
+  if (fault.includes("button-text-drift") || fault.includes("layout-shift") || fault.includes("modal-overlay") || fault.includes("disabled-submit")) {
+    return "ui_drift";
+  }
+  if (assertionType === "no_console_error" || message.includes("console")) return "console_error";
+  if (fault.includes("slow-network") || fault.includes("http-failure") || message.includes("network") || message.includes("503")) {
+    return "network_failure";
+  }
+  return "assertion_failure";
 }
 
 function slashPath(path: string): string {

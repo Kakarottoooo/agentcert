@@ -28,38 +28,48 @@ jobs:
 
 Artifacts include `events.jsonl`, `results.json`, `report.md`, and `badge.svg`.
 
-## Unified Evidence Packet
+## Tripwire + Unified Evidence Packet
 
-After one or more engines have produced artifacts, generate a portable
-AgentCert evidence bundle:
+Use this when the caller repository has a `tripwire.yml` that launches the
+browser or computer-use agent under test. The action runs Tripwire, then writes
+the AgentCert evidence bundle, corpus, monitor snapshot, badge, manifest, and
+JUnit/HTML reports.
 
 ```yaml
-name: AgentCert Evidence
+name: AgentCert Tripwire
 
 on:
   pull_request:
+  push:
+    branches: [main]
 
 jobs:
-  agentcert:
+  tripwire:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - uses: ./.github/actions/agentcert
+
+      - uses: Kakarottoooo/agentcert/actions/tripwire@v0
         with:
-          subject: my-agent
-          subject-type: agent
-          mcpbench: examples/reports/passing/results.json
-          out: .agentcert/latest
-      - uses: actions/upload-artifact@v4
-        with:
-          name: agentcert-evidence
-          path: .agentcert/latest
+          config: tripwire.yml
+          out: .tripwire/latest
+          fail-under: "0.8"
+          subject: my-browser-agent
+          agentcert-out: .agentcert/latest
+          fail-on-verdict: "true"
 ```
 
 Artifacts include:
 
-- `agentcert-evidence.json`
-- `agentcert-report.md`
+- `.tripwire/latest/tripwire-result.json`
+- `.tripwire/latest/tripwire-report.html`
+- `.tripwire/latest/junit.xml`
+- `.agentcert/latest/agentcert-evidence.json`
+- `.agentcert/latest/agentcert-report.md`
+- `.agentcert/latest/agentcert-run-manifest.json`
+- `.agentcert/latest/badge.svg`
+- `.agentcert/latest/corpus.jsonl`
+- `.agentcert/latest/monitor.json`

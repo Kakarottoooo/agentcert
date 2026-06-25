@@ -454,6 +454,72 @@ h1 {
   overflow: hidden;
 }
 
+.taxonomy {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #d6e1ee;
+  border-left: 4px solid var(--cyan);
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.taxonomy > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.taxonomy strong {
+  color: #14233b;
+  font-size: 14px;
+}
+
+.taxonomy span {
+  color: var(--cyan);
+  font-size: 13px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.taxonomy dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.taxonomy dt {
+  margin-bottom: 3px;
+  color: #34435a;
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.taxonomy dd {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.taxonomy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.taxonomy ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .detail-links {
   display: flex;
   flex-wrap: wrap;
@@ -566,6 +632,10 @@ h1 {
 
   .metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .taxonomy dl {
+    grid-template-columns: 1fr;
   }
 
   h1 {

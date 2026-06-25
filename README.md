@@ -14,6 +14,57 @@ Public monitor: [AgentCert Monitor](https://kakarottoooo.github.io/agentcert/pub
 
 Real Agent Robustness Lab: [browser-agent comparison matrix](https://kakarottoooo.github.io/agentcert/public-demo/real-agent-robustness/)
 
+## 5-Minute Quickstart
+
+Use this path when you want AgentCert to act like a tool in your own repo, not
+just a checked-in demo.
+
+```bash
+npx agentcert init --subject my-browser-agent
+```
+
+This writes:
+
+- `agentcert.config.json`: AgentCert evidence, corpus, monitor, badge, and gate defaults.
+- `tripwire.yml`: starter browser-agent robustness suite with popup, button-text drift, prompt-injection banner, slow-network, and HTTP-failure faults.
+
+Edit `tripwire.yml` so `startUrl` points at your local/staging app and
+`agent.command` / `agent.args` launch your browser or computer-use agent. After
+Tripwire has produced `.tripwire/latest/tripwire-result.json`, build the
+AgentCert outputs:
+
+```bash
+npx agentcert run \
+  --tripwire .tripwire/latest/tripwire-result.json \
+  --subject my-browser-agent \
+  --fail-on-verdict
+```
+
+Default outputs:
+
+- `.agentcert/latest/agentcert-evidence.json`
+- `.agentcert/latest/agentcert-report.md`
+- `.agentcert/latest/agentcert-run-manifest.json`
+- `.agentcert/latest/badge.svg`
+- `.agentcert/corpus/corpus.jsonl`
+- `.agentcert/monitor/monitor.json`
+
+GitHub Actions:
+
+```yaml
+- uses: Kakarottoooo/agentcert/actions/tripwire@v0
+  with:
+    config: tripwire.yml
+    out: .tripwire/latest
+    fail-under: "0.8"
+    subject: my-browser-agent
+    agentcert-out: .agentcert/latest
+    fail-on-verdict: "true"
+```
+
+The action uploads JUnit, an HTML Tripwire report, an AgentCert evidence bundle,
+a badge SVG, a run manifest, a corpus JSONL file, and a monitor snapshot.
+
 ## The Lifecycle
 
 AgentCert covers the agent lifecycle in two phases:

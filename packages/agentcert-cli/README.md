@@ -2,19 +2,31 @@
 
 Unified evidence, corpus, monitor, and lab CLI for AgentCert.
 
-After the package is published, the intended low-friction entrypoint is:
+## 5-minute local path
 
 ```bash
-npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --out .agentcert/latest --subject my-agent --fail-on-verdict
+npx agentcert init --subject my-browser-agent
 ```
 
-Core outputs:
+Edit `tripwire.yml` so `startUrl` and `agent.command` point at your app and
+browser agent. After Tripwire has produced `.tripwire/latest/tripwire-result.json`,
+build the AgentCert outputs:
 
-- `agentcert-evidence.json`
-- `agentcert-report.md`
-- `agentcert-run-manifest.json`
-- `badge.svg`
-- optional corpus and monitor snapshots
+```bash
+npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --subject my-browser-agent --fail-on-verdict
+```
+
+Default outputs:
+
+- `.agentcert/latest/agentcert-evidence.json`
+- `.agentcert/latest/agentcert-report.md`
+- `.agentcert/latest/agentcert-run-manifest.json`
+- `.agentcert/latest/badge.svg`
+- `.agentcert/corpus/corpus.jsonl`
+- `.agentcert/monitor/monitor.json`
+
+CI users can run Tripwire and AgentCert together with
+`Kakarottoooo/agentcert/actions/tripwire@v0`.
 
 Failure taxonomy reviews:
 

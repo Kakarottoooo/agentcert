@@ -1,8 +1,8 @@
 {
   "schemaVersion": "1",
   "kind": "agentcert.run_manifest",
-  "runId": "agentcert_run_7f54c80a09d8",
-  "generatedAt": "2026-06-25T20:25:32.190Z",
+  "runId": "agentcert_run_edd9d9353063",
+  "generatedAt": "2026-06-25T20:44:27.892Z",
   "subject": {
     "name": "agentcert-public-demo",
     "type": "agent"

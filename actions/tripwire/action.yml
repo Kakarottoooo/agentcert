@@ -44,6 +44,9 @@ outputs:
   badge:
     description: Path to AgentCert badge SVG.
     value: ${{ inputs.agentcert-out }}/badge.svg
+  monitor:
+    description: Path to AgentCert monitor snapshot.
+    value: ${{ inputs.agentcert-out }}/monitor.json
 runs:
   using: composite
   steps:
@@ -90,6 +93,7 @@ runs:
           --tripwire "${{ inputs.out }}/tripwire-result.json"
           --out "${{ inputs.agentcert-out }}"
           --corpus "${{ inputs.agentcert-out }}/corpus.jsonl"
+          --monitor-out "${{ inputs.agentcert-out }}/monitor.json"
           --subject "$subject"
           --replace
         )
@@ -116,6 +120,7 @@ runs:
           echo "- JUnit: \`${{ inputs.out }}/junit.xml\`"
           echo "- Evidence bundle: \`${{ inputs.agentcert-out }}/agentcert-evidence.json\`"
           echo "- Badge: \`${{ inputs.agentcert-out }}/badge.svg\`"
+          echo "- Monitor snapshot: \`${{ inputs.agentcert-out }}/monitor.json\`"
         } >> "$GITHUB_STEP_SUMMARY"
         if [ -f "${{ inputs.agentcert-out }}/agentcert-report.md" ]; then
           {

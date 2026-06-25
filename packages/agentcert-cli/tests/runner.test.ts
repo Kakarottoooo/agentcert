@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { publicDemoRunProfile, runAgentCertProfile, type AgentCertRunProfile } from "../src/runner.js";
+import { profileFromArtifactFlags, publicDemoRunProfile, runAgentCertProfile, type AgentCertRunProfile } from "../src/runner.js";
 import type { MonitorSnapshot } from "../src/monitor.js";
 
 describe("AgentCert unified runner", () => {
@@ -82,6 +82,15 @@ describe("AgentCert unified runner", () => {
     expect(profile.artifacts.mcpbench).toContain("public-demo/lifecycle-evidence/mcpbench-passing/results.json");
     expect(profile.run?.monitor?.outputs).toContain("packages/agentcert-dashboard/public/data/monitor.json");
     expect(profile.run?.gate?.failOnVerdict).toBe(false);
+  });
+
+  it("emits a default monitor snapshot for explicit artifact runs", () => {
+    const profile = profileFromArtifactFlags({
+      tripwire: ".tripwire/latest/tripwire-result.json",
+      subject: "my-browser-agent",
+    });
+
+    expect(profile.run?.monitor?.outputs).toEqual([".agentcert/monitor/monitor.json"]);
   });
 });
 
