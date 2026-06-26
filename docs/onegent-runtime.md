@@ -23,6 +23,10 @@ Onegent Runtime can now be embedded as a small SDK around a high-risk action
 boundary. The default implementation is still local and mock-only, but the
 control flow is the production shape:
 
+```bash
+npm install @agentcert/onegent-runtime
+```
+
 ```ts
 import {
   createInMemoryAuditStore,

@@ -11,6 +11,12 @@ credentials.
 
 ## SDK
 
+Install the runtime package in the project that owns the high-risk action:
+
+```bash
+npm install @agentcert/onegent-runtime
+```
+
 ```ts
 import {
   createInMemoryAuditStore,
