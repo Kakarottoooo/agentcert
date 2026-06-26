@@ -21,7 +21,7 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 
-from browser_use.beta import Agent, BrowserProfile, ChatOpenAI
+from browser_use import Agent, BrowserProfile, ChatOpenAI
 
 
 async def main() -> None:

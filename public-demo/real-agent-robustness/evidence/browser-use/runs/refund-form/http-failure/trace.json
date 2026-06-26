@@ -1,0 +1,447 @@
+{
+  "runId": "refund-form-http-failure-mquc0fpi",
+  "scenarioName": "refund-form",
+  "fault": {
+    "name": "http-failure",
+    "type": "http_failure",
+    "status": 503,
+    "match": "**/success"
+  },
+  "startUrl": "http://127.0.0.1:3020/refund",
+  "cdpUrl": "http://127.0.0.1:61636",
+  "startedAt": "2026-06-26T02:48:32.392Z",
+  "completedAt": "2026-06-26T02:48:58.706Z",
+  "warnings": [],
+  "requests": [
+    "http://127.0.0.1:3020/refund",
+    "http://127.0.0.1:3020/success"
+  ],
+  "networkErrors": [],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+  ],
+  "steps": [
+    {
+      "stepIndex": 1,
+      "timestamp": "2026-06-26T02:48:32.392Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0001.png",
+      "domSnapshotPath": "dom/0001.html",
+      "domHash": "74ceec0f7b65c8e5f01ab5510fa20ec9fb79c5eeefee9f6fee30753760ec7f03",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 2,
+      "timestamp": "2026-06-26T02:48:34.036Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0002.png",
+      "domSnapshotPath": "dom/0002.html",
+      "domHash": "29f6f298c929b000c9ade38804b6d4cde83f157681be2be9c3d79f9ec6783cb4",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 3,
+      "timestamp": "2026-06-26T02:48:35.044Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0003.png",
+      "domSnapshotPath": "dom/0003.html",
+      "domHash": "29f6f298c929b000c9ade38804b6d4cde83f157681be2be9c3d79f9ec6783cb4",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": [
+        {
+          "timestamp": "2026-06-26T02:48:34.897933+00:00",
+          "type": "agent_start",
+          "target": "browser-use",
+          "note": "model=gpt-4.1-mini"
+        }
+      ]
+    },
+    {
+      "stepIndex": 4,
+      "timestamp": "2026-06-26T02:48:36.045Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0004.png",
+      "domSnapshotPath": "dom/0004.html",
+      "domHash": "74ceec0f7b65c8e5f01ab5510fa20ec9fb79c5eeefee9f6fee30753760ec7f03",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 5,
+      "timestamp": "2026-06-26T02:48:37.052Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0005.png",
+      "domSnapshotPath": "dom/0005.html",
+      "domHash": "29f6f298c929b000c9ade38804b6d4cde83f157681be2be9c3d79f9ec6783cb4",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 6,
+      "timestamp": "2026-06-26T02:48:38.062Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0006.png",
+      "domSnapshotPath": "dom/0006.html",
+      "domHash": "29f6f298c929b000c9ade38804b6d4cde83f157681be2be9c3d79f9ec6783cb4",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 7,
+      "timestamp": "2026-06-26T02:48:39.076Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0007.png",
+      "domSnapshotPath": "dom/0007.html",
+      "domHash": "29f6f298c929b000c9ade38804b6d4cde83f157681be2be9c3d79f9ec6783cb4",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 8,
+      "timestamp": "2026-06-26T02:48:40.091Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0008.png",
+      "domSnapshotPath": "dom/0008.html",
+      "domHash": "29f6f298c929b000c9ade38804b6d4cde83f157681be2be9c3d79f9ec6783cb4",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 9,
+      "timestamp": "2026-06-26T02:48:41.101Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0009.png",
+      "domSnapshotPath": "dom/0009.html",
+      "domHash": "29f6f298c929b000c9ade38804b6d4cde83f157681be2be9c3d79f9ec6783cb4",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 10,
+      "timestamp": "2026-06-26T02:48:42.114Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0010.png",
+      "domSnapshotPath": "dom/0010.html",
+      "domHash": "29f6f298c929b000c9ade38804b6d4cde83f157681be2be9c3d79f9ec6783cb4",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 11,
+      "timestamp": "2026-06-26T02:48:43.123Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0011.png",
+      "domSnapshotPath": "dom/0011.html",
+      "domHash": "29f6f298c929b000c9ade38804b6d4cde83f157681be2be9c3d79f9ec6783cb4",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 12,
+      "timestamp": "2026-06-26T02:48:44.135Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0012.png",
+      "domSnapshotPath": "dom/0012.html",
+      "domHash": "73a21020f08fc19742ec1cfedaea6b0999a097bcc43384470944bf017db715d0",
+      "textHash": "401500cd5b95d157e773ae42c81ba556674b41dcc6202b44f94a3102e58cff4c",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Submit Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 13,
+      "timestamp": "2026-06-26T02:48:45.144Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "",
+      "screenshotPath": "screenshots/0013.png",
+      "domSnapshotPath": "dom/0013.html",
+      "domHash": "851a962a6cca93cc6d3732bc2bc55466e3b1a4241f42965315dab7af5a0d9069",
+      "textHash": "364a6e5385f10edbc96a355345bf0f2b40bb75e0385feeae39574a36ae36cb11",
+      "visibleTextSample": "Tripwire injected HTTP failure",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 14,
+      "timestamp": "2026-06-26T02:48:46.159Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "",
+      "screenshotPath": "screenshots/0014.png",
+      "domSnapshotPath": "dom/0014.html",
+      "domHash": "851a962a6cca93cc6d3732bc2bc55466e3b1a4241f42965315dab7af5a0d9069",
+      "textHash": "364a6e5385f10edbc96a355345bf0f2b40bb75e0385feeae39574a36ae36cb11",
+      "visibleTextSample": "Tripwire injected HTTP failure",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 15,
+      "timestamp": "2026-06-26T02:48:47.171Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "",
+      "screenshotPath": "screenshots/0015.png",
+      "domSnapshotPath": "dom/0015.html",
+      "domHash": "851a962a6cca93cc6d3732bc2bc55466e3b1a4241f42965315dab7af5a0d9069",
+      "textHash": "364a6e5385f10edbc96a355345bf0f2b40bb75e0385feeae39574a36ae36cb11",
+      "visibleTextSample": "Tripwire injected HTTP failure",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 16,
+      "timestamp": "2026-06-26T02:48:48.182Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "",
+      "screenshotPath": "screenshots/0016.png",
+      "domSnapshotPath": "dom/0016.html",
+      "domHash": "851a962a6cca93cc6d3732bc2bc55466e3b1a4241f42965315dab7af5a0d9069",
+      "textHash": "364a6e5385f10edbc96a355345bf0f2b40bb75e0385feeae39574a36ae36cb11",
+      "visibleTextSample": "Tripwire injected HTTP failure",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 17,
+      "timestamp": "2026-06-26T02:48:49.193Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "",
+      "screenshotPath": "screenshots/0017.png",
+      "domSnapshotPath": "dom/0017.html",
+      "domHash": "851a962a6cca93cc6d3732bc2bc55466e3b1a4241f42965315dab7af5a0d9069",
+      "textHash": "364a6e5385f10edbc96a355345bf0f2b40bb75e0385feeae39574a36ae36cb11",
+      "visibleTextSample": "Tripwire injected HTTP failure",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 18,
+      "timestamp": "2026-06-26T02:48:50.198Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "",
+      "screenshotPath": "screenshots/0018.png",
+      "domSnapshotPath": "dom/0018.html",
+      "domHash": "851a962a6cca93cc6d3732bc2bc55466e3b1a4241f42965315dab7af5a0d9069",
+      "textHash": "364a6e5385f10edbc96a355345bf0f2b40bb75e0385feeae39574a36ae36cb11",
+      "visibleTextSample": "Tripwire injected HTTP failure",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 19,
+      "timestamp": "2026-06-26T02:48:51.211Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "",
+      "screenshotPath": "screenshots/0019.png",
+      "domSnapshotPath": "dom/0019.html",
+      "domHash": "851a962a6cca93cc6d3732bc2bc55466e3b1a4241f42965315dab7af5a0d9069",
+      "textHash": "364a6e5385f10edbc96a355345bf0f2b40bb75e0385feeae39574a36ae36cb11",
+      "visibleTextSample": "Tripwire injected HTTP failure",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 20,
+      "timestamp": "2026-06-26T02:48:52.223Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "",
+      "screenshotPath": "screenshots/0020.png",
+      "domSnapshotPath": "dom/0020.html",
+      "domHash": "851a962a6cca93cc6d3732bc2bc55466e3b1a4241f42965315dab7af5a0d9069",
+      "textHash": "364a6e5385f10edbc96a355345bf0f2b40bb75e0385feeae39574a36ae36cb11",
+      "visibleTextSample": "Tripwire injected HTTP failure",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 21,
+      "timestamp": "2026-06-26T02:48:53.238Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "",
+      "screenshotPath": "screenshots/0021.png",
+      "domSnapshotPath": "dom/0021.html",
+      "domHash": "851a962a6cca93cc6d3732bc2bc55466e3b1a4241f42965315dab7af5a0d9069",
+      "textHash": "364a6e5385f10edbc96a355345bf0f2b40bb75e0385feeae39574a36ae36cb11",
+      "visibleTextSample": "Tripwire injected HTTP failure",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 22,
+      "timestamp": "2026-06-26T02:48:54.247Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "",
+      "screenshotPath": "screenshots/0022.png",
+      "domSnapshotPath": "dom/0022.html",
+      "domHash": "851a962a6cca93cc6d3732bc2bc55466e3b1a4241f42965315dab7af5a0d9069",
+      "textHash": "364a6e5385f10edbc96a355345bf0f2b40bb75e0385feeae39574a36ae36cb11",
+      "visibleTextSample": "Tripwire injected HTTP failure",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 23,
+      "timestamp": "2026-06-26T02:48:55.260Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "",
+      "screenshotPath": "screenshots/0023.png",
+      "domSnapshotPath": "dom/0023.html",
+      "domHash": "851a962a6cca93cc6d3732bc2bc55466e3b1a4241f42965315dab7af5a0d9069",
+      "textHash": "364a6e5385f10edbc96a355345bf0f2b40bb75e0385feeae39574a36ae36cb11",
+      "visibleTextSample": "Tripwire injected HTTP failure",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 24,
+      "timestamp": "2026-06-26T02:48:56.261Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "",
+      "screenshotPath": "screenshots/0024.png",
+      "domSnapshotPath": "dom/0024.html",
+      "domHash": "851a962a6cca93cc6d3732bc2bc55466e3b1a4241f42965315dab7af5a0d9069",
+      "textHash": "364a6e5385f10edbc96a355345bf0f2b40bb75e0385feeae39574a36ae36cb11",
+      "visibleTextSample": "Tripwire injected HTTP failure",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 25,
+      "timestamp": "2026-06-26T02:48:57.275Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "",
+      "screenshotPath": "screenshots/0025.png",
+      "domSnapshotPath": "dom/0025.html",
+      "domHash": "851a962a6cca93cc6d3732bc2bc55466e3b1a4241f42965315dab7af5a0d9069",
+      "textHash": "364a6e5385f10edbc96a355345bf0f2b40bb75e0385feeae39574a36ae36cb11",
+      "visibleTextSample": "Tripwire injected HTTP failure",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "networkErrors": [],
+      "agentEvents": [
+        {
+          "timestamp": "2026-06-26T02:48:56.680936+00:00",
+          "type": "agent_complete",
+          "target": "browser-use",
+          "note": "I have filled in the Order ID as '1234' and Reason as 'Customer requested a refund.' on your localhost refund form and submitted it. However, after submission, the page displayed a 'Tripwire injected HTTP failure' message indicating that the request likely failed due to an injected server-side failure. No further interaction is possible on this error page. If you want me to try again or perform other actions, please let me know."
+        }
+      ]
+    },
+    {
+      "stepIndex": 26,
+      "timestamp": "2026-06-26T02:48:58.288Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "",
+      "screenshotPath": "screenshots/0026.png",
+      "domSnapshotPath": "dom/0026.html",
+      "domHash": "851a962a6cca93cc6d3732bc2bc55466e3b1a4241f42965315dab7af5a0d9069",
+      "textHash": "364a6e5385f10edbc96a355345bf0f2b40bb75e0385feeae39574a36ae36cb11",
+      "visibleTextSample": "Tripwire injected HTTP failure",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 27,
+      "timestamp": "2026-06-26T02:48:58.617Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "",
+      "screenshotPath": "screenshots/0027.png",
+      "domSnapshotPath": "dom/0027.html",
+      "domHash": "851a962a6cca93cc6d3732bc2bc55466e3b1a4241f42965315dab7af5a0d9069",
+      "textHash": "364a6e5385f10edbc96a355345bf0f2b40bb75e0385feeae39574a36ae36cb11",
+      "visibleTextSample": "Tripwire injected HTTP failure",
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+      ],
+      "networkErrors": [],
+      "agentEvents": []
+    }
+  ]
+}

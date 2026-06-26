@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1",
   "kind": "agentcert.monitor_snapshot",
-  "generatedAt": "2026-06-25T21:38:04.534Z",
+  "generatedAt": "2026-06-26T02:49:40.929Z",
   "subject": "agentcert-public-demo",
   "summary": {
     "totalRecords": 11,
