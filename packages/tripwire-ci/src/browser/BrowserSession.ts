@@ -38,6 +38,7 @@ export class BrowserSession {
       "--disable-dev-shm-usage",
       "--disable-features=Translate,MediaRouter",
       "--window-size=1365,900",
+      ...(process.platform === "linux" ? ["--no-sandbox", "--disable-setuid-sandbox"] : []),
       this.options.headless ? "--headless=new" : "",
       "about:blank"
     ].filter(Boolean);
