@@ -12,7 +12,7 @@
     }
   },
   "bin": {
-    "onegent-runtime": "./dist/cli.js"
+    "onegent-runtime": "dist/cli.js"
   },
   "files": [
     "dist",

@@ -4,7 +4,7 @@
   "description": "Unified AgentCert evidence packet and report CLI.",
   "type": "module",
   "bin": {
-    "agentcert": "./dist/cli.js"
+    "agentcert": "dist/cli.js"
   },
   "files": [
     "dist",
