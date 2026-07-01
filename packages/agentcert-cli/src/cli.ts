@@ -562,6 +562,11 @@ on:
 jobs:
   tripwire:
     runs-on: ubuntu-latest
+    # Uncomment to publish a hosted evidence page + clickable README badge
+    # to the gh-pages branch (also uncomment publish-pages below, then enable
+    # GitHub Pages for the gh-pages branch in the repo settings):
+    # permissions:
+    #   contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -576,5 +581,6 @@ jobs:
           subject: ${JSON.stringify(subject)}
           agentcert-out: .agentcert/latest
           fail-on-verdict: "true"
+          # publish-pages: "true"
 `;
 }

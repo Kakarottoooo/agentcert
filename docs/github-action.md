@@ -75,3 +75,48 @@ Artifacts include:
 - `.agentcert/latest/corpus.jsonl`
 - `.agentcert/latest/reviewed-failure-dataset.jsonl`
 - `.agentcert/latest/monitor.json`
+
+## Hosted Evidence Page + Clickable README Badge
+
+Set `publish-pages: "true"` and the action pushes the Tripwire report, the
+AgentCert HTML report, and the badge SVG to a GitHub Pages branch after every
+run, then prints a ready-to-paste clickable badge for your README in the job
+summary:
+
+```yaml
+jobs:
+  tripwire:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: Kakarottoooo/agentcert/actions/tripwire@v0
+        with:
+          config: tripwire.yml
+          subject: my-browser-agent
+          publish-pages: "true"
+          # pages-branch: gh-pages   (default)
+          # pages-dir: agentcert     (default)
+```
+
+One-time setup: enable GitHub Pages for the `gh-pages` branch in the caller
+repository settings (Settings → Pages → Deploy from a branch → `gh-pages`).
+
+The action then exposes:
+
+- output `pages-url`: `https://<owner>.github.io/<repo>/agentcert`
+- output `badge-markdown`:
+
+```markdown
+[![AgentCert](https://<owner>.github.io/<repo>/agentcert/latest/badge.svg)](https://<owner>.github.io/<repo>/agentcert/latest/agentcert-report.html)
+```
+
+The badge links to the hosted `agentcert-report.html`, and the full Tripwire
+report (with screenshots, DOM snapshots, and traces) is published next to it at
+`<pages-url>/tripwire/tripwire-report.html`. Evidence is published on both
+passing and failing runs — that is the point of an evidence layer.

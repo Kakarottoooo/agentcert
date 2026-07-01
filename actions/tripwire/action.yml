@@ -28,6 +28,18 @@ inputs:
   fail-on-verdict:
     description: Fail if the unified AgentCert verdict fails, in addition to the Tripwire gate.
     default: "false"
+  publish-pages:
+    description: >-
+      Publish the evidence reports and badge to a GitHub Pages branch and emit
+      a clickable badge snippet. Requires contents write permission in the
+      caller workflow.
+    default: "false"
+  pages-branch:
+    description: Branch the evidence page is pushed to when publish-pages is true.
+    default: gh-pages
+  pages-dir:
+    description: Directory inside the Pages branch that holds the evidence page.
+    default: agentcert
 outputs:
   tripwire-result:
     description: Path to tripwire-result.json.
@@ -53,6 +65,12 @@ outputs:
   reviewed-dataset:
     description: Path to reviewed failure dataset JSONL.
     value: ${{ inputs.agentcert-out }}/reviewed-failure-dataset.jsonl
+  pages-url:
+    description: Base URL of the published evidence page (when publish-pages is true).
+    value: ${{ steps.publish-pages.outputs.pages-url }}
+  badge-markdown:
+    description: Clickable badge markdown pointing at the hosted evidence page (when publish-pages is true).
+    value: ${{ steps.publish-pages.outputs.badge-markdown }}
 runs:
   using: composite
   steps:
@@ -111,6 +129,55 @@ runs:
         agentcert_exit=$?
         echo "AGENTCERT_RUN_EXIT=$agentcert_exit" >> "$GITHUB_ENV"
         exit 0
+
+    - name: Publish evidence page and badge
+      id: publish-pages
+      if: ${{ always() && inputs.publish-pages == 'true' }}
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        branch="${{ inputs.pages-branch }}"
+        dir="${{ inputs.pages-dir }}"
+        owner="${GITHUB_REPOSITORY%%/*}"
+        repo="${GITHUB_REPOSITORY#*/}"
+        workdir="$(mktemp -d)"
+        repo_url="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+        if git ls-remote --exit-code --heads "$repo_url" "$branch" >/dev/null 2>&1; then
+          git clone --depth 1 --branch "$branch" "$repo_url" "$workdir"
+        else
+          git init -b "$branch" "$workdir"
+          git -C "$workdir" remote add origin "$repo_url"
+        fi
+        rm -rf "$workdir/$dir"
+        mkdir -p "$workdir/$dir/tripwire" "$workdir/$dir/latest"
+        cp -R "${{ inputs.out }}/." "$workdir/$dir/tripwire/"
+        cp -R "${{ inputs.agentcert-out }}/." "$workdir/$dir/latest/"
+        touch "$workdir/.nojekyll"
+        git -C "$workdir" add -A
+        if git -C "$workdir" -c user.name="agentcert[bot]" -c user.email="agentcert-bot@users.noreply.github.com" commit -m "agentcert: update evidence for ${GITHUB_SHA:-manual-run}" >/dev/null; then
+          git -C "$workdir" push origin "$branch"
+        else
+          echo "No evidence changes to publish."
+        fi
+        pages_url="https://${owner}.github.io/${repo}/${dir}"
+        badge_md="[![AgentCert](${pages_url}/latest/badge.svg)](${pages_url}/latest/agentcert-report.html)"
+        echo "pages-url=${pages_url}" >> "$GITHUB_OUTPUT"
+        echo "badge-markdown=${badge_md}" >> "$GITHUB_OUTPUT"
+        if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+          {
+            echo "### AgentCert badge"
+            echo
+            echo "Hosted evidence page: ${pages_url}/latest/agentcert-report.html"
+            echo
+            echo "Add the clickable badge to your README:"
+            echo
+            echo '```markdown'
+            echo "$badge_md"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
 
     - name: Write AgentCert summary
       if: always()

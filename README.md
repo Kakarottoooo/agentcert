@@ -83,6 +83,16 @@ The action uploads JUnit, an HTML Tripwire report, an AgentCert evidence
 bundle, an AgentCert HTML report, a badge SVG, a run manifest, a corpus JSONL
 file, a reviewed failure dataset, and a monitor snapshot.
 
+Add `publish-pages: "true"` (plus `permissions: contents: write`) and the
+action also hosts your evidence reports on GitHub Pages and prints a clickable
+README badge that links straight to them:
+
+```markdown
+[![AgentCert](https://<owner>.github.io/<repo>/agentcert/latest/badge.svg)](https://<owner>.github.io/<repo>/agentcert/latest/agentcert-report.html)
+```
+
+See [docs/github-action.md](docs/github-action.md) for the Pages setup.
+
 ## What Tripwire Injects
 
 Tripwire launches a controlled Chromium browser, exposes a CDP endpoint to your
