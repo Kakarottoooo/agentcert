@@ -4,7 +4,7 @@ Publish targets: X thread + LinkedIn post. Both link to the Lab page and the
 full article.
 
 - Lab page: https://kakarottoooo.github.io/agentcert/public-demo/real-agent-robustness/
-- Article: docs/blog/2026-06-we-fault-injected-real-browser-agents.md (publish to blog/X article first, then link)
+- Article: docs/blog/2026-07-we-fault-injected-real-browser-agents.md (publish to blog/X article first, then link)
 - Repo: https://github.com/Kakarottoooo/agentcert
 
 ---

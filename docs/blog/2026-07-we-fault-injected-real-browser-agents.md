@@ -1,6 +1,6 @@
 # We Fault-Injected Real Browser Agents. Here's Where They Broke.
 
-*June 2026 · AgentCert Real Agent Robustness Lab*
+*July 2026 · AgentCert Real Agent Robustness Lab*
 
 Browser agents demo beautifully. Then the target site ships a redesign, a
 cookie banner appears, or a request returns a 503 — and the agent either stalls
