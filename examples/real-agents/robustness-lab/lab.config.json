@@ -55,11 +55,25 @@
       "requiresModelKey": true,
       "includedInPublicSnapshot": false,
       "notes": "Real public-agent adapter. Run locally with your own model key; results are intentionally not checked in by default."
+    },
+    {
+      "id": "stagehand",
+      "name": "Stagehand",
+      "kind": "public-open-source-agent",
+      "repositoryUrl": "https://github.com/browserbase/stagehand",
+      "adapterPath": "examples/real-agents/stagehand/stagehand_tripwire_agent.mjs",
+      "configPath": "examples/real-agents/stagehand/tripwire.stagehand.yml",
+      "resultPath": "public-demo/real-agent-robustness/evidence/stagehand/tripwire-result.json",
+      "reportPath": "tripwire-report.html",
+      "publicPathPrefix": "./evidence/stagehand/",
+      "requiresModelKey": true,
+      "includedInPublicSnapshot": false,
+      "notes": "Real public-agent adapter using Stagehand v3 in LOCAL mode over Tripwire's CDP endpoint. Run locally with your own model key; results are not fabricated."
     }
   ],
   "limitations": [
-    "The checked-in public snapshot includes deterministic Playwright/CDP agents, a public Playwright baseline, and a wired browser-use adapter.",
-    "browser-use is wired as a real public-agent adapter, but its live result requires a caller-provided model key and is not fabricated.",
+    "The checked-in public snapshot includes deterministic Playwright/CDP agents, a public Playwright baseline, and wired browser-use and Stagehand adapters.",
+    "browser-use and Stagehand are wired as real public-agent adapters, but their live results require a caller-provided model key and are not fabricated.",
     "The current task is one localhost refund workflow, not a claim about any agent's overall safety."
   ]
 }

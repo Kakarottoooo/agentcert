@@ -12,10 +12,10 @@ full article.
 ## X Thread
 
 **1/**
-We fault-injected 4 real browser agents with 9 common web failures: popups,
+We fault-injected 5 real browser agents with 9 common web failures: popups,
 moved buttons, decoy buttons, slow networks, prompt injection, HTTP 503s.
 
-36 runs. 24 passed.
+45 runs. 31 passed.
 
 Every screenshot, DOM snapshot, and trace is public. Here's where they broke 🧵
 
@@ -25,27 +25,28 @@ The matrix (same task, same faults):
 - Playwright strict CDP: 4/9
 - Playwright resilient CDP: 6/9
 - Playwright ARIA: 6/9
+- Stagehand (gpt-4.1-mini): 7/9
 - browser-use (gpt-4.1-mini): 8/9
 
 The interesting part isn't the scores. It's *which* faults broke *which* agents.
 
 **3/**
-Two faults killed every scripted agent: a decoy button with the same label as
-the real submit, and a submit button disabled for 3 seconds.
+A decoy button with the same label as the real submit fooled 4 of the 5 agents
+— including Stagehand, an LLM framework. It clicked the decoy, its form input
+got silently cleared, and 13 steps later it was still on the refund page.
 
-Even the agent explicitly built to be "resilient" crashed — its resilience was
-a hardcoded list, and these weren't on it.
+Only browser-use picked the real button.
 
 **4/**
-browser-use walked through both. Saw the decoy, picked the real button,
-retried the disabled submit until it worked.
+Same model, different frameworks, different survival. Stagehand and browser-use
+both ran gpt-4.1-mini, both retried the disabled submit just fine — but only
+one saw through the decoy.
 
-LLM-agent adaptivity is measurable: it shows up exactly on the faults nobody
-enumerated in advance.
+LLM-agent adaptivity is real. It is not uniform. You have to measure it.
 
 **5/**
-Now the bad news. Under an injected HTTP failure, ALL FOUR agents — including
-browser-use — reported success on a failed task.
+Now the bad news. Under an injected HTTP failure, ALL FIVE agents — scripted
+and LLM alike — reported success on a failed task.
 
 The POST returned a 503. The success page rendered an error. Every agent still
 landed on /success and called it done.
@@ -79,20 +80,21 @@ are ~100 lines. PRs welcome.
 
 **Every browser agent we tested reported success on a failed task.**
 
-We ran 4 real browser agents (3 scripted Playwright variants + browser-use)
-through 9 realistic web faults: modal overlays, button drift, decoy buttons,
-disabled submits, layout shifts, prompt-injection banners, slow networks, and
-HTTP failures. 36 runs, deterministic grading, all evidence public.
+We ran 5 real browser agents (3 scripted Playwright variants, Stagehand, and
+browser-use) through 9 realistic web faults: modal overlays, button drift,
+decoy buttons, disabled submits, layout shifts, prompt-injection banners, slow
+networks, and HTTP failures. 45 runs, deterministic grading, all evidence
+public.
 
 Three findings:
 
-1. **Interaction traps kill scripted agents.** A decoy button and a
-temporarily disabled submit crashed every scripted agent — including the one
-explicitly built to be resilient. The LLM agent (browser-use, 8/9) adapted and
-passed both. Adaptivity isn't a vibe; it's measurable, and it shows up exactly
-on the faults you didn't enumerate in advance.
+1. **A decoy button fooled 4 of 5 agents — including an LLM framework.** Every
+scripted agent crashed on it, and Stagehand clicked the decoy, silently losing
+its form input. Only browser-use (8/9) picked the real button. Both LLM
+frameworks ran the same model (gpt-4.1-mini): adaptivity is real, but it is
+not uniform across frameworks, and you only find out by injecting the fault.
 
-2. **All four agents silently succeeded on a failed task.** Under an injected
+2. **All five agents silently succeeded on a failed task.** Under an injected
 HTTP 503, every agent reached the /success URL while the page rendered an
 error — and reported the task as done. If your health check is "the agent says
 it finished," you're shipping false successes. Only deterministic outcome

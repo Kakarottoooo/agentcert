@@ -1,0 +1,9 @@
+{
+  "name": "agentcert-stagehand-adapter",
+  "private": true,
+  "type": "module",
+  "description": "Local-only Stagehand adapter for the AgentCert Real Agent Robustness Lab.",
+  "dependencies": {
+    "@browserbasehq/stagehand": "^3.2.0"
+  }
+}

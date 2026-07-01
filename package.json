@@ -12,6 +12,7 @@
     "tripwire:lab-reference": "npm --prefix packages/tripwire-ci run lab:reference",
     "tripwire:lab-playwright-agent": "npm run tripwire:build && npm --prefix packages/tripwire-ci run lab:reference -- --config examples/real-agents/playwright-agent/tripwire.playwright-agent.yml --out public-demo/real-agent-robustness/evidence/playwright-agent && npm run agentcert:lab-build",
     "tripwire:lab-browser-use": "npm run tripwire:build && npm --prefix packages/tripwire-ci run lab:reference -- --config examples/real-agents/browser-use/tripwire.browser-use.yml --out public-demo/real-agent-robustness/evidence/browser-use && npm run agentcert:lab-build",
+    "tripwire:lab-stagehand": "npm run tripwire:build && npm --prefix packages/tripwire-ci run lab:reference -- --config examples/real-agents/stagehand/tripwire.stagehand.yml --out public-demo/real-agent-robustness/evidence/stagehand && npm run agentcert:lab-build",
     "onegent:install": "npm --prefix packages/onegent-runtime ci",
     "onegent:build": "npm --prefix packages/onegent-runtime run build",
     "onegent:test": "npm --prefix packages/onegent-runtime test",

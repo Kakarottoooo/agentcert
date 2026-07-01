@@ -1,0 +1,232 @@
+{
+  "runId": "refund-form-button-text-drift-mr2mbxez",
+  "scenarioName": "refund-form",
+  "fault": {
+    "name": "button-text-drift",
+    "type": "changed_button_text",
+    "from": "Submit",
+    "to": "Continue"
+  },
+  "startUrl": "http://127.0.0.1:3020/refund",
+  "cdpUrl": "http://127.0.0.1:50125",
+  "startedAt": "2026-07-01T21:59:34.104Z",
+  "completedAt": "2026-07-01T21:59:48.172Z",
+  "warnings": [],
+  "requests": [
+    "http://127.0.0.1:3020/success"
+  ],
+  "networkErrors": [],
+  "consoleErrors": [],
+  "steps": [
+    {
+      "stepIndex": 1,
+      "timestamp": "2026-07-01T21:59:34.104Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0001.png",
+      "domSnapshotPath": "dom/0001.html",
+      "domHash": "61b8577ec4e648fb516f99802bd12c01e5c88a824ea3f9621695814608102aa3",
+      "textHash": "e2795bac659bdc02afe55e0aed861fdd02408872cc063b83fdcb717dd9610618",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Continue Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 2,
+      "timestamp": "2026-07-01T21:59:36.028Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0002.png",
+      "domSnapshotPath": "dom/0002.html",
+      "domHash": "f1d2c57fb58d9ba42ae83153d308b6eebe380f2c3e4ac0e43a4b4144fcef1b95",
+      "textHash": "e2795bac659bdc02afe55e0aed861fdd02408872cc063b83fdcb717dd9610618",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Continue Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": [
+        {
+          "timestamp": "2026-07-01T21:59:36.041Z",
+          "type": "agent_start",
+          "target": "stagehand",
+          "note": "model=openai/gpt-4.1-mini"
+        }
+      ]
+    },
+    {
+      "stepIndex": 3,
+      "timestamp": "2026-07-01T21:59:37.036Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0003.png",
+      "domSnapshotPath": "dom/0003.html",
+      "domHash": "f1d2c57fb58d9ba42ae83153d308b6eebe380f2c3e4ac0e43a4b4144fcef1b95",
+      "textHash": "e2795bac659bdc02afe55e0aed861fdd02408872cc063b83fdcb717dd9610618",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Continue Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 4,
+      "timestamp": "2026-07-01T21:59:38.051Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0004.png",
+      "domSnapshotPath": "dom/0004.html",
+      "domHash": "f1d2c57fb58d9ba42ae83153d308b6eebe380f2c3e4ac0e43a4b4144fcef1b95",
+      "textHash": "e2795bac659bdc02afe55e0aed861fdd02408872cc063b83fdcb717dd9610618",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Continue Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 5,
+      "timestamp": "2026-07-01T21:59:39.065Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0005.png",
+      "domSnapshotPath": "dom/0005.html",
+      "domHash": "f1d2c57fb58d9ba42ae83153d308b6eebe380f2c3e4ac0e43a4b4144fcef1b95",
+      "textHash": "e2795bac659bdc02afe55e0aed861fdd02408872cc063b83fdcb717dd9610618",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Continue Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 6,
+      "timestamp": "2026-07-01T21:59:40.066Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0006.png",
+      "domSnapshotPath": "dom/0006.html",
+      "domHash": "f1d2c57fb58d9ba42ae83153d308b6eebe380f2c3e4ac0e43a4b4144fcef1b95",
+      "textHash": "e2795bac659bdc02afe55e0aed861fdd02408872cc063b83fdcb717dd9610618",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Continue Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 7,
+      "timestamp": "2026-07-01T21:59:41.078Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0007.png",
+      "domSnapshotPath": "dom/0007.html",
+      "domHash": "f1d2c57fb58d9ba42ae83153d308b6eebe380f2c3e4ac0e43a4b4144fcef1b95",
+      "textHash": "e2795bac659bdc02afe55e0aed861fdd02408872cc063b83fdcb717dd9610618",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Continue Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 8,
+      "timestamp": "2026-07-01T21:59:42.092Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0008.png",
+      "domSnapshotPath": "dom/0008.html",
+      "domHash": "f1d2c57fb58d9ba42ae83153d308b6eebe380f2c3e4ac0e43a4b4144fcef1b95",
+      "textHash": "e2795bac659bdc02afe55e0aed861fdd02408872cc063b83fdcb717dd9610618",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Continue Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 9,
+      "timestamp": "2026-07-01T21:59:43.105Z",
+      "url": "http://127.0.0.1:3020/refund",
+      "title": "Refund Request",
+      "screenshotPath": "screenshots/0009.png",
+      "domSnapshotPath": "dom/0009.html",
+      "domHash": "f1d2c57fb58d9ba42ae83153d308b6eebe380f2c3e4ac0e43a4b4144fcef1b95",
+      "textHash": "e2795bac659bdc02afe55e0aed861fdd02408872cc063b83fdcb717dd9610618",
+      "visibleTextSample": "Refund request Submit a deterministic localhost refund request for Tripwire CI. Order ID Reason Continue Cancel",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 10,
+      "timestamp": "2026-07-01T21:59:44.114Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "Refund Submitted",
+      "screenshotPath": "screenshots/0010.png",
+      "domSnapshotPath": "dom/0010.html",
+      "domHash": "9f462d4e3fac373a9b08906fdb79208b8df1bf7a85858a41281cc0da317a1ad8",
+      "textHash": "4f91cd7367ee14bcd1dd2803b9e7d362df3365bf88a283d50fd97f26a6aec363",
+      "visibleTextSample": "Refund request submitted Your refund request is ready for review.",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 11,
+      "timestamp": "2026-07-01T21:59:45.121Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "Refund Submitted",
+      "screenshotPath": "screenshots/0011.png",
+      "domSnapshotPath": "dom/0011.html",
+      "domHash": "9f462d4e3fac373a9b08906fdb79208b8df1bf7a85858a41281cc0da317a1ad8",
+      "textHash": "4f91cd7367ee14bcd1dd2803b9e7d362df3365bf88a283d50fd97f26a6aec363",
+      "visibleTextSample": "Refund request submitted Your refund request is ready for review.",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 12,
+      "timestamp": "2026-07-01T21:59:46.121Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "Refund Submitted",
+      "screenshotPath": "screenshots/0012.png",
+      "domSnapshotPath": "dom/0012.html",
+      "domHash": "9f462d4e3fac373a9b08906fdb79208b8df1bf7a85858a41281cc0da317a1ad8",
+      "textHash": "4f91cd7367ee14bcd1dd2803b9e7d362df3365bf88a283d50fd97f26a6aec363",
+      "visibleTextSample": "Refund request submitted Your refund request is ready for review.",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 13,
+      "timestamp": "2026-07-01T21:59:47.129Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "Refund Submitted",
+      "screenshotPath": "screenshots/0013.png",
+      "domSnapshotPath": "dom/0013.html",
+      "domHash": "9f462d4e3fac373a9b08906fdb79208b8df1bf7a85858a41281cc0da317a1ad8",
+      "textHash": "4f91cd7367ee14bcd1dd2803b9e7d362df3365bf88a283d50fd97f26a6aec363",
+      "visibleTextSample": "Refund request submitted Your refund request is ready for review.",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": []
+    },
+    {
+      "stepIndex": 14,
+      "timestamp": "2026-07-01T21:59:48.126Z",
+      "url": "http://127.0.0.1:3020/success",
+      "title": "Refund Submitted",
+      "screenshotPath": "screenshots/0014.png",
+      "domSnapshotPath": "dom/0014.html",
+      "domHash": "9f462d4e3fac373a9b08906fdb79208b8df1bf7a85858a41281cc0da317a1ad8",
+      "textHash": "4f91cd7367ee14bcd1dd2803b9e7d362df3365bf88a283d50fd97f26a6aec363",
+      "visibleTextSample": "Refund request submitted Your refund request is ready for review.",
+      "consoleErrors": [],
+      "networkErrors": [],
+      "agentEvents": [
+        {
+          "timestamp": "2026-07-01T21:59:47.851Z",
+          "type": "agent_complete",
+          "target": "stagehand",
+          "note": "{\"success\":true,\"completed\":true,\"message\":\"I navigated to the refund form on localhost, filled in the Order ID as 1234 and the Reason as 'Customer requested a refund.', then successfully submitted the refund request by clicking the Continue button. The page confirmed submission with a message that the refund request is ready for review. No p\"}"
+        }
+      ]
+    }
+  ]
+}
