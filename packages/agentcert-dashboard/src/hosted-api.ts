@@ -141,6 +141,19 @@ export function readHostedSession(config: HostedConfig): HostedSession | undefin
   }
 }
 
+export function readHostedAuthCallbackError(): string | undefined {
+  if (!window.location.hash.includes("error=")) return undefined;
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  const error = params.get("error");
+  if (!error) return undefined;
+
+  window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
+  if (params.get("error_code") === "otp_expired") {
+    return "This confirmation link is invalid or has expired. Enter your email and request a new confirmation email.";
+  }
+  return params.get("error_description") ?? "Authentication failed. Please try again.";
+}
+
 export function saveHostedSession(session: HostedSession | undefined): void {
   if (session) window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   else window.localStorage.removeItem(SESSION_KEY);
@@ -156,6 +169,18 @@ export async function signUp(config: HostedConfig, email: string, password: stri
   const session = sessionFromSupabase(value);
   if (session) saveHostedSession(session);
   return { session, message: session ? "Account created." : "Check your email to confirm the account, then sign in." };
+}
+
+export async function resendSignUpConfirmation(config: HostedConfig, email: string): Promise<string> {
+  const normalizedEmail = email.trim();
+  if (!normalizedEmail) throw new Error("Enter your email before requesting a new confirmation message.");
+  const response = await supabaseRequest(config, `/auth/v1/resend?redirect_to=${encodeURIComponent(config.publicUrl)}`, {
+    method: "POST",
+    body: JSON.stringify({ email: normalizedEmail, type: "signup" }),
+  });
+  const value = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(value.msg ?? value.message ?? "Could not resend the confirmation email.");
+  return "Confirmation email sent. Use the newest link to finish signing up.";
 }
 
 export async function signIn(config: HostedConfig, email: string, password: string): Promise<HostedSession> {

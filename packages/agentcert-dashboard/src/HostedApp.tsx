@@ -11,7 +11,9 @@ import {
   loadHostedIncidents,
   loadHostedRuns,
   loadOverview,
+  readHostedAuthCallbackError,
   readHostedSession,
+  resendSignUpConfirmation,
   reviewHostedAction,
   revokeHostedApiKey,
   signIn,
@@ -52,7 +54,7 @@ function AuthScreen({ config, onAuthenticated }: { config: HostedConfig; onAuthe
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>();
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<string | undefined>(() => readHostedAuthCallbackError());
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -64,6 +66,15 @@ function AuthScreen({ config, onAuthenticated }: { config: HostedConfig; onAuthe
         setMessage(result.message);
         if (result.session) onAuthenticated(result.session);
       }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally { setBusy(false); }
+  }
+
+  async function resendConfirmation() {
+    setBusy(true); setError(undefined); setMessage(undefined);
+    try {
+      setMessage(await resendSignUpConfirmation(config, email));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally { setBusy(false); }
@@ -94,6 +105,11 @@ function AuthScreen({ config, onAuthenticated }: { config: HostedConfig; onAuthe
           {error ? <div className="form-error">{error}</div> : null}
           {message ? <div className="form-message">{message}</div> : null}
           <button className="primary-action" disabled={busy}>{busy ? "Working..." : mode === "signin" ? "Sign in" : "Create account"}</button>
+          {mode === "signin" && config.auth.provider === "supabase" ? (
+            <button type="button" className="auth-secondary-action" disabled={busy || !email.trim()} onClick={() => void resendConfirmation()}>
+              Resend confirmation email
+            </button>
+          ) : null}
         </form>
         <p className="auth-note">Registration is open. Confirmed accounts receive an isolated organization and first project.</p>
       </section>
