@@ -109,6 +109,8 @@ async function handleRequest(
     if (request.method === "GET" && !entityId) sendJson(response, 200, { runs: await options.service.listRuns(auth, projectId) });
     else if (request.method === "POST" && !entityId) sendJson(response, 201, await options.service.startRun(auth, projectId, await readJson(request)));
     else if (request.method === "GET" && entityId && !child) sendJson(response, 200, await options.service.runDetail(auth, projectId, entityId));
+    else if (request.method === "GET" && entityId && child === "analysis") sendJson(response, 200, await options.service.runAnalysis(auth, projectId, entityId));
+    else if (request.method === "POST" && entityId && child === "failure-reviews") sendJson(response, 200, await options.service.reviewFailure(auth, projectId, entityId, await readJson(request)));
     else if (request.method === "POST" && entityId && child === "events") sendJson(response, 202, { events: await options.service.appendEvents(auth, projectId, entityId, await readJson(request)) });
     else if (request.method === "POST" && entityId && child === "complete") sendJson(response, 200, await options.service.completeRun(auth, projectId, entityId, await readJson(request)));
     else throw new ControlPlaneError("Run route was not found.", 404);

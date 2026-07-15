@@ -140,6 +140,82 @@ describe("AgentCertControlPlane", () => {
     expect(await service.listEvidence(user, projectId)).toHaveLength(1);
   });
 
+  it("persists human failure reviews in run analysis and updates the same pattern", async () => {
+    const { service, projectId } = await setup();
+    const run = await service.startRun(user, projectId, { externalId: "taxonomy-review", kind: "tripwire" });
+    await service.appendEvents(user, projectId, run.id, {
+      events: [{ sequence: 0, type: "assertion.failed", payload: { message: "Agent clicked Cancel." } }],
+    });
+    const evidence = await service.uploadEvidence(user, projectId, Buffer.from("{}"), {
+      fileName: "agentcert-evidence.json",
+      contentType: "application/json",
+      kind: "evidence_bundle",
+      schemaVersion: "agentcert.evidence.v0.1",
+      runId: run.id,
+    });
+
+    const first = await service.reviewFailure(user, projectId, run.id, {
+      patternKey: "wrong-click:cancel",
+      suggestedType: "wrong_click",
+      type: "wrong_click",
+      status: "confirmed",
+      confidence: 0.82,
+      note: "The click target changed after the popup appeared.",
+      evidenceContext: {
+        firstDivergenceSnippet: "Agent clicked Cancel instead of Continue.",
+        screenshotPointer: "screenshots/step-4.png",
+        tracePointer: "trace.json",
+        stepIndex: 4,
+      },
+      taxonomyRationale: {
+        primaryReason: "The first divergent action selected the wrong control.",
+        supportingSignals: ["failed final-state assertion", "cancel click in trace"],
+      },
+    });
+    const corrected = await service.reviewFailure(user, projectId, run.id, {
+      patternKey: "wrong-click:cancel",
+      suggestedType: "wrong_click",
+      type: "ui_drift",
+      status: "corrected",
+      confidence: 0.95,
+      taxonomyRationale: {
+        primaryReason: "The control label changed before the wrong click.",
+        classifierLimitation: "The automatic rule saw the click but not the preceding DOM mutation.",
+      },
+    });
+
+    expect(corrected.id).toBe(first.id);
+    expect(corrected.type).toBe("ui_drift");
+    expect(corrected.reviewer).toBe("owner@example.com");
+    const analysis = await service.runAnalysis(user, projectId, run.id);
+    expect(analysis.events).toHaveLength(1);
+    expect(analysis.evidence).toEqual([evidence]);
+    expect(analysis.reviews).toEqual([corrected]);
+  });
+
+  it("allows machine credentials to read analysis but not create human reviews", async () => {
+    const { service, projectId } = await setup();
+    const machine: AuthContext = { kind: "api_key", projectId, apiKeyId: "key-1" };
+    const run = await service.startRun(machine, projectId, { externalId: "machine-analysis", kind: "tripwire" });
+
+    await expect(service.runAnalysis(machine, projectId, run.id)).resolves.toMatchObject({ run: { id: run.id } });
+    await expect(service.reviewFailure(machine, projectId, run.id, {
+      patternKey: "timeout:step-2",
+      type: "timeout",
+      status: "confirmed",
+      taxonomyRationale: { primaryReason: "The step exceeded the deadline." },
+    })).rejects.toMatchObject<Partial<ControlPlaneError>>({ status: 403 });
+  });
+
+  it("keeps run analysis and reviews project scoped", async () => {
+    const { service, projectId } = await setup();
+    const run = await service.startRun(user, projectId, { externalId: "isolated-analysis", kind: "tripwire" });
+    const otherProject = "00000000-0000-4000-8000-000000000099";
+
+    await expect(service.runAnalysis(user, otherProject, run.id))
+      .rejects.toMatchObject<Partial<ControlPlaneError>>({ status: 403 });
+  });
+
   it("creates project-scoped API keys and returns the secret only once", async () => {
     const { service, store, projectId } = await setup();
     const result = await service.createApiKey(user, projectId, { name: "CI" });

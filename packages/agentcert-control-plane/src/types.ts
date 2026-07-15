@@ -4,6 +4,20 @@ export type RunStatus = "running" | "passed" | "failed" | "needs_evidence" | "ma
 export type ActionDecision = "ALLOW" | "DENY" | "REQUIRE_APPROVAL";
 export type ActionStatus = "ALLOWED" | "DENIED" | "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "VERIFIED" | "VERIFICATION_FAILED";
 export type IncidentSeverity = "low" | "medium" | "high" | "critical";
+export type FailureReviewStatus = "confirmed" | "corrected";
+export type FailureType =
+  | "prompt_injection"
+  | "wrong_click"
+  | "timeout"
+  | "verification_gap"
+  | "silent_partial_success"
+  | "network_failure"
+  | "ui_drift"
+  | "policy_or_approval"
+  | "agent_connection"
+  | "console_error"
+  | "assertion_failure"
+  | "unknown_failure";
 
 export interface Organization {
   id: string;
@@ -127,6 +141,34 @@ export interface IncidentRecord {
   firstDivergence?: string;
   createdAt: string;
   resolvedAt?: string;
+}
+
+export interface FailureReviewRecord {
+  id: string;
+  projectId: string;
+  runId: string;
+  patternKey: string;
+  suggestedType?: string;
+  type: FailureType;
+  status: FailureReviewStatus;
+  reviewerId: string;
+  reviewer: string;
+  note?: string;
+  confidence?: number;
+  evidenceContext: {
+    firstDivergenceSnippet?: string;
+    screenshotPointer?: string;
+    tracePointer?: string;
+    stepIndex?: number;
+  };
+  taxonomyRationale: {
+    primaryReason: string;
+    supportingSignals: string[];
+    contradictingSignals: string[];
+    classifierLimitation?: string;
+  };
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ApiKeyRecord {

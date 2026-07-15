@@ -166,10 +166,19 @@ fallbacks, but new deployments should use the current key types above.
    `AGENTCERT_PROJECT_ID`, and `AGENTCERT_API_KEY` in the secret manager.
 4. Start one run, append events, complete the run, and confirm it appears in
    **Runs**.
-5. Propose a high-risk action and confirm that the Agent credential cannot
+5. Open the run, inspect its ordered events and evidence bundle, then confirm or
+   correct one failure label. Human reviews retain confidence, first divergence,
+   artifact pointers, supporting signals, and the reviewer's identity. Project
+   API keys can read analysis but cannot write human reviews.
+6. Propose a high-risk action and confirm that the Agent credential cannot
    approve it, while a human reviewer can approve it in **Runtime actions**.
-6. Revoke the test key in **Integrations** and confirm subsequent requests with
+7. Revoke the test key in **Integrations** and confirm subsequent requests with
    that key return `401`.
+
+The hosted console is the canonical operational UI. The checked-in static
+monitor remains a deterministic public demo and compatibility view; new
+interactive evidence analysis and review workflows belong in the hosted run
+workspace rather than a second stateful frontend.
 
 Existing CLI users can publish without adopting an SDK:
 
