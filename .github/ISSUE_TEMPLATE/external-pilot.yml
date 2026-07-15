@@ -1,0 +1,85 @@
+name: External pilot report
+description: Report onboarding friction and evidence quality from a real AgentCert integration.
+title: "[pilot]: "
+labels:
+  - external-pilot
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for testing AgentCert from an external repository. Do not include API keys, tokens, database URLs, customer data, or unredacted production traces.
+  - type: dropdown
+    id: integration
+    attributes:
+      label: Integration path
+      options:
+        - Browser or computer-use agent
+        - MCP server or tool
+        - Onegent runtime action
+        - TypeScript SDK
+        - Python SDK
+        - REST API
+        - MCP adapter
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent or project
+      description: Public repository URL and version or commit, when available.
+      placeholder: https://github.com/owner/repo at abc123
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Node or Python version, and CI provider.
+      placeholder: Ubuntu 24.04, Node 22, GitHub Actions
+    validations:
+      required: true
+  - type: input
+    id: first_evidence_time
+    attributes:
+      label: Time to first evidence
+      placeholder: 12 minutes
+    validations:
+      required: true
+  - type: textarea
+    id: commands
+    attributes:
+      label: Commands used
+      description: Redact every secret before submitting.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: first_friction
+    attributes:
+      label: First point of friction
+      description: What failed first, what you expected, and the exact non-secret error.
+    validations:
+      required: true
+  - type: dropdown
+    id: evidence_quality
+    attributes:
+      label: Could a reviewer explain the verdict from the evidence?
+      options:
+        - Yes
+        - Partly
+        - No
+    validations:
+      required: true
+  - type: textarea
+    id: evidence_links
+    attributes:
+      label: Sanitized evidence links
+      description: Public CI run, HTML report, screenshot, trace, or evidence bundle.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: I removed secrets, credentials, customer data, and unredacted production traces.
+          required: true
+

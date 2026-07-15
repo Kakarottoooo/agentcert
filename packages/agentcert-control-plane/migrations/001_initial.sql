@@ -149,6 +149,10 @@ CREATE INDEX IF NOT EXISTS agentcert_events_run_idx ON agentcert_events(run_id, 
 CREATE INDEX IF NOT EXISTS agentcert_actions_project_idx ON agentcert_actions(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS agentcert_incidents_project_idx ON agentcert_incidents(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS agentcert_evidence_project_idx ON agentcert_evidence(project_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS agentcert_evidence_linked_digest_idx
+  ON agentcert_evidence(project_id, COALESCE(run_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    COALESCE(action_id, '00000000-0000-0000-0000-000000000000'::uuid), kind, sha256)
+  WHERE run_id IS NOT NULL OR action_id IS NOT NULL;
 
 -- The control plane is the only data access path. Enabling RLS without public
 -- policies prevents Supabase anon/authenticated clients from bypassing it.

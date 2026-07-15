@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { validateEvidenceArtifacts } from "./artifact-validation.js";
 import { renderAgentCertBadge } from "./badge.js";
 import { buildEvidenceBundle } from "./bundle.js";
@@ -12,7 +13,8 @@ import {
   writeReviewedFailureDataset,
 } from "./corpus.js";
 import { openCorpusStore, parseCorpusStoreKind, type CorpusStoreOptions } from "./corpus-store.js";
-import { pushEvidenceToControlPlane } from "./control-plane.js";
+import { pushEvidenceToControlPlane, verifyControlPlaneConnection } from "./control-plane.js";
+import { DEFAULT_AGENTCERT_SERVER, resolveConnection, saveConnection } from "./credentials.js";
 import {
   applyFailureReviews,
   appendFailureReview,
@@ -116,6 +118,31 @@ Next:
   3. Run locally after Tripwire writes .tripwire/latest/tripwire-result.json:
      npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --subject ${JSON.stringify(subject)} --fail-on-verdict
 `);
+} else if (command === "connect") {
+  if (readBoolFlag("--help")) {
+    process.stdout.write(`Usage:
+  agentcert connect --server https://agentcert-control-plane.onrender.com --project <project-id>
+  agentcert connect --name staging --server https://staging.example.com --project <project-id>
+
+The API key is read from AGENTCERT_API_KEY or requested with hidden input.
+Saved connections are reused by agentcert push and agentcert run --push.
+`);
+  } else {
+    const name = readFlag("--name") ?? "default";
+    const server = readFlag("--server") ?? process.env.AGENTCERT_BASE_URL ?? DEFAULT_AGENTCERT_SERVER;
+    const projectId = readFlag("--project") ?? process.env.AGENTCERT_PROJECT_ID ?? await promptValue("Project ID: ");
+    const apiKey = readFlag("--api-key") ?? process.env.AGENTCERT_API_KEY ?? await promptSecret("Project API key: ");
+    const connection = await resolveConnection({ server, projectId, apiKey, env: {} });
+    const verified = await verifyControlPlaneConnection({
+      baseUrl: connection.server,
+      projectId: connection.projectId,
+      apiKey: connection.apiKey,
+    });
+    const path = await saveConnection(name, connection);
+    process.stdout.write(`Connected ${JSON.stringify(name)} to ${connection.server}\n`);
+    process.stdout.write(`Project: ${verified.projectId} (${verified.runs} runs, ${verified.evidence} evidence objects)\n`);
+    process.stdout.write(`Credentials: ${path}\n`);
+  }
 } else if (command === "report") {
   const config = await loadConfig(readFlag("--config"));
   const subject = readFlag("--subject") ?? config?.subject.name ?? "agentcert-subject";
@@ -494,6 +521,7 @@ Next:
 } else {
   process.stdout.write(`Usage:
   agentcert init --subject my-browser-agent
+  agentcert connect --server https://agentcert-control-plane.onrender.com --project <project-id>
   agentcert init --out agentcert.config.json --tripwire-config tripwire.yml --force
   agentcert init --subject my-browser-agent --github-action
   agentcert report --mcpbench .mcpbench/latest/results.json --tripwire .tripwire/latest/tripwire-result.json --onegent .onegent/procurement/audit-packet.json --out .agentcert/latest --subject my-agent
@@ -530,24 +558,77 @@ async function loadConfig(path?: string): Promise<AgentCertConfig | undefined> {
 }
 
 async function pushHostedEvidence(bundle: AgentCertBundle, bytes: Uint8Array, fileName: string): Promise<void> {
-  const baseUrl = readFlag("--server") ?? process.env.AGENTCERT_BASE_URL;
-  const projectId = readFlag("--project") ?? process.env.AGENTCERT_PROJECT_ID;
-  const apiKey = readFlag("--api-key") ?? process.env.AGENTCERT_API_KEY;
-  if (!baseUrl || !projectId || !apiKey) {
-    throw new Error(
-      "Hosted push requires AGENTCERT_BASE_URL, AGENTCERT_PROJECT_ID, and AGENTCERT_API_KEY (or --server, --project, and --api-key).",
-    );
-  }
+  const connection = await resolveConnection({
+    name: readFlag("--connection"),
+    server: readFlag("--server"),
+    projectId: readFlag("--project"),
+    apiKey: readFlag("--api-key"),
+  });
   const result = await pushEvidenceToControlPlane({
-    baseUrl,
-    projectId,
-    apiKey,
+    baseUrl: connection.server,
+    projectId: connection.projectId,
+    apiKey: connection.apiKey,
     bundle,
     evidenceBytes: bytes,
     fileName,
     externalId: readFlag("--external-id"),
   });
   process.stdout.write(`Hosted run: ${result.runId}\nHosted evidence: ${result.evidenceId}\n`);
+}
+
+async function promptValue(label: string): Promise<string> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error(`Missing ${label.trim().replace(/:$/, "").toLowerCase()}. Pass it as a flag or environment variable.`);
+  }
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return (await prompt.question(label)).trim();
+  } finally {
+    prompt.close();
+  }
+}
+
+async function promptSecret(label: string): Promise<string> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY || !process.stdin.setRawMode) {
+    throw new Error("Missing project API key. Set AGENTCERT_API_KEY or pass --api-key in a trusted environment.");
+  }
+  process.stdout.write(label);
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdin.setEncoding("utf8");
+  return new Promise<string>((resolveSecret, rejectSecret) => {
+    let value = "";
+    const cleanup = () => {
+      process.stdin.off("data", onData);
+      process.stdin.setRawMode?.(false);
+      process.stdin.pause();
+      process.stdout.write("\n");
+    };
+    const onData = (chunk: string | Buffer) => {
+      for (const character of String(chunk)) {
+        if (character === "\u0003") {
+          cleanup();
+          rejectSecret(new Error("AgentCert connection cancelled."));
+          return;
+        }
+        if (character === "\r" || character === "\n") {
+          cleanup();
+          resolveSecret(value.trim());
+          return;
+        }
+        if (character === "\u007f" || character === "\b") {
+          if (value) {
+            value = value.slice(0, -1);
+            process.stdout.write("\b \b");
+          }
+          continue;
+        }
+        value += character;
+        process.stdout.write("*");
+      }
+    };
+    process.stdin.on("data", onData);
+  });
 }
 
 async function readJson(path: string): Promise<unknown> {

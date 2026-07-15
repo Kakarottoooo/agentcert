@@ -96,6 +96,22 @@ describe("AgentCertControlPlane", () => {
     expect(incidents.map((item) => item.type).sort()).toEqual(["run_failure", "verification_gap"]);
   });
 
+  it("treats an external run ID as an idempotency key", async () => {
+    const { service, projectId } = await setup();
+    const first = await service.startRun(user, projectId, { externalId: "ci-retry", kind: "tripwire" });
+    await service.completeRun(user, projectId, first.id, { status: "failed", score: 0.4 });
+
+    const retried = await service.startRun(user, projectId, { externalId: "ci-retry", kind: "tripwire" });
+    const completed = await service.completeRun(user, projectId, retried.id, { status: "failed", score: 0.4 });
+
+    expect(retried.id).toBe(first.id);
+    expect(retried.status).toBe("failed");
+    expect(completed.id).toBe(first.id);
+    expect(await service.listIncidents(user, projectId)).toHaveLength(1);
+    await expect(service.completeRun(user, projectId, first.id, { status: "passed", score: 1 }))
+      .rejects.toMatchObject<Partial<ControlPlaneError>>({ status: 409 });
+  });
+
   it("stores evidence with hash provenance and project-scoped retrieval", async () => {
     const { service, projectId } = await setup();
     const evidence = await service.uploadEvidence(user, projectId, Buffer.from("evidence"), {
@@ -104,6 +120,24 @@ describe("AgentCertControlPlane", () => {
     expect(evidence.sha256).toMatch(/^[a-f0-9]{64}$/);
     const result = await service.readEvidence(user, projectId, evidence.id);
     expect(result.artifact.bytes.toString()).toBe("evidence");
+  });
+
+  it("deduplicates repeated evidence uploads for the same run and digest", async () => {
+    const { service, projectId } = await setup();
+    const run = await service.startRun(user, projectId, { externalId: "retryable-ci-run", kind: "tripwire" });
+    const input = {
+      fileName: "agentcert-evidence.json",
+      contentType: "application/json",
+      kind: "evidence_bundle",
+      schemaVersion: "agentcert.evidence.v0.1",
+      runId: run.id,
+    };
+
+    const first = await service.uploadEvidence(user, projectId, Buffer.from("same evidence"), input);
+    const retried = await service.uploadEvidence(user, projectId, Buffer.from("same evidence"), input);
+
+    expect(retried.id).toBe(first.id);
+    expect(await service.listEvidence(user, projectId)).toHaveLength(1);
   });
 
   it("creates project-scoped API keys and returns the secret only once", async () => {

@@ -32,6 +32,7 @@ export interface ControlPlaneStore {
   listAgents(projectId: string): Promise<AgentRecord[]>;
   upsertRun(run: RunRecord): Promise<RunRecord>;
   getRun(projectId: string, runId: string): Promise<RunRecord | undefined>;
+  getRunByExternalId(projectId: string, externalId: string): Promise<RunRecord | undefined>;
   listRuns(projectId: string, limit?: number): Promise<RunRecord[]>;
   appendEvents(events: EventRecord[]): Promise<EventRecord[]>;
   listEvents(projectId: string, runId: string): Promise<EventRecord[]>;
@@ -41,6 +42,7 @@ export interface ControlPlaneStore {
   listActions(projectId: string, limit?: number): Promise<ActionRecord[]>;
   insertApproval(approval: ApprovalRecord): Promise<ApprovalRecord>;
   insertEvidence(evidence: EvidenceRecord): Promise<EvidenceRecord>;
+  findEvidenceByDigest(projectId: string, runId: string | undefined, actionId: string | undefined, kind: string, sha256: string): Promise<EvidenceRecord | undefined>;
   getEvidence(projectId: string, evidenceId: string): Promise<EvidenceRecord | undefined>;
   listEvidence(projectId: string, limit?: number): Promise<EvidenceRecord[]>;
   insertIncident(incident: IncidentRecord): Promise<IncidentRecord>;
@@ -194,8 +196,19 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   }
 
   async insertEvidence(evidence: EvidenceRecord): Promise<EvidenceRecord> {
+    const existing = await this.findEvidenceByDigest(evidence.projectId, evidence.runId, evidence.actionId, evidence.kind, evidence.sha256);
+    if (existing && (evidence.runId || evidence.actionId)) return existing;
     this.evidence.set(evidence.id, evidence);
     return evidence;
+  }
+
+  async getRunByExternalId(projectId: string, externalId: string): Promise<RunRecord | undefined> {
+    return [...this.runs.values()].find((item) => item.projectId === projectId && item.externalId === externalId);
+  }
+
+  async findEvidenceByDigest(projectId: string, runId: string | undefined, actionId: string | undefined, kind: string, sha256: string): Promise<EvidenceRecord | undefined> {
+    return [...this.evidence.values()].find((item) => item.projectId === projectId
+      && item.runId === runId && item.actionId === actionId && item.kind === kind && item.sha256 === sha256);
   }
 
   async getEvidence(projectId: string, evidenceId: string): Promise<EvidenceRecord | undefined> {
@@ -458,13 +471,33 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
   }
 
   async insertEvidence(evidence: EvidenceRecord): Promise<EvidenceRecord> {
-    await this.pool.query(
+    const result = await this.pool.query(
       `INSERT INTO agentcert_evidence (id,project_id,run_id,action_id,kind,schema_version,object_key,file_name,content_type,sha256,size_bytes,metadata,created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       ON CONFLICT DO NOTHING RETURNING *`,
       [evidence.id, evidence.projectId, evidence.runId ?? null, evidence.actionId ?? null, evidence.kind, evidence.schemaVersion,
        evidence.objectKey, evidence.fileName, evidence.contentType, evidence.sha256, evidence.sizeBytes, JSON.stringify(evidence.metadata), evidence.createdAt],
     );
-    return evidence;
+    if (result.rows[0]) return evidenceFromRow(result.rows[0]);
+    return required(
+      await this.findEvidenceByDigest(evidence.projectId, evidence.runId, evidence.actionId, evidence.kind, evidence.sha256),
+      "evidence",
+    );
+  }
+
+  async getRunByExternalId(projectId: string, externalId: string): Promise<RunRecord | undefined> {
+    return one(this.pool.query("SELECT * FROM agentcert_runs WHERE project_id=$1 AND external_id=$2", [projectId, externalId]), runFromRow);
+  }
+
+  async findEvidenceByDigest(projectId: string, runId: string | undefined, actionId: string | undefined, kind: string, sha256: string): Promise<EvidenceRecord | undefined> {
+    return one(
+      this.pool.query(
+        `SELECT * FROM agentcert_evidence WHERE project_id=$1 AND run_id IS NOT DISTINCT FROM $2
+         AND action_id IS NOT DISTINCT FROM $3 AND kind=$4 AND sha256=$5 ORDER BY created_at LIMIT 1`,
+        [projectId, runId ?? null, actionId ?? null, kind, sha256],
+      ),
+      evidenceFromRow,
+    );
   }
 
   async getEvidence(projectId: string, evidenceId: string): Promise<EvidenceRecord | undefined> {

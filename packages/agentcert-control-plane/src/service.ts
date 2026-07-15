@@ -79,13 +79,16 @@ export class AgentCertControlPlane {
   async startRun(auth: AuthContext, projectId: string, input: unknown): Promise<RunRecord> {
     await this.authorizeProject(auth, projectId);
     const body = record(input);
+    const externalId = requiredString(body, "externalId");
+    const existing = await this.store.getRunByExternalId(projectId, externalId);
+    if (existing) return existing;
     const agentId = optionalString(body, "agentId");
     if (agentId && !(await this.store.getAgent(projectId, agentId))) throw new ControlPlaneError("Agent was not found.", 404);
     const run: RunRecord = {
       id: randomUUID(),
       projectId,
       agentId,
-      externalId: requiredString(body, "externalId"),
+      externalId,
       kind: runKind(body.kind),
       status: "running",
       schemaVersion: optionalString(body, "schemaVersion") ?? "agentcert.run.v1",
@@ -123,6 +126,10 @@ export class AgentCertControlPlane {
     if (!current) throw new ControlPlaneError("Run was not found.", 404);
     const body = record(input);
     const status = runStatus(body.status);
+    if (current.completedAt) {
+      if (current.status === status) return current;
+      throw new ControlPlaneError(`Completed run status cannot change from ${current.status} to ${status}.`, 409);
+    }
     const next = await this.store.upsertRun({
       ...current,
       status,
@@ -233,13 +240,19 @@ export class AgentCertControlPlane {
     await this.authorizeProject(auth, projectId);
     if (input.runId && !(await this.store.getRun(projectId, input.runId))) throw new ControlPlaneError("Run was not found.", 404);
     if (input.actionId && !(await this.store.getAction(projectId, input.actionId))) throw new ControlPlaneError("Action was not found.", 404);
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    if (input.runId || input.actionId) {
+      const existing = await this.store.findEvidenceByDigest(projectId, input.runId, input.actionId, input.kind, sha256);
+      if (existing) return existing;
+    }
     const id = randomUUID();
     const safeName = input.fileName.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 180) || "artifact.bin";
-    const objectKey = `${projectId}/${new Date().toISOString().slice(0, 10)}/${id}/${safeName}`;
+    const scope = input.runId ? `runs/${input.runId}` : input.actionId ? `actions/${input.actionId}` : `uploads/${id}`;
+    const objectKey = `${projectId}/evidence/${scope}/${sha256}/${safeName}`;
     await this.artifacts.put(objectKey, bytes, input.contentType);
     const evidence: EvidenceRecord = {
       id, projectId, runId: input.runId, actionId: input.actionId, kind: input.kind, schemaVersion: input.schemaVersion,
-      objectKey, fileName: safeName, contentType: input.contentType, sha256: createHash("sha256").update(bytes).digest("hex"),
+      objectKey, fileName: safeName, contentType: input.contentType, sha256,
       sizeBytes: bytes.length, metadata: {}, createdAt: new Date().toISOString(),
     };
     return this.store.insertEvidence(evidence);

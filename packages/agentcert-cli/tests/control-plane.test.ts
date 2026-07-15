@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { pushEvidenceToControlPlane } from "../src/control-plane.js";
+import { pushEvidenceToControlPlane, verifyControlPlaneConnection } from "../src/control-plane.js";
 import type { AgentCertBundle } from "../src/types.js";
 
 const bundle: AgentCertBundle = {
@@ -19,6 +19,42 @@ const bundle: AgentCertBundle = {
 };
 
 describe("hosted evidence push", () => {
+  it("verifies a saved connection against the project overview", async () => {
+    const request = vi.fn(async () => jsonResponse(200, {
+      projectId: "project-1",
+      summary: { runs: 2, evidence: 2 },
+    }));
+
+    await expect(verifyControlPlaneConnection({
+      baseUrl: "https://agentcert.example.com/",
+      projectId: "project-1",
+      apiKey: "ac_live_secret",
+      fetch: request as typeof fetch,
+    })).resolves.toEqual({ projectId: "project-1", runs: 2, evidence: 2 });
+    expect(request).toHaveBeenCalledWith(
+      "https://agentcert.example.com/v1/projects/project-1/overview",
+      expect.objectContaining({ headers: { authorization: "Bearer ac_live_secret" } }),
+    );
+  });
+
+  it("explains whether credentials or project scope caused verification to fail", async () => {
+    const unauthorized = vi.fn(async () => jsonResponse(401, { error: "Authentication required." }));
+    await expect(verifyControlPlaneConnection({
+      baseUrl: "https://agentcert.example.com",
+      projectId: "project-1",
+      apiKey: "ac_live_bad",
+      fetch: unauthorized as typeof fetch,
+    })).rejects.toThrow("API key was rejected");
+
+    const forbidden = vi.fn(async () => jsonResponse(403, { error: "API key is not scoped to this project." }));
+    await expect(verifyControlPlaneConnection({
+      baseUrl: "https://agentcert.example.com",
+      projectId: "project-2",
+      apiKey: "ac_live_secret",
+      fetch: forbidden as typeof fetch,
+    })).rejects.toThrow("cannot access project project-2");
+  });
+
   it("creates a run, records provenance, uploads the exact bytes, and completes visibly as failed", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const request = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {

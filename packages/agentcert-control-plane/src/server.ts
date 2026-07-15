@@ -34,19 +34,19 @@ export async function startControlPlaneServer(options: ControlPlaneServerOptions
         durationMs: Date.now() - startedAt,
       })}\n`);
     });
-    setSecurityHeaders(response);
+    setSecurityHeaders(request, response);
     try {
       await handleRequest(request, response, options, staticRoot);
     } catch (error) {
-      const status = error instanceof ControlPlaneError ? error.status : 500;
-      const message = error instanceof Error ? error.message : "Unknown control plane error.";
+      const internalMessage = error instanceof Error ? error.message : "Unknown control plane error.";
+      const { status, message } = publicHttpError(error);
       process.stderr.write(`${JSON.stringify({
         timestamp: new Date().toISOString(),
         level: status >= 500 ? "error" : "warn",
         event: "http_error",
         requestId,
         status,
-        message,
+        message: internalMessage,
       })}\n`);
       sendJson(response, status, { error: message });
     }
@@ -224,10 +224,18 @@ function requiredQuery(url: URL, name: string): string {
   if (!value) throw new ControlPlaneError(`${name} query parameter is required.`);
   return value;
 }
-function setSecurityHeaders(response: ServerResponse): void {
+export function publicHttpError(error: unknown): { status: number; message: string } {
+  if (error instanceof ControlPlaneError) return { status: error.status, message: error.message };
+  return { status: 500, message: "Internal server error." };
+}
+
+function setSecurityHeaders(request: IncomingMessage, response: ServerResponse): void {
   response.setHeader("x-content-type-options", "nosniff");
   response.setHeader("x-frame-options", "DENY");
   response.setHeader("referrer-policy", "no-referrer");
   response.setHeader("permissions-policy", "camera=(), microphone=(), geolocation=()");
   response.setHeader("content-security-policy", "default-src 'self'; connect-src 'self' https://*.supabase.co; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'");
+  if (request.headers["x-forwarded-proto"] === "https") {
+    response.setHeader("strict-transport-security", "max-age=31536000; includeSubDomains");
+  }
 }
