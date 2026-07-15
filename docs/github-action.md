@@ -66,6 +66,10 @@ jobs:
           subject: my-browser-agent
           agentcert-out: .agentcert/latest
           fail-on-verdict: "true"
+          release-gate: "true"
+          strict-release-gate: "false"
+          # baseline: .agentcert/baselines/main.json
+          # max-score-drop: "0"
 ```
 
 Artifacts include:
@@ -81,6 +85,16 @@ Artifacts include:
 - `.agentcert/latest/corpus.jsonl`
 - `.agentcert/latest/reviewed-failure-dataset.jsonl`
 - `.agentcert/latest/monitor.json`
+- `.agentcert/latest/agentcert-release-gate.json`
+- `.agentcert/latest/agentcert-release-gate.html`
+- `.agentcert/latest/agentcert-release-gate-junit.xml`
+- `.agentcert/latest/release-gate-badge.svg`
+
+The release gate runs in advisory mode by default: failed automated evidence
+blocks, while unconfigured manual controls remain visible. Set
+`strict-release-gate: "true"` only after the repository has supplied the
+required control attestations through `agentcert.config.json` or a separate
+full release-gate job.
 
 ## Hosted Evidence Page + Clickable README Badge
 

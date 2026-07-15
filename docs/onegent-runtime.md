@@ -9,6 +9,8 @@ Unlike MCPBench and Tripwire CI, it does not ask whether an agent should ship. I
 - receives proposed actions from an agent or tool gateway;
 - supports `SUBMIT`, `PAY`, `SEND`, and `UPDATE` action intents;
 - classifies action risk;
+- records the acting principal and requested permissions;
+- supports a deterministic authorization policy that denies missing scopes;
 - evaluates deterministic local policy;
 - supports policy-as-code with `onegent.policy.json`;
 - requires human approval when needed;
@@ -23,8 +25,13 @@ Onegent Runtime can now be embedded as a small SDK around a high-risk action
 boundary. The default implementation is still local and mock-only, but the
 control flow is the production shape:
 
+The SDK is currently a repository-local preview package and is not yet
+published to npm. Build and test it from this checkout:
+
 ```bash
-npm install @agentcert/onegent-runtime
+npm --prefix packages/onegent-runtime ci
+npm --prefix packages/onegent-runtime run build
+npm --prefix packages/onegent-runtime test
 ```
 
 ```ts
@@ -36,6 +43,15 @@ import {
 
 const auditStore = createInMemoryAuditStore();
 const runtime = createOnegentRuntime({
+  authorizationPolicy: {
+    name: "procurement-permissions",
+    authorize: (action) => ({
+      allowed: action.principal.id === "procurement-agent",
+      grantedPermissions: ["MockERP:SUBMIT"],
+      policyVersion: "2026-07-14",
+      reason: "The procurement agent may submit local mock purchase orders.",
+    }),
+  },
   approvalAdapter: {
     name: "manager-approval",
     requestApproval: async () => ({
@@ -49,6 +65,8 @@ const runtime = createOnegentRuntime({
 
 const review = runtime.captureAction({
   sourceAgentName: "ProcurementAgent",
+  principal: { id: "procurement-agent", type: "agent", owner: "procurement@example.local" },
+  requestedPermissions: ["MockERP:SUBMIT"],
   actionType: "SUBMIT",
   targetSystem: "MockERP",
   title: "Submit purchase order",
@@ -61,6 +79,10 @@ const review = runtime.captureAction({
   beforeState: { status: "DRAFT" },
   proposedAfterState: { status: "SUBMITTED" },
 });
+
+if (review.authorizationDecision?.decision !== "ALLOW") {
+  throw new Error("Action was not authorized.");
+}
 
 const risk = runtime.assessRisk(review.action);
 const policy = runtime.evaluatePolicy(review.action, risk);
@@ -88,6 +110,9 @@ The checked-in adapter path is local and deterministic:
 - `createLocalEchoAdapter()` returns the proposed after-state as observed local state.
 - `createInMemoryAuditStore()` captures audit packets for tests and demos.
 - `approvalAdapter.requestApproval()` lets callers plug in their own ticket, Slack, email, or human review system later without changing the core runtime API.
+- `authorizationPolicy.authorize()` binds the action to a principal and grants
+  explicit permissions. If any requested permission is absent, the action is
+  cancelled before approval or execution.
 
 Real systems should only be added behind explicit credential, approval,
 rollback, verification, and audit boundaries.

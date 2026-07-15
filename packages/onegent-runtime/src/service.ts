@@ -7,6 +7,8 @@ import type {
   ActionExecutionSummary,
   ActionIntent,
   ActionReview,
+  AuthorizationDecision,
+  AuthorizationPolicy,
   ApprovalRequest,
   AuditEvent,
   AuditEventType,
@@ -21,6 +23,7 @@ import type {
 export interface ActionGatewayOptions {
   policyRules?: PolicyRule[];
   policyEngine?: PolicyEngine;
+  authorizationPolicy?: AuthorizationPolicy;
 }
 
 export interface ApprovalOptions {
@@ -34,6 +37,8 @@ export function captureActionIntent(input: CreateActionIntentInput, options: Act
     workflowId: input.workflowId ?? "demo-workflow",
     sourceAgentName: input.sourceAgentName,
     sourceAgentRunId: input.sourceAgentRunId,
+    principal: input.principal ?? { id: input.sourceAgentName, type: "agent" },
+    requestedPermissions: input.requestedPermissions ?? [`${input.targetSystem}:${input.actionType}`],
     actionType: input.actionType,
     targetSystem: input.targetSystem,
     targetUrl: input.targetUrl,
@@ -66,6 +71,24 @@ export function captureActionIntent(input: CreateActionIntentInput, options: Act
     riskLevel: risk.riskLevel,
     riskScore: risk.riskScore,
   });
+
+  if (options.authorizationPolicy) {
+    const authorization = evaluateAuthorization(action, options.authorizationPolicy);
+    store.authorizationDecisions.set(action.id, authorization);
+    appendAudit(action.id, "AUTHORIZATION_CHECKED", "SYSTEM", options.authorizationPolicy.name, "Action authorization checked.", {
+      decision: authorization.decision,
+      principalId: authorization.principalId,
+      requestedPermissions: authorization.requestedPermissions,
+      grantedPermissions: authorization.grantedPermissions,
+      policyVersion: authorization.policyVersion,
+    });
+    if (authorization.decision === "DENY") {
+      action.status = "CANCELLED";
+      store.actions.set(action.id, action);
+      store.policyRulesByAction.set(action.id, []);
+      return getActionReview(action.id);
+    }
+  }
 
   const configuredRules = options.policyRules ?? DEFAULT_POLICY_RULES;
   const policy = options.policyEngine?.evaluate(action, risk, configuredRules) ?? evaluatePolicy(action, risk, options.policyRules);
@@ -333,6 +356,7 @@ export function getActionReview(actionId: string): ActionReview {
   }
 
   const approvalRequest = store.approvals.get(actionId);
+  const authorizationDecision = store.authorizationDecisions.get(actionId);
   const verificationResult = store.verifications.get(actionId);
   const auditEvents = store.auditEvents.filter((event) => event.actionIntentId === actionId);
   const policyRules = store.policyRulesByAction.get(actionId) ?? getPolicyRules(riskAssessment.triggeredPolicies);
@@ -340,6 +364,7 @@ export function getActionReview(actionId: string): ActionReview {
   return {
     action,
     riskAssessment,
+    authorizationDecision,
     approvalRequest,
     verificationResult,
     auditEvents,
@@ -375,6 +400,7 @@ export function generateAuditPacket(actionId: string): ActionAuditPacket {
     scenario: "Procurement purchase-order approval walkthrough",
     actionIntent: refreshedReview.action,
     riskAssessment: refreshedReview.riskAssessment,
+    authorizationDecision: refreshedReview.authorizationDecision,
     triggeredPolicies: refreshedReview.policyRules,
     approvalRequest: refreshedReview.approvalRequest,
     execution,
@@ -382,6 +408,25 @@ export function generateAuditPacket(actionId: string): ActionAuditPacket {
     auditEvents: refreshedReview.auditEvents,
     disclaimer:
       "Local demo only. No real payments, emails, vendor portals, credentials, or production systems are used.",
+  };
+}
+
+function evaluateAuthorization(action: ActionIntent, policy: AuthorizationPolicy): AuthorizationDecision {
+  const result = policy.authorize(action);
+  const missingPermissions = action.requestedPermissions.filter((permission) => !result.grantedPermissions.includes(permission));
+  const allowed = result.allowed && missingPermissions.length === 0;
+  const suffix = missingPermissions.length > 0 ? ` Missing permissions: ${missingPermissions.join(", ")}.` : "";
+  return {
+    id: nextId("authz"),
+    actionIntentId: action.id,
+    principalId: action.principal.id,
+    decision: allowed ? "ALLOW" : "DENY",
+    requestedPermissions: [...action.requestedPermissions],
+    grantedPermissions: [...result.grantedPermissions],
+    policyName: policy.name,
+    policyVersion: result.policyVersion,
+    reason: `${result.reason}${suffix}`.trim(),
+    createdAt: nowIso(),
   };
 }
 

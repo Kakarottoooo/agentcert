@@ -10,7 +10,7 @@ import {
 } from "./service.js";
 import { getPurchaseOrder } from "./mock-procurement.js";
 import { renderProcurementWalkthroughHtml, renderPurchaseOrderHtml } from "./ui.js";
-import type { CreateActionIntentInput, PolicyRule } from "./types.js";
+import type { AuthorizationPolicy, CreateActionIntentInput, PolicyRule } from "./types.js";
 
 export interface ActionGatewayRequest {
   method: string;
@@ -20,6 +20,7 @@ export interface ActionGatewayRequest {
 
 export interface ActionGatewayApiOptions {
   policyRules?: PolicyRule[];
+  authorizationPolicy?: AuthorizationPolicy;
 }
 
 export interface ActionGatewayResponse {

@@ -103,6 +103,8 @@ export function normalizeOnegentAuditPacket(input: unknown, artifactPath: string
   const action = asRecord(value.actionIntent);
   const risk = asRecord(value.riskAssessment);
   const approval = asRecord(value.approvalRequest);
+  const principal = asRecord(action.principal);
+  const authorization = asRecord(value.authorizationDecision);
   const verification = asRecord(value.verificationResult);
   const auditEvents = Array.isArray(value.auditEvents) ? value.auditEvents : [];
   const verificationSuccess = verification.success === true;
@@ -111,6 +113,18 @@ export function normalizeOnegentAuditPacket(input: unknown, artifactPath: string
   const riskLevel = stringValue(risk.riskLevel) ?? "UNKNOWN";
 
   const evidence: AgentCertEvidence[] = [
+    {
+      id: "onegent_principal",
+      kind: "runtime_identity",
+      severity: "info",
+      message: `Runtime action principal: ${stringValue(principal.id) ?? stringValue(action.sourceAgentName) ?? "UNKNOWN"}.`,
+      source: "onegent-runtime",
+      artifactPath,
+      metadata: {
+        principal,
+        requestedPermissions: action.requestedPermissions,
+      },
+    },
     {
       id: "onegent_risk_assessment",
       kind: "runtime_risk_assessment",
@@ -121,6 +135,18 @@ export function normalizeOnegentAuditPacket(input: unknown, artifactPath: string
       metadata: risk,
     },
   ];
+
+  if (authorization.decision) {
+    evidence.push({
+      id: "onegent_authorization",
+      kind: "authorization_decision",
+      severity: authorization.decision === "ALLOW" ? "info" : "critical",
+      message: `Runtime authorization decision: ${String(authorization.decision)}.`,
+      source: "onegent-runtime",
+      artifactPath,
+      metadata: authorization,
+    });
+  }
 
   if (approval.status) {
     evidence.push({

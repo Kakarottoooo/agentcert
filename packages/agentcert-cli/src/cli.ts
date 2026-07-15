@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { validateEvidenceArtifacts } from "./artifact-validation.js";
 import { renderAgentCertBadge } from "./badge.js";
 import { buildEvidenceBundle } from "./bundle.js";
@@ -25,9 +25,20 @@ import {
 import { buildMonitorSnapshot, writeMonitorSnapshot } from "./monitor.js";
 import { normalizeMcpBenchResult, normalizeOnegentAuditPacket, normalizeTripwireResult } from "./normalizers.js";
 import { renderHtmlReport, renderMarkdownReport } from "./report.js";
+import {
+  generateEvidenceSigningKeyPair,
+  signEvidenceFile,
+  verifyEvidenceFile,
+} from "./evidence-signing.js";
+import {
+  buildReleaseGateReport,
+  renderReleaseGateSummary,
+  writeReleaseGateArtifacts,
+} from "./release-gate.js";
 import { serveAgentCertMonitor } from "./local-server.js";
 import { parseSchemaId, validateAgentCertSchema } from "./schema-validator.js";
 import {
+  applyRunOverrides,
   loadRunProfile,
   profileFromArtifactFlags,
   renderRunSummary,
@@ -36,7 +47,7 @@ import {
   type RunProfileOverrides,
 } from "./runner.js";
 import { buildRobustnessLabSnapshot, readRobustnessLabConfig, renderRobustnessLabSummary, writeRobustnessLabSnapshot } from "./lab.js";
-import type { AgentCertConfig, AgentCertResult } from "./types.js";
+import type { AgentCertBundle, AgentCertConfig, AgentCertResult } from "./types.js";
 
 process.on("uncaughtException", reportFatalError);
 process.on("unhandledRejection", reportFatalError);
@@ -78,6 +89,9 @@ if (command === "init") {
       },
       gate: {
         failOnVerdict: true,
+        strict: false,
+        outDir: ".agentcert/latest",
+        maxScoreDrop: 0,
       },
       manifest: {
         out: ".agentcert/latest/agentcert-run-manifest.json",
@@ -282,6 +296,100 @@ Next:
   });
   process.stdout.write(renderRunSummary(outcome));
   process.exitCode = outcome.exitCode;
+} else if (command === "release-gate") {
+  const overrides = readRunOverrides();
+  const profileName = readFlag("--profile");
+  const configPath = readFlag("--config");
+  const evidenceInput = readFlag("--evidence");
+  let profile: AgentCertRunProfile | undefined;
+  let bundle: AgentCertBundle;
+  let evidenceBundlePath: string;
+  let sourceArtifacts: Record<string, string | undefined>;
+
+  if (evidenceInput) {
+    profile = configPath ? applyRunOverrides(await loadRunProfile(profileName, configPath), overrides) : undefined;
+    bundle = (await readJson(evidenceInput)) as AgentCertBundle;
+    evidenceBundlePath = resolve(evidenceInput);
+    sourceArtifacts = bundle.artifacts;
+  } else {
+    const hasArtifactFlags = Boolean(overrides.mcpbench || overrides.tripwire || overrides.onegent);
+    const loadedProfile =
+      hasArtifactFlags && !profileName && !configPath
+        ? profileFromArtifactFlags(overrides)
+        : await loadRunProfile(profileName, configPath);
+    profile = applyRunOverrides(loadedProfile, overrides);
+    const outcome = await runAgentCertProfile(profile, {
+      runCommands: !readBoolFlag("--skip-commands"),
+    });
+    bundle = outcome.bundle;
+    evidenceBundlePath = resolve(outcome.manifest.outputs.evidenceBundle ?? join(profile.outputDir, "agentcert-evidence.json"));
+    sourceArtifacts = profile.artifacts;
+    if (!outcome.manifest.outputs.evidenceBundle) {
+      await mkdir(dirname(evidenceBundlePath), { recursive: true });
+      await writeFile(evidenceBundlePath, `${JSON.stringify(outcome.bundle, null, 2)}\n`);
+    }
+  }
+
+  const outDir = resolve(readFlag("--out") ?? profile?.run?.gate?.outDir ?? profile?.outputDir ?? dirname(evidenceBundlePath));
+  await mkdir(outDir, { recursive: true });
+  const baselinePath = readFlag("--baseline") ?? profile?.run?.gate?.baseline;
+  const baseline = baselinePath ? ((await readJson(baselinePath)) as AgentCertBundle) : undefined;
+  const report = await buildReleaseGateReport(bundle, {
+    strict: readBoolFlag("--strict") || profile?.run?.gate?.strict,
+    requireBaseline: readBoolFlag("--require-baseline") || profile?.run?.gate?.requireBaseline,
+    maxScoreDrop: parseOptionalNonNegativeNumber(readFlag("--max-score-drop"), "--max-score-drop") ?? profile?.run?.gate?.maxScoreDrop,
+    baseline,
+    attestations: profile?.run?.gate?.controls,
+    sourceArtifacts,
+    evidenceBundlePath,
+  });
+  const paths = await writeReleaseGateArtifacts(outDir, report);
+  const saveBaselinePath = readFlag("--save-baseline");
+  if (saveBaselinePath) {
+    if (report.verdict.passed) {
+      await mkdir(dirname(resolve(saveBaselinePath)), { recursive: true });
+      await writeFile(resolve(saveBaselinePath), `${JSON.stringify(bundle, null, 2)}\n`);
+      process.stdout.write(`Saved passing baseline ${resolve(saveBaselinePath)}\n`);
+    } else {
+      process.stdout.write(`Baseline not saved because the release gate failed: ${resolve(saveBaselinePath)}\n`);
+    }
+  }
+  const privateKey = readFlag("--sign-private-key") ?? profile?.run?.gate?.signing?.privateKey;
+  if (privateKey) {
+    await signEvidenceFile(evidenceBundlePath, privateKey);
+    await signEvidenceFile(paths.json, privateKey);
+    process.stdout.write(`Signed ${evidenceBundlePath}\nSigned ${paths.json}\n`);
+  }
+  process.stdout.write(renderReleaseGateSummary(report));
+  process.stdout.write(`Release gate JSON: ${paths.json}\nRelease gate HTML: ${paths.html}\nRelease gate JUnit: ${paths.junit}\n`);
+  process.exitCode = report.verdict.passed ? 0 : 1;
+} else if (command === "evidence") {
+  const action = process.argv[3] ?? "help";
+  if (action === "keygen") {
+    const privateKeyPath = readFlag("--private-key") ?? ".agentcert/keys/evidence-private.pem";
+    const publicKeyPath = readFlag("--public-key") ?? ".agentcert/keys/evidence-public.pem";
+    await generateEvidenceSigningKeyPair(privateKeyPath, publicKeyPath);
+    process.stdout.write(`Wrote private key ${resolve(privateKeyPath)}\nWrote public key ${resolve(publicKeyPath)}\n`);
+  } else if (action === "sign") {
+    const file = readFlag("--file") ?? readPositional(4);
+    if (!file) throw new Error("Missing evidence file. Usage: agentcert evidence sign <file> --private-key <path>.");
+    const privateKeyPath = requiredFlag("--private-key");
+    const signaturePath = readFlag("--out") ?? `${file}.sig.json`;
+    const signature = await signEvidenceFile(file, privateKeyPath, signaturePath);
+    process.stdout.write(`Signed ${resolve(file)}\nSignature: ${resolve(signaturePath)}\nKey id: ${signature.keyId}\n`);
+  } else if (action === "verify") {
+    const file = readFlag("--file") ?? readPositional(4);
+    if (!file) throw new Error("Missing evidence file. Usage: agentcert evidence verify <file> --signature <path> --public-key <path>.");
+    const result = await verifyEvidenceFile(file, requiredFlag("--signature"), requiredFlag("--public-key"));
+    process.stdout.write(`${result.valid ? "Valid" : "Invalid"} evidence signature: ${resolve(file)}\nKey id: ${result.keyId}\nSHA-256: ${result.artifactSha256}\n`);
+    process.exitCode = result.valid ? 0 : 1;
+  } else {
+    process.stdout.write(`Usage:
+  agentcert evidence keygen --private-key .agentcert/keys/evidence-private.pem --public-key .agentcert/keys/evidence-public.pem
+  agentcert evidence sign .agentcert/latest/agentcert-evidence.json --private-key .agentcert/keys/evidence-private.pem
+  agentcert evidence verify .agentcert/latest/agentcert-evidence.json --signature .agentcert/latest/agentcert-evidence.json.sig.json --public-key .agentcert/keys/evidence-public.pem
+`);
+  }
 } else if (command === "lab") {
   const action = process.argv[3] ?? "help";
   if (action === "build") {
@@ -329,6 +437,8 @@ Next:
   agentcert schema validate --schema monitor-snapshot --file .agentcert/latest/monitor.json
   agentcert schema validate --schema corpus-record --file examples/agentcert/corpus-record.example.json
   agentcert schema validate --schema classifier-eval --file examples/agentcert/classifier-eval.example.json
+  agentcert schema validate --schema release-gate --file .agentcert/latest/agentcert-release-gate.json
+  agentcert schema validate --schema evidence-signature --file .agentcert/latest/agentcert-evidence.json.sig.json
 `);
   }
 } else if (command === "validate") {
@@ -373,6 +483,13 @@ Next:
   agentcert monitor build --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --out .agentcert/latest/monitor.json --subject my-agent
   agentcert run --profile public-demo
   agentcert run --mcpbench .mcpbench/latest/results.json --tripwire .tripwire/latest/tripwire-result.json --onegent .onegent/procurement/audit-packet.json --out .agentcert/latest --corpus .agentcert/corpus/corpus.jsonl --monitor-out .agentcert/latest/monitor.json --reviewed-dataset-out .agentcert/latest/reviewed-failure-dataset.jsonl
+  agentcert release-gate --config agentcert.config.json --strict
+  agentcert release-gate --evidence .agentcert/latest/agentcert-evidence.json --baseline .agentcert/baselines/main.json
+  agentcert release-gate --evidence .agentcert/latest/agentcert-evidence.json --save-baseline .agentcert/baselines/main.json
+  agentcert release-gate --tripwire .tripwire/latest/tripwire-result.json --baseline .agentcert/baselines/main.json
+  agentcert evidence keygen --private-key .agentcert/keys/evidence-private.pem --public-key .agentcert/keys/evidence-public.pem
+  agentcert evidence sign .agentcert/latest/agentcert-evidence.json --private-key .agentcert/keys/evidence-private.pem
+  agentcert evidence verify .agentcert/latest/agentcert-evidence.json --signature .agentcert/latest/agentcert-evidence.json.sig.json --public-key .agentcert/keys/evidence-public.pem
   agentcert lab build --config examples/real-agents/robustness-lab/lab.config.json --out public-demo/real-agent-robustness/evidence/lab-snapshot.json
   agentcert serve --corpus .agentcert/corpus/corpus.jsonl --static public-demo/agentcert-monitor --artifact-root public-demo/browser-agent-robustness/evidence/tripwire-public-demo
   agentcert validate .agentcert/latest/agentcert-evidence.json
@@ -424,6 +541,19 @@ function readFlag(name: string): string | undefined {
 
 function readFirstPositionalAfterCommand(): string | undefined {
   for (let index = 3; index < process.argv.length; index += 1) {
+    const value = process.argv[index];
+    if (!value) continue;
+    if (value.startsWith("--")) {
+      index += 1;
+      continue;
+    }
+    return value;
+  }
+  return undefined;
+}
+
+function readPositional(startIndex: number): string | undefined {
+  for (let index = startIndex; index < process.argv.length; index += 1) {
     const value = process.argv[index];
     if (!value) continue;
     if (value.startsWith("--")) {
@@ -512,6 +642,15 @@ function parseOptionalNonNegativeInteger(input: string | undefined, flagName: st
   const value = Number(input);
   if (!Number.isInteger(value) || value < 0) {
     throw new Error(`${flagName} must be a non-negative integer.`);
+  }
+  return value;
+}
+
+function parseOptionalNonNegativeNumber(input: string | undefined, flagName: string): number | undefined {
+  if (input === undefined) return undefined;
+  const value = Number(input);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${flagName} must be a non-negative number.`);
   }
   return value;
 }
@@ -665,6 +804,8 @@ jobs:
           subject: ${JSON.stringify(subject)}
           agentcert-out: .agentcert/latest
           fail-on-verdict: "true"
+          release-gate: "true"
+          strict-release-gate: "false"
           # publish-pages: "true"
 `;
 }

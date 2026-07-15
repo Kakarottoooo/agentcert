@@ -5,6 +5,7 @@ This example shows the intended evidence flow with the unified runner:
 ```powershell
 npm run agentcert:build
 node packages/agentcert-cli/dist/cli.js run --config examples/agentcert/agentcert.config.json --skip-commands
+node packages/agentcert-cli/dist/cli.js release-gate --config examples/agentcert/agentcert.config.json --skip-commands
 ```
 
 The command reads configured evidence artifacts and writes:
@@ -17,6 +18,10 @@ The command reads configured evidence artifacts and writes:
 .agentcert/corpus/corpus.jsonl
 .agentcert/latest/reviewed-failure-dataset.jsonl
 .agentcert/latest/monitor.json
+.agentcert/latest/agentcert-release-gate.json
+.agentcert/latest/agentcert-release-gate.html
+.agentcert/latest/agentcert-release-gate-junit.xml
+.agentcert/latest/release-gate-badge.svg
 ```
 
 Schema examples in this directory:
@@ -31,6 +36,7 @@ Validate the evidence example:
 
 ```powershell
 node packages/agentcert-cli/dist/cli.js validate examples/agentcert/evidence-bundle.example.json
+node packages/agentcert-cli/dist/cli.js schema validate --schema release-gate --file .agentcert/latest/agentcert-release-gate.json
 ```
 
 If an underlying engine exits non-zero after writing an evidence artifact, add

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.dev/schemas/agentcert-release-gate.schema.json",
+  "title": "AgentCertReleaseGate",
+  "description": "Machine-readable release decision across ten agent assurance controls, continuous regression, and artifact provenance.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "runId", "generatedAt", "subject", "strict", "verdict", "bundleVerdict", "controls", "regression", "provenance"],
+  "properties": {
+    "schemaVersion": { "const": "agentcert.release_gate.v0.1" },
+    "kind": { "const": "agentcert.release_gate" },
+    "runId": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "subject": { "type": "object" },
+    "strict": { "type": "boolean" },
+    "verdict": {
+      "type": "object",
+      "required": ["passed", "blockers", "passedControls", "failedControls", "needsEvidenceControls", "manualReviewControls"],
+      "properties": {
+        "passed": { "type": "boolean" },
+        "blockers": { "type": "array", "items": { "type": "string" } },
+        "passedControls": { "type": "integer", "minimum": 0 },
+        "failedControls": { "type": "integer", "minimum": 0 },
+        "needsEvidenceControls": { "type": "integer", "minimum": 0 },
+        "manualReviewControls": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "bundleVerdict": { "type": "object" },
+    "controls": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "mode", "status", "summary", "evidence"],
+        "properties": {
+          "id": {
+            "enum": ["permission-boundary", "data-boundary", "tool-contract", "state-verification", "human-handoff", "rate-loop-cost-limits", "idempotency-retry-safety", "observability-auditability", "rollback-kill-switch", "supply-chain-dependency-boundary"]
+          },
+          "name": { "type": "string" },
+          "mode": { "enum": ["automated", "evidence-required", "manual"] },
+          "status": { "enum": ["pass", "fail", "needs-evidence", "manual-review"] },
+          "summary": { "type": "string" },
+          "evidence": { "type": "array", "items": { "type": "string" } },
+          "owner": { "type": "string" },
+          "reviewedAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "regression": {
+      "type": "object",
+      "required": ["status", "currentRunId", "maxScoreDrop", "regressions"],
+      "properties": {
+        "status": { "enum": ["pass", "fail", "not-configured"] },
+        "baselineRunId": { "type": "string" },
+        "currentRunId": { "type": "string" },
+        "scoreDelta": { "type": "number" },
+        "maxScoreDrop": { "type": "number", "minimum": 0 },
+        "regressions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["sourceArtifacts"],
+      "properties": {
+        "evidenceBundle": { "$ref": "#/$defs/artifactDigest" },
+        "sourceArtifacts": { "type": "array", "items": { "$ref": "#/$defs/artifactDigest" } }
+      }
+    }
+  },
+  "$defs": {
+    "artifactDigest": {
+      "type": "object",
+      "required": ["name", "path", "status"],
+      "properties": {
+        "name": { "type": "string" },
+        "path": { "type": "string" },
+        "sha256": { "type": "string" },
+        "status": { "enum": ["verified", "missing", "remote"] }
+      }
+    }
+  }
+}

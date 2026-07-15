@@ -1,10 +1,10 @@
 # AgentCert CLI
 
-Unified evidence, corpus, monitor, and lab CLI for AgentCert.
+Unified release assurance, evidence, corpus, monitor, and lab CLI for AgentCert.
 
-AgentCert is regression CI for browser agents. It runs Tripwire robustness
-checks, converts the result into evidence bundles, writes HTML reports and
-badges, and accumulates a local failure corpus.
+AgentCert checks what an agent may do, whether it passed pre-release evidence,
+whether a high-risk runtime action may proceed, and who can verify the observed
+outcome. It writes portable reports and accumulates a local failure corpus.
 
 ## 5-minute local path
 
@@ -42,15 +42,22 @@ npx agentcert corpus export-reviewed --corpus .agentcert/corpus/corpus.jsonl --o
 npx agentcert corpus classifier-eval --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/latest/failure-classifier-evaluation.json
 npx agentcert validate .agentcert/latest/agentcert-evidence.json
 npx agentcert validate .agentcert/latest/agentcert-evidence.json --check-artifacts
+npx agentcert release-gate --config agentcert.config.json --strict
+npx agentcert release-gate --evidence .agentcert/latest/agentcert-evidence.json --baseline .agentcert/baselines/main.json
 npx agentcert schema validate --schema evidence-bundle --file .agentcert/latest/agentcert-evidence.json
 npx agentcert schema validate --schema classifier-eval --file examples/agentcert/classifier-eval.example.json
 ```
 
-Release gate checklist:
+The release gate writes fixed JSON, HTML, Markdown, JUnit, and badge outputs,
+records SHA-256 artifact provenance, and supports optional Ed25519 signatures:
 
-```text
-docs/release-gate-checklist.md
+```bash
+npx agentcert evidence keygen --private-key .agentcert/keys/evidence-private.pem --public-key .agentcert/keys/evidence-public.pem
+npx agentcert evidence sign .agentcert/latest/agentcert-evidence.json --private-key .agentcert/keys/evidence-private.pem
 ```
+
+Control semantics and attestation format:
+[release gate checklist](https://github.com/Kakarottoooo/agentcert/blob/main/docs/release-gate-checklist.md).
 
 CI users can run Tripwire and AgentCert together with
 `Kakarottoooo/agentcert/actions/tripwire@v0`.

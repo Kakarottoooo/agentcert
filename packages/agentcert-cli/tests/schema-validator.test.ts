@@ -56,4 +56,40 @@ describe("AgentCert schema validator", () => {
     expect(result.valid).toBe(true);
     expect(result.errors).toEqual([]);
   });
+
+  it("accepts release-gate and evidence-signature contracts", () => {
+    const releaseGate = validateAgentCertSchema("release-gate", {
+      schemaVersion: "agentcert.release_gate.v0.1",
+      kind: "agentcert.release_gate",
+      runId: "gate_1",
+      verdict: { passed: true },
+      regression: {},
+      provenance: {},
+      controls: [
+        "permission-boundary",
+        "data-boundary",
+        "tool-contract",
+        "state-verification",
+        "human-handoff",
+        "rate-loop-cost-limits",
+        "idempotency-retry-safety",
+        "observability-auditability",
+        "rollback-kill-switch",
+        "supply-chain-dependency-boundary",
+      ].map((id) => ({ id, mode: "automated", status: "pass", evidence: [] })),
+    });
+    const signature = validateAgentCertSchema("evidence-signature", {
+      schemaVersion: "agentcert.evidence_signature.v0.1",
+      kind: "agentcert.evidence_signature",
+      algorithm: "Ed25519",
+      keyId: "sha256:abc",
+      signedAt: "2026-01-01T00:00:00Z",
+      artifactPath: "agentcert-evidence.json",
+      artifactSha256: "a".repeat(64),
+      signature: "c2lnbmF0dXJl",
+    });
+
+    expect(releaseGate.valid).toBe(true);
+    expect(signature.valid).toBe(true);
+  });
 });

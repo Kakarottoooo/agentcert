@@ -22,3 +22,5 @@ jobs:
           subject: my-browser-agent
           agentcert-out: .agentcert/latest
           fail-on-verdict: "true"
+          release-gate: "true"
+          strict-release-gate: "false"

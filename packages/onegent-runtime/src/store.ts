@@ -1,5 +1,6 @@
 import type {
   ActionIntent,
+  AuthorizationDecision,
   ApprovalRequest,
   AuditEvent,
   MockPurchaseOrder,
@@ -11,6 +12,7 @@ import type {
 export interface ActionGatewayStore {
   actions: Map<string, ActionIntent>;
   riskAssessments: Map<string, RiskAssessment>;
+  authorizationDecisions: Map<string, AuthorizationDecision>;
   approvals: Map<string, ApprovalRequest>;
   verifications: Map<string, VerificationResult>;
   auditEvents: AuditEvent[];
@@ -21,6 +23,7 @@ export interface ActionGatewayStore {
 export const store: ActionGatewayStore = {
   actions: new Map(),
   riskAssessments: new Map(),
+  authorizationDecisions: new Map(),
   approvals: new Map(),
   verifications: new Map(),
   auditEvents: [],
@@ -43,6 +46,7 @@ export function resetActionGatewayStore(): void {
   sequence = 0;
   store.actions.clear();
   store.riskAssessments.clear();
+  store.authorizationDecisions.clear();
   store.approvals.clear();
   store.verifications.clear();
   store.auditEvents = [];

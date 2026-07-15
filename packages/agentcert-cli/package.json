@@ -1,7 +1,7 @@
 {
   "name": "agentcert",
-  "version": "0.1.2",
-  "description": "Regression CI, evidence reports, and failure corpus tooling for browser agents.",
+  "version": "0.2.0",
+  "description": "Assurance release gates, runtime evidence, and regression CI for AI agents.",
   "type": "module",
   "license": "Apache-2.0",
   "homepage": "https://github.com/Kakarottoooo/agentcert#readme",
@@ -22,7 +22,10 @@
     "llm",
     "mcp",
     "tripwire",
-    "evidence"
+    "evidence",
+    "assurance",
+    "authorization",
+    "audit"
   ],
   "bin": {
     "agentcert": "dist/cli.js"

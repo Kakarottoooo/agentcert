@@ -11,10 +11,13 @@ credentials.
 
 ## SDK
 
-Install the runtime package in the project that owns the high-risk action:
+This is currently a repository-local preview package, not a published npm
+package. Build and test it from the AgentCert checkout:
 
 ```bash
-npm install @agentcert/onegent-runtime
+npm --prefix packages/onegent-runtime ci
+npm --prefix packages/onegent-runtime run build
+npm --prefix packages/onegent-runtime test
 ```
 
 ```ts
@@ -26,6 +29,14 @@ import {
 
 const auditStore = createInMemoryAuditStore();
 const runtime = createOnegentRuntime({
+  authorizationPolicy: {
+    name: "procurement-permissions",
+    authorize: (action) => ({
+      allowed: action.principal.id === "procurement-agent",
+      grantedPermissions: ["MockERP:SUBMIT"],
+      reason: "Allowed by the local demo policy.",
+    }),
+  },
   approvalAdapter: {
     name: "manager-approval",
     requestApproval: async () => ({
@@ -38,6 +49,8 @@ const runtime = createOnegentRuntime({
 });
 const review = runtime.captureAction({
   sourceAgentName: "ProcurementAgent",
+  principal: { id: "procurement-agent", type: "agent" },
+  requestedPermissions: ["MockERP:SUBMIT"],
   actionType: "SUBMIT",
   targetSystem: "MockERP",
   title: "Submit purchase order",
@@ -51,6 +64,10 @@ const review = runtime.captureAction({
   proposedAfterState: { status: "SUBMITTED" },
 });
 
+if (review.authorizationDecision?.decision !== "ALLOW") {
+  throw new Error("Action was not authorized.");
+}
+
 const risk = runtime.assessRisk(review.action);
 const policy = runtime.evaluatePolicy(review.action, risk);
 const approval = await runtime.requestApproval(review.action);
@@ -63,9 +80,11 @@ if (!verification.success) throw new Error("Observed state did not match expecte
 const auditPacket = await runtime.writeAuditPacket(review.action);
 ```
 
-The SDK is intentionally adapter-shaped: you bring the approval workflow, the
-execution adapter, and the audit store. The checked-in examples are local-only
-and deterministic so they are safe for tests and demos.
+The SDK is intentionally adapter-shaped: you bring the authorization policy,
+approval workflow, execution adapter, and audit store. Requested permissions
+must be included in the policy's granted permissions or the action is blocked.
+The checked-in examples are local-only and deterministic so they are safe for
+tests and demos.
 
 ## Demo
 

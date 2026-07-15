@@ -27,7 +27,10 @@
       "reviewedOut": ".agentcert/latest/reviewed-failure-dataset.jsonl"
     },
     "gate": {
-      "failOnVerdict": true
+      "failOnVerdict": true,
+      "strict": false,
+      "outDir": ".agentcert/latest",
+      "maxScoreDrop": 0
     }
   }
 }

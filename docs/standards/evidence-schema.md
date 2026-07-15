@@ -223,4 +223,6 @@ schemas/agentcert-corpus-record.schema.json
 schemas/agentcert-failure-review.schema.json
 schemas/agentcert-failure-classifier-evaluation.schema.json
 schemas/agentcert-monitor-snapshot.schema.json
+schemas/agentcert-release-gate.schema.json
+schemas/agentcert-evidence-signature.schema.json
 ```

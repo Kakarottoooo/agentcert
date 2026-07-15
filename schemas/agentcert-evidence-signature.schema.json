@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.dev/schemas/agentcert-evidence-signature.schema.json",
+  "title": "AgentCertEvidenceSignature",
+  "description": "Detached Ed25519 signature envelope for an AgentCert evidence or release-gate artifact.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "algorithm", "keyId", "signedAt", "artifactPath", "artifactSha256", "signature"],
+  "properties": {
+    "schemaVersion": { "const": "agentcert.evidence_signature.v0.1" },
+    "kind": { "const": "agentcert.evidence_signature" },
+    "algorithm": { "const": "Ed25519" },
+    "keyId": { "type": "string", "minLength": 1 },
+    "signedAt": { "type": "string", "format": "date-time" },
+    "artifactPath": { "type": "string", "minLength": 1 },
+    "artifactSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "signature": { "type": "string", "minLength": 1 }
+  }
+}

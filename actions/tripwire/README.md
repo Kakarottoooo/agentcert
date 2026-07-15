@@ -27,6 +27,8 @@ jobs:
           subject: my-browser-agent
           agentcert-out: .agentcert/latest
           fail-on-verdict: "true"
+          release-gate: "true"
+          strict-release-gate: "false"
 ```
 
 Outputs:
@@ -41,6 +43,10 @@ Outputs:
 - `.agentcert/latest/monitor.json`
 - `.agentcert/latest/reviewed-failure-dataset.jsonl`
 - `.agentcert/latest/agentcert-run-manifest.json`
+- `.agentcert/latest/agentcert-release-gate.json`
+- `.agentcert/latest/agentcert-release-gate.html`
+- `.agentcert/latest/agentcert-release-gate-junit.xml`
+- `.agentcert/latest/release-gate-badge.svg`
 
 The action installs and builds AgentCert from this repository at the requested
 ref. The caller repository owns `tripwire.yml` and the agent command under test.

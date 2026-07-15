@@ -1,9 +1,8 @@
 # AgentCert Release Gate Checklist v0.1
 
-This checklist defines what an agent should prove before release. It is not a
-single model benchmark. It is a release gate that combines automated AgentCert
-evidence with manual review for controls that cannot be proven from one test
-run.
+This checklist is implemented by AgentCert's release-gate command. It is not a
+single model benchmark. It combines automated AgentCert evidence with explicit
+attestations for controls that cannot be proven from one test run.
 
 ## How To Use
 
@@ -13,6 +12,7 @@ Run the automated evidence path first:
 npx agentcert init --subject my-agent
 npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --subject my-agent --fail-on-verdict
 npx agentcert validate .agentcert/latest/agentcert-evidence.json --check-artifacts
+npx agentcert release-gate --config agentcert.config.json
 ```
 
 For MCP/tool surfaces:
@@ -64,22 +64,90 @@ For production high-risk actions, require:
 - A kill-switch owner.
 - No real credentials in test artifacts.
 
-## What The One-Command Shape Should Become
-
-The intended product shape is:
+## One-Command Release Decision
 
 ```bash
 npx agentcert release-gate --config agentcert.config.json --strict
 ```
 
-That command should eventually:
+The command now:
 
-- run configured MCPBench, Tripwire, and Onegent checks;
-- validate the evidence bundle and artifact paths;
+- runs configured MCPBench, Tripwire, and Onegent checks;
+- records SHA-256 provenance for local input artifacts and the evidence bundle;
 - compute the 10 gate statuses;
-- output JUnit, HTML, evidence JSON, badge, corpus, and monitor snapshot;
-- fail CI when required automated gates fail;
-- mark manual gates clearly instead of pretending they were tested.
+- compares the result with an optional baseline;
+- outputs JSON, JUnit, HTML, Markdown, and a release badge alongside the
+  evidence bundle, corpus, and monitor snapshot;
+- fails CI when automated evidence fails;
+- in `--strict` mode, also fails CI when required evidence or manual review is
+  incomplete;
+- can sign evidence and release reports with a local Ed25519 private key.
 
 The important rule: AgentCert should never silently convert an untested manual
 gate into a pass.
+
+## Control Attestations
+
+Evidence-required and manual controls are resolved in `agentcert.config.json`.
+Every attestation requires a named owner, review timestamp, and at least one
+evidence pointer:
+
+```json
+{
+  "run": {
+    "gate": {
+      "strict": true,
+      "outDir": ".agentcert/latest",
+      "baseline": ".agentcert/baselines/main.json",
+      "requireBaseline": true,
+      "maxScoreDrop": 0,
+      "controls": {
+        "rollback-kill-switch": {
+          "status": "pass",
+          "owner": "oncall@example.com",
+          "reviewedAt": "2026-07-14T00:00:00Z",
+          "evidence": ["docs/runbooks/agent-kill-switch.md"],
+          "note": "On-call tested the disable path in staging."
+        }
+      }
+    }
+  }
+}
+```
+
+An attestation cannot override failed automated evidence. Incomplete
+attestations remain `needs-evidence` or `manual-review`.
+
+## Fixed Outputs
+
+`agentcert release-gate` writes:
+
+- `agentcert-release-gate.json`;
+- `agentcert-release-gate.md`;
+- `agentcert-release-gate.html`;
+- `agentcert-release-gate-junit.xml`;
+- `release-gate-badge.svg`.
+
+The machine-readable contract is `agentcert.release_gate.v0.1` in
+`schemas/agentcert-release-gate.schema.json`.
+
+## Baseline Regression
+
+Pass an earlier evidence bundle with `--baseline`. AgentCert blocks when:
+
+- an overall passing verdict becomes failing;
+- a previously passing product becomes failing;
+- a baseline product disappears;
+- the score drop exceeds `--max-score-drop`;
+- the baseline subject does not match the current subject.
+
+Use `--require-baseline` when the absence of a baseline must itself block the
+release.
+
+Create or update a baseline only from a passing gate:
+
+```bash
+npx agentcert release-gate --evidence .agentcert/latest/agentcert-evidence.json --save-baseline .agentcert/baselines/main.json
+```
+
+AgentCert refuses to save the bundle when the release gate is failing.

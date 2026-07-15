@@ -26,12 +26,21 @@ export interface ActionFieldChange {
   after?: unknown;
 }
 
+export interface AgentPrincipal {
+  id: string;
+  type: "agent" | "service";
+  version?: string;
+  owner?: string;
+}
+
 export interface ActionIntent {
   id: string;
   workspaceId: string;
   workflowId: string;
   sourceAgentName: string;
   sourceAgentRunId?: string;
+  principal: AgentPrincipal;
+  requestedPermissions: string[];
   actionType: ActionType;
   targetSystem: string;
   targetUrl?: string;
@@ -57,6 +66,8 @@ export interface CreateActionIntentInput {
   workflowId?: string;
   sourceAgentName: string;
   sourceAgentRunId?: string;
+  principal?: AgentPrincipal;
+  requestedPermissions?: string[];
   actionType: ActionType;
   targetSystem: string;
   targetUrl?: string;
@@ -119,6 +130,31 @@ export interface PolicyEngine {
   evaluate(action: ActionIntent, risk: RiskAssessment, rules: PolicyRule[]): PolicyEvaluation;
 }
 
+export interface AuthorizationPolicyResult {
+  allowed: boolean;
+  grantedPermissions: string[];
+  policyVersion?: string;
+  reason: string;
+}
+
+export interface AuthorizationPolicy {
+  name: string;
+  authorize(action: ActionIntent): AuthorizationPolicyResult;
+}
+
+export interface AuthorizationDecision {
+  id: string;
+  actionIntentId: string;
+  principalId: string;
+  decision: "ALLOW" | "DENY";
+  requestedPermissions: string[];
+  grantedPermissions: string[];
+  policyName: string;
+  policyVersion?: string;
+  reason: string;
+  createdAt: string;
+}
+
 export interface ApprovalRequest {
   id: string;
   actionIntentId: string;
@@ -162,6 +198,7 @@ export interface VerificationResult {
 
 export type AuditEventType =
   | "ACTION_CAPTURED"
+  | "AUTHORIZATION_CHECKED"
   | "RISK_ASSESSED"
   | "POLICY_EVALUATED"
   | "APPROVAL_REQUESTED"
@@ -199,6 +236,7 @@ export interface MockPurchaseOrder {
 export interface ActionReview {
   action: ActionIntent;
   riskAssessment: RiskAssessment;
+  authorizationDecision?: AuthorizationDecision;
   approvalRequest?: ApprovalRequest;
   verificationResult?: VerificationResult;
   auditEvents: AuditEvent[];
@@ -232,6 +270,7 @@ export interface ActionAuditPacket {
   scenario: string;
   actionIntent: ActionIntent;
   riskAssessment: RiskAssessment;
+  authorizationDecision?: AuthorizationDecision;
   triggeredPolicies: PolicyRule[];
   approvalRequest?: ApprovalRequest;
   execution: ActionExecutionSummary;

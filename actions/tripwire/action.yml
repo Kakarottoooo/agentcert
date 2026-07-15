@@ -28,6 +28,18 @@ inputs:
   fail-on-verdict:
     description: Fail if the unified AgentCert verdict fails, in addition to the Tripwire gate.
     default: "false"
+  release-gate:
+    description: Build the ten-control AgentCert release gate from the generated evidence bundle.
+    default: "true"
+  strict-release-gate:
+    description: Fail when evidence-required or manual controls have not been attested.
+    default: "false"
+  baseline:
+    description: Optional baseline AgentCert evidence bundle for continuous regression detection.
+    required: false
+  max-score-drop:
+    description: Maximum allowed score drop from the baseline.
+    default: "0"
   publish-pages:
     description: >-
       Publish the evidence reports and badge to a GitHub Pages branch and emit
@@ -65,6 +77,12 @@ outputs:
   reviewed-dataset:
     description: Path to reviewed failure dataset JSONL.
     value: ${{ inputs.agentcert-out }}/reviewed-failure-dataset.jsonl
+  release-gate-report:
+    description: Path to the machine-readable ten-control release gate report.
+    value: ${{ inputs.agentcert-out }}/agentcert-release-gate.json
+  release-gate-junit:
+    description: Path to release gate JUnit XML.
+    value: ${{ inputs.agentcert-out }}/agentcert-release-gate-junit.xml
   pages-url:
     description: Base URL of the published evidence page (when publish-pages is true).
     value: ${{ steps.publish-pages.outputs.pages-url }}
@@ -128,6 +146,28 @@ runs:
         node "$AGENTCERT_ACTION_ROOT/packages/agentcert-cli/dist/cli.js" "${args[@]}"
         agentcert_exit=$?
         echo "AGENTCERT_RUN_EXIT=$agentcert_exit" >> "$GITHUB_ENV"
+        exit 0
+
+    - name: Build AgentCert release gate
+      if: ${{ always() && inputs.release-gate == 'true' }}
+      shell: bash
+      run: |
+        set +e
+        args=(
+          release-gate
+          --evidence "${{ inputs.agentcert-out }}/agentcert-evidence.json"
+          --out "${{ inputs.agentcert-out }}"
+          --max-score-drop "${{ inputs.max-score-drop }}"
+        )
+        if [ "${{ inputs.strict-release-gate }}" = "true" ]; then
+          args+=(--strict)
+        fi
+        if [ -n "${{ inputs.baseline }}" ]; then
+          args+=(--baseline "${{ inputs.baseline }}")
+        fi
+        node "$AGENTCERT_ACTION_ROOT/packages/agentcert-cli/dist/cli.js" "${args[@]}"
+        release_gate_exit=$?
+        echo "AGENTCERT_RELEASE_GATE_EXIT=$release_gate_exit" >> "$GITHUB_ENV"
         exit 0
 
     - name: Publish evidence page and badge
@@ -197,6 +237,8 @@ runs:
           echo "- Badge: \`${{ inputs.agentcert-out }}/badge.svg\`"
           echo "- Monitor snapshot: \`${{ inputs.agentcert-out }}/monitor.json\`"
           echo "- Reviewed dataset: \`${{ inputs.agentcert-out }}/reviewed-failure-dataset.jsonl\`"
+          echo "- Release gate: \`${{ inputs.agentcert-out }}/agentcert-release-gate.html\`"
+          echo "- Release gate JUnit: \`${{ inputs.agentcert-out }}/agentcert-release-gate-junit.xml\`"
         } >> "$GITHUB_STEP_SUMMARY"
         if [ -f "${{ inputs.agentcert-out }}/agentcert-report.md" ]; then
           {
@@ -224,4 +266,7 @@ runs:
         fi
         if [ "${AGENTCERT_RUN_EXIT:-0}" != "0" ]; then
           exit "$AGENTCERT_RUN_EXIT"
+        fi
+        if [ "${AGENTCERT_RELEASE_GATE_EXIT:-0}" != "0" ]; then
+          exit "$AGENTCERT_RELEASE_GATE_EXIT"
         fi

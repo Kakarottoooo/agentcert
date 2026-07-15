@@ -1,4 +1,6 @@
 import { AGENTCERT_EVIDENCE_SCHEMA_SEMVER, AGENTCERT_EVIDENCE_SCHEMA_VERSION } from "./types.js";
+import { validateEvidenceSignature } from "./evidence-signing.js";
+import { validateReleaseGateReport } from "./release-gate.js";
 
 export type AgentCertSchemaId =
   | "evidence-bundle"
@@ -7,7 +9,9 @@ export type AgentCertSchemaId =
   | "failure-review"
   | "classifier-eval"
   | "monitor-snapshot"
-  | "robustness-lab";
+  | "robustness-lab"
+  | "release-gate"
+  | "evidence-signature";
 
 export interface SchemaValidationResult {
   schema: AgentCertSchemaId;
@@ -24,17 +28,27 @@ export function parseSchemaId(input: string | undefined): AgentCertSchemaId {
     value === "failure-review" ||
     value === "classifier-eval" ||
     value === "monitor-snapshot" ||
-    value === "robustness-lab"
+    value === "robustness-lab" ||
+    value === "release-gate" ||
+    value === "evidence-signature"
   ) {
     return value;
   }
   throw new Error(
-    `Unsupported schema "${value}". Use evidence-bundle, result, corpus-record, failure-review, classifier-eval, monitor-snapshot, or robustness-lab.`
+    `Unsupported schema "${value}". Use evidence-bundle, result, corpus-record, failure-review, classifier-eval, monitor-snapshot, robustness-lab, release-gate, or evidence-signature.`
   );
 }
 
 export function validateAgentCertSchema(schema: AgentCertSchemaId, input: unknown): SchemaValidationResult {
   const errors: string[] = [];
+  if (schema === "release-gate") {
+    errors.push(...validateReleaseGateReport(input));
+    return { schema, valid: errors.length === 0, errors };
+  }
+  if (schema === "evidence-signature") {
+    errors.push(...validateEvidenceSignature(input));
+    return { schema, valid: errors.length === 0, errors };
+  }
   const value = object(input, "$", errors);
   if (value) {
     if (schema === "evidence-bundle") validateEvidenceBundle(value, errors);

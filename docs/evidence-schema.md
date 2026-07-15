@@ -31,8 +31,9 @@ AgentCert evidence is not a security guarantee, official certification, NIST
 compliance claim, AIUC-1 certification, or proof that a production integration
 cannot fail.
 
-It also does not prove that the artifact producer was honest unless the caller
-adds its own trusted CI, access controls, signatures, or storage controls.
+It also does not prove that the artifact producer was honest. Ed25519
+signatures prove file integrity and possession of a signing key, but an
+independent reviewer must decide who controls and trusts that key.
 
 ## Required Bundle Fields
 
@@ -81,6 +82,24 @@ npx agentcert schema validate --schema evidence-bundle --file .agentcert/latest/
 - `schemas/agentcert-failure-review.schema.json`
 - `schemas/agentcert-failure-classifier-evaluation.schema.json`
 - `schemas/agentcert-monitor-snapshot.schema.json`
+- `schemas/agentcert-release-gate.schema.json`
+- `schemas/agentcert-evidence-signature.schema.json`
 
 The longer standards and taxonomy discussion lives in
 `docs/standards/evidence-schema.md`.
+
+## Integrity And Provenance
+
+The release gate records SHA-256 digests for local source artifacts and the
+generated evidence bundle. Generate a local Ed25519 key pair and create a
+detached signature when the evidence must cross a trust boundary:
+
+```bash
+npx agentcert evidence keygen --private-key .agentcert/keys/evidence-private.pem --public-key .agentcert/keys/evidence-public.pem
+npx agentcert evidence sign .agentcert/latest/agentcert-evidence.json --private-key .agentcert/keys/evidence-private.pem
+npx agentcert evidence verify .agentcert/latest/agentcert-evidence.json --signature .agentcert/latest/agentcert-evidence.json.sig.json --public-key .agentcert/keys/evidence-public.pem
+```
+
+Never commit the private key. Store it in a CI secret manager or offline
+signing environment. The signature contract is
+`agentcert.evidence_signature.v0.1`.

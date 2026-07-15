@@ -20,6 +20,7 @@ import type {
   ApprovalAdapter,
   ApprovalRequest,
   AuditStore,
+  AuthorizationPolicy,
   CreateActionIntentInput,
   LocalActionAdapter,
   PolicyEngine,
@@ -34,6 +35,7 @@ export interface OnegentRuntimeOptions {
   policyEngine?: PolicyEngine;
   approvalAdapter?: ApprovalAdapter;
   auditStore?: AuditStore;
+  authorizationPolicy?: AuthorizationPolicy;
 }
 
 export interface OnegentRuntime {
@@ -52,7 +54,11 @@ export interface OnegentRuntime {
 
 export function createOnegentRuntime(options: OnegentRuntimeOptions = {}): OnegentRuntime {
   return {
-    captureAction: (input) => captureActionIntent(input, { policyRules: options.policyRules, policyEngine: options.policyEngine }),
+    captureAction: (input) => captureActionIntent(input, {
+      policyRules: options.policyRules,
+      policyEngine: options.policyEngine,
+      authorizationPolicy: options.authorizationPolicy,
+    }),
     assessRisk: (action) => assessActionRisk(action),
     evaluatePolicy: (action, risk) => {
       const assessment = risk ?? assessActionRisk(action);

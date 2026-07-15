@@ -16,6 +16,7 @@ import { applyFailureReviews, readFailureReviews } from "./failure-review.js";
 import { buildMonitorSnapshot, writeMonitorSnapshot } from "./monitor.js";
 import { normalizeMcpBenchResult, normalizeOnegentAuditPacket, normalizeTripwireResult } from "./normalizers.js";
 import { renderHtmlReport, renderMarkdownReport } from "./report.js";
+import type { ReleaseGateAttestation, ReleaseGateControlId } from "./release-gate.js";
 import type { AgentCertBundle, AgentCertConfig, AgentCertResult } from "./types.js";
 
 export type RunJobKey = "mcpbench" | "tripwire" | "onegent";
@@ -55,6 +56,15 @@ export interface AgentCertRunProfile extends AgentCertConfig {
     };
     gate?: {
       failOnVerdict?: boolean;
+      strict?: boolean;
+      outDir?: string;
+      baseline?: string;
+      requireBaseline?: boolean;
+      maxScoreDrop?: number;
+      controls?: Partial<Record<ReleaseGateControlId, ReleaseGateAttestation>>;
+      signing?: {
+        privateKey?: string;
+      };
     };
     manifest?: {
       out?: string;

@@ -178,6 +178,64 @@ describe("Onegent Runtime SDK interface", () => {
     expect(review.blocked).toBe(true);
     expect(review.action.status).toBe("CANCELLED");
   });
+
+  it("records an allowed principal and least-privilege authorization decision", () => {
+    const runtime = createOnegentRuntime({
+      authorizationPolicy: {
+        name: "local-permission-policy",
+        authorize: (action) => ({
+          allowed: action.principal.id === "procurement-agent",
+          grantedPermissions: ["MockERP:SUBMIT"],
+          policyVersion: "2026-07-14",
+          reason: "The procurement agent may submit local mock purchase orders.",
+        }),
+      },
+    });
+    const purchaseOrder = createProcurementDemoPurchaseOrder();
+    const review = runtime.captureAction({
+      ...purchaseOrderAction(purchaseOrder.id),
+      principal: { id: "procurement-agent", type: "agent", version: "1.0.0", owner: "procurement@example.local" },
+      requestedPermissions: ["MockERP:SUBMIT"],
+    });
+
+    expect(review.authorizationDecision).toMatchObject({
+      principalId: "procurement-agent",
+      decision: "ALLOW",
+      grantedPermissions: ["MockERP:SUBMIT"],
+    });
+    expect(review.auditEvents.map((event) => event.eventType)).toContain("AUTHORIZATION_CHECKED");
+  });
+
+  it("blocks execution when the authorization policy does not grant every requested permission", async () => {
+    const runtime = createOnegentRuntime({
+      authorizationPolicy: {
+        name: "deny-payment-policy",
+        authorize: () => ({
+          allowed: true,
+          grantedPermissions: ["MockPayables:READ"],
+          reason: "The agent has read-only access.",
+        }),
+      },
+    });
+    const review = runtime.captureAction({
+      sourceAgentName: "FinanceAgent",
+      principal: { id: "finance-agent", type: "agent" },
+      requestedPermissions: ["MockPayables:PAY"],
+      actionType: "PAY",
+      targetSystem: "MockPayables",
+      title: "Pay invoice",
+      description: "Local mock payment action.",
+      businessObjectType: "invoice",
+      businessObjectId: "inv-2",
+      amount: 250,
+      currency: "USD",
+    });
+
+    expect(review.authorizationDecision?.decision).toBe("DENY");
+    expect(review.authorizationDecision?.reason).toContain("Missing permissions: MockPayables:PAY");
+    expect(review.action.status).toBe("CANCELLED");
+    await expect(runtime.executeAfterApproval(review.action)).rejects.toThrow();
+  });
 });
 
 function purchaseOrderAction(purchaseOrderId: string): CreateActionIntentInput {
