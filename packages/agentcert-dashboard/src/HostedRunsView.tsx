@@ -16,6 +16,7 @@ import {
   eventMessage,
   findingsForBundle,
   firstDivergence,
+  matchesUploadedArtifact,
   parseEvidenceBundle,
   type EvidenceBundleDocument,
   type EvidenceFinding,
@@ -223,7 +224,7 @@ function ArtifactPanel({ analysis, pointers, project, session }: { analysis: Hos
       <div className="hosted-artifact-preview">{screenshot ? <AuthenticatedImage evidence={screenshot} project={project} session={session} /> : <div><strong>No hosted screenshot</strong><p>Upload screenshot files as run evidence to preview them here.</p></div>}</div>
       <div className="hosted-artifact-list">
         {analysis.evidence.map((item) => <article key={item.id}><span><strong>{item.fileName}</strong><small>{item.kind} · {compactBytes(item.sizeBytes)}</small><code>{item.sha256.slice(0, 18)}...</code></span><button onClick={() => void downloadArtifact(item, project, session)}>Download</button></article>)}
-        {pointers.filter((pointer) => !matchesUpload(pointer.path, analysis.evidence)).map((pointer) => <article className="pointer-only" key={pointer.path}><span><strong>{pointer.label}</strong><small>{pointer.kind} · pointer only</small><code>{pointer.path}</code></span><em>Not uploaded</em></article>)}
+        {pointers.filter((pointer) => !matchesUploadedArtifact(pointer.path, analysis.evidence)).map((pointer) => <article className="pointer-only" key={pointer.path}><span><strong>{pointer.label}</strong><small>{pointer.kind} · pointer only</small><code>{pointer.path}</code></span><em>Not uploaded</em></article>)}
       </div>
     </div>
   </section>;
@@ -255,7 +256,6 @@ function timelineClass(type: string): string {
   if (/page|dom|screen/i.test(type)) return "page";
   return "action";
 }
-function matchesUpload(path: string, evidence: HostedEvidence[]): boolean { const name = path.replaceAll("\\", "/").split("/").pop(); return evidence.some((item) => item.fileName === name); }
 function splitSignals(value: string): string[] { return value.split(";").map((item) => item.trim()).filter(Boolean); }
 function unique(values: string[]): string[] { return [...new Set(values)].sort(); }
 function label(value: string): string { return value.replace(/_/g, " "); }

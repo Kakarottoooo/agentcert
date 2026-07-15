@@ -116,10 +116,16 @@ describe("AgentCertControlPlane", () => {
     const { service, projectId } = await setup();
     const evidence = await service.uploadEvidence(user, projectId, Buffer.from("evidence"), {
       fileName: "trace.json", contentType: "application/json", kind: "trace", schemaVersion: "agentcert.evidence.v0.1",
+      sourcePath: ".tripwire/latest/trace.json",
     });
     expect(evidence.sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(evidence.metadata).toEqual({ sourcePath: ".tripwire/latest/trace.json" });
     const result = await service.readEvidence(user, projectId, evidence.id);
     expect(result.artifact.bytes.toString()).toBe("evidence");
+    await expect(service.uploadEvidence(user, projectId, Buffer.from("bad"), {
+      fileName: "trace.json", contentType: "application/json", kind: "trace", schemaVersion: "agentcert.evidence.v0.1",
+      sourcePath: "x".repeat(1025),
+    })).rejects.toMatchObject<Partial<ControlPlaneError>>({ status: 400 });
   });
 
   it("deduplicates repeated evidence uploads for the same run and digest", async () => {

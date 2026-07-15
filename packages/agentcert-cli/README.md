@@ -42,8 +42,13 @@ npx agentcert push --evidence .agentcert/latest/agentcert-evidence.json
 ```
 
 Add `--push` to `agentcert run` to run locally and upload the resulting bundle
-in one command. Project API keys can create runs, record events, and upload
-evidence, but cannot approve their own runtime actions.
+in one command. By default, both commands also upload local files referenced by
+the bundle. Reads are confined to `--artifact-root` (the current directory by
+default), path and symlink escapes are rejected, and uploads are capped at 25
+files, 10 MiB per file, and 50 MiB total. Skipped references are reported in
+the CLI and hosted run timeline. Pass `--no-artifacts` to upload only the JSON
+bundle. Project API keys can create runs, record events, and upload evidence,
+but cannot approve their own runtime actions.
 
 Review/export helpers:
 

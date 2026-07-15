@@ -75,7 +75,14 @@ describe("hosted evidence push", () => {
       fetch: request as typeof fetch,
     });
 
-    expect(result).toEqual({ runId: "hosted-run-1", evidenceId: "hosted-evidence-1", externalId: "tripwire-run-1" });
+    expect(result).toEqual({
+      runId: "hosted-run-1",
+      evidenceId: "hosted-evidence-1",
+      externalId: "tripwire-run-1",
+      artifactsUploaded: 0,
+      artifactsSkipped: 0,
+      artifactBytesUploaded: 0,
+    });
     expect(calls.map((call) => call.url)).toEqual([
       "https://agentcert.example.com/v1/projects/project-1/runs",
       "https://agentcert.example.com/v1/projects/project-1/runs/hosted-run-1/events",
@@ -90,6 +97,85 @@ describe("hosted evidence push", () => {
       metadata: { evidenceId: "hosted-evidence-1" },
     });
     expect(String((calls[0].init?.headers as Record<string, string>).authorization)).toBe("Bearer ac_live_secret");
+  });
+
+  it("uploads bounded companion bytes with source paths and records skipped artifacts", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    let evidenceCount = 0;
+    const request = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, init });
+      if (url.endsWith("/runs")) return jsonResponse(201, { id: "hosted-run-1" });
+      if (url.includes("/evidence?")) return jsonResponse(201, { id: `hosted-evidence-${++evidenceCount}` });
+      return jsonResponse(200, {});
+    });
+    const screenshot = new TextEncoder().encode("png-bytes");
+
+    const result = await pushEvidenceToControlPlane({
+      baseUrl: "https://agentcert.example.com",
+      projectId: "project-1",
+      apiKey: "ac_live_secret",
+      bundle,
+      evidenceBytes: new TextEncoder().encode("{}"),
+      companionArtifacts: [{
+        sourcePath: "screenshots/step-1.png",
+        fileName: "step-1.png",
+        kind: "screenshot",
+        contentType: "image/png",
+        bytes: screenshot,
+      }],
+      skippedCompanionArtifacts: [{ sourcePath: "../secret.txt", reason: "outside_artifact_root" }],
+      fetch: request as typeof fetch,
+    });
+
+    expect(result).toMatchObject({ artifactsUploaded: 1, artifactsSkipped: 1, artifactBytesUploaded: screenshot.byteLength });
+    const artifactUpload = calls.find((call) => call.url.includes("fileName=step-1.png"));
+    expect(artifactUpload?.url).toContain("sourcePath=screenshots%2Fstep-1.png");
+    expect(artifactUpload?.init?.headers).toMatchObject({ "content-type": "image/png" });
+    expect(new Uint8Array(artifactUpload?.init?.body as ArrayBuffer)).toEqual(screenshot);
+    const artifactEvent = calls.find((call) => String(call.init?.body).includes("agentcert.companion_artifacts.processed"));
+    expect(JSON.parse(String(artifactEvent?.init?.body))).toMatchObject({
+      events: [{
+        sequence: 1,
+        payload: {
+          uploadedCount: 1,
+          skippedCount: 1,
+          skipped: [{ sourcePath: "../secret.txt", reason: "outside_artifact_root" }],
+        },
+      }],
+    });
+    expect(JSON.parse(String(calls.at(-1)?.init?.body))).toMatchObject({
+      metadata: { companionArtifactsUploaded: 1, companionArtifactsSkipped: 1 },
+    });
+  });
+
+  it("does not complete the hosted run when a companion upload fails", async () => {
+    const urls: string[] = [];
+    let evidenceCount = 0;
+    const request = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.endsWith("/runs")) return jsonResponse(201, { id: "hosted-run-1" });
+      if (url.includes("/evidence?")) {
+        evidenceCount += 1;
+        return evidenceCount === 1 ? jsonResponse(201, { id: "bundle-1" }) : jsonResponse(500, { error: "Artifact storage failed." });
+      }
+      return jsonResponse(200, {});
+    });
+
+    await expect(pushEvidenceToControlPlane({
+      baseUrl: "https://agentcert.example.com",
+      projectId: "project-1",
+      apiKey: "ac_live_secret",
+      bundle,
+      evidenceBytes: new TextEncoder().encode("{}"),
+      companionArtifacts: [{
+        sourcePath: "trace.json", fileName: "trace.json", kind: "trace",
+        contentType: "application/json", bytes: new TextEncoder().encode("{}"),
+      }],
+      fetch: request as typeof fetch,
+    })).rejects.toThrow("Artifact storage failed.");
+    expect(urls.some((url) => url.endsWith("/complete"))).toBe(false);
   });
 
   it("surfaces API errors without returning a partial success", async () => {

@@ -291,9 +291,19 @@ export class AgentCertControlPlane {
     auth: AuthContext,
     projectId: string,
     bytes: Buffer,
-    input: { fileName: string; contentType: string; kind: string; schemaVersion: string; runId?: string; actionId?: string },
+    input: {
+      fileName: string;
+      contentType: string;
+      kind: string;
+      schemaVersion: string;
+      runId?: string;
+      actionId?: string;
+      sourcePath?: string;
+    },
   ): Promise<EvidenceRecord> {
     await this.authorizeProject(auth, projectId);
+    const sourcePath = input.sourcePath?.trim();
+    if (sourcePath && sourcePath.length > 1024) throw new ControlPlaneError("sourcePath must be at most 1024 characters.");
     if (input.runId && !(await this.store.getRun(projectId, input.runId))) throw new ControlPlaneError("Run was not found.", 404);
     if (input.actionId && !(await this.store.getAction(projectId, input.actionId))) throw new ControlPlaneError("Action was not found.", 404);
     const sha256 = createHash("sha256").update(bytes).digest("hex");
@@ -309,7 +319,7 @@ export class AgentCertControlPlane {
     const evidence: EvidenceRecord = {
       id, projectId, runId: input.runId, actionId: input.actionId, kind: input.kind, schemaVersion: input.schemaVersion,
       objectKey, fileName: safeName, contentType: input.contentType, sha256,
-      sizeBytes: bytes.length, metadata: {}, createdAt: new Date().toISOString(),
+      sizeBytes: bytes.length, metadata: sourcePath ? { sourcePath } : {}, createdAt: new Date().toISOString(),
     };
     return this.store.insertEvidence(evidence);
   }

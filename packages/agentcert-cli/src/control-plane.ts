@@ -1,4 +1,9 @@
 import type { AgentCertBundle } from "./types.js";
+import {
+  MAX_REPORTED_COMPANION_ARTIFACT_SKIPS,
+  type PreparedCompanionArtifact,
+  type SkippedCompanionArtifact,
+} from "./companion-artifacts.js";
 
 export interface PushEvidenceOptions {
   baseUrl: string;
@@ -8,6 +13,8 @@ export interface PushEvidenceOptions {
   evidenceBytes: Uint8Array;
   fileName?: string;
   externalId?: string;
+  companionArtifacts?: PreparedCompanionArtifact[];
+  skippedCompanionArtifacts?: SkippedCompanionArtifact[];
   fetch?: typeof fetch;
 }
 
@@ -15,6 +22,9 @@ export interface PushEvidenceResult {
   runId: string;
   evidenceId: string;
   externalId: string;
+  artifactsUploaded: number;
+  artifactsSkipped: number;
+  artifactBytesUploaded: number;
 }
 
 export interface VerifyControlPlaneOptions {
@@ -125,6 +135,49 @@ export async function pushEvidenceToControlPlane(options: PushEvidenceOptions): 
     body: new Uint8Array(options.evidenceBytes).buffer as ArrayBuffer,
   });
 
+  const companionArtifacts = options.companionArtifacts ?? [];
+  const skippedArtifacts = options.skippedCompanionArtifacts ?? [];
+  let artifactBytesUploaded = 0;
+  for (const artifact of companionArtifacts) {
+    const artifactQuery = new URLSearchParams({
+      fileName: artifact.fileName,
+      kind: artifact.kind,
+      schemaVersion: options.bundle.schemaVersion,
+      runId: run.id,
+      sourcePath: artifact.sourcePath,
+    });
+    await requestJson(request, `${projectUrl}/evidence?${artifactQuery}`, {
+      method: "POST",
+      headers: { ...headers, "content-type": artifact.contentType },
+      body: new Uint8Array(artifact.bytes).buffer as ArrayBuffer,
+    });
+    artifactBytesUploaded += artifact.bytes.byteLength;
+  }
+
+  if (companionArtifacts.length > 0 || skippedArtifacts.length > 0) {
+    await requestJson(request, `${projectUrl}/runs/${encodeURIComponent(run.id)}/events`, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({
+        events: [{
+          sequence: 1,
+          type: "agentcert.companion_artifacts.processed",
+          actor: "agentcert-cli",
+          occurredAt: options.bundle.generatedAt,
+          payload: {
+            uploadedCount: companionArtifacts.length,
+            skippedCount: skippedArtifacts.length,
+            uploadedBytes: artifactBytesUploaded,
+            skipped: skippedArtifacts
+              .slice(0, MAX_REPORTED_COMPANION_ARTIFACT_SKIPS)
+              .map(({ sourcePath, reason }) => ({ sourcePath, reason })),
+            skippedDetailsTruncated: skippedArtifacts.length > MAX_REPORTED_COMPANION_ARTIFACT_SKIPS,
+          },
+        }],
+      }),
+    });
+  }
+
   const firstDivergence = options.bundle.evidence.find((item) => item.severity === "critical" || item.severity === "high")?.message;
   await requestJson(request, `${projectUrl}/runs/${encodeURIComponent(run.id)}/complete`, {
     method: "POST",
@@ -138,11 +191,21 @@ export async function pushEvidenceToControlPlane(options: PushEvidenceOptions): 
       metadata: {
         evidenceId: evidence.id,
         evidenceSchemaVersion: options.bundle.schemaVersion,
+        companionArtifactsUploaded: companionArtifacts.length,
+        companionArtifactsSkipped: skippedArtifacts.length,
+        companionArtifactBytesUploaded: artifactBytesUploaded,
       },
     }),
   });
 
-  return { runId: run.id, evidenceId: evidence.id, externalId };
+  return {
+    runId: run.id,
+    evidenceId: evidence.id,
+    externalId,
+    artifactsUploaded: companionArtifacts.length,
+    artifactsSkipped: skippedArtifacts.length,
+    artifactBytesUploaded,
+  };
 }
 
 function hostedRunKind(bundle: AgentCertBundle): "mcpbench" | "tripwire" | "release_gate" | "runtime" | "custom" {

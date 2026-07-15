@@ -187,6 +187,13 @@ npx agentcert connect --server https://app.agentcert.dev --project your-project-
 npx agentcert push --evidence .agentcert/latest/agentcert-evidence.json
 ```
 
+The CLI automatically uploads local companion artifacts referenced by the
+bundle. It only reads files under `--artifact-root` (default: the current
+directory), rejects path and symlink escapes, and enforces fixed limits of 25
+files, 10 MiB per file, and 50 MiB per push. The run timeline records uploaded
+and skipped counts plus bounded skip reasons. `--no-artifacts` preserves the
+bundle-only behavior for restricted environments.
+
 ## Open Registration
 
 The console displays **Create account** whenever `/v1/config` reports Supabase
