@@ -51,14 +51,20 @@ import {
   type RunProfileOverrides,
 } from "./runner.js";
 import { buildRobustnessLabSnapshot, readRobustnessLabConfig, renderRobustnessLabSummary, writeRobustnessLabSnapshot } from "./lab.js";
+import { renderCommandHelp } from "./command-help.js";
 import type { AgentCertBundle, AgentCertConfig, AgentCertResult } from "./types.js";
 
 process.on("uncaughtException", reportFatalError);
 process.on("unhandledRejection", reportFatalError);
 
 const command = process.argv[2] ?? "help";
+const commandHelp = process.argv.some((argument) => argument === "--help" || argument === "-h")
+  ? renderCommandHelp(command)
+  : undefined;
 
-if (command === "init") {
+if (commandHelp) {
+  process.stdout.write(commandHelp);
+} else if (command === "init") {
   const outPath = resolve(readFlag("--out") ?? "agentcert.config.json");
   const tripwireConfigPath = resolve(readFlag("--tripwire-config") ?? "tripwire.yml");
   const githubWorkflowPath = resolve(readFlag("--github-action-out") ?? ".github/workflows/agentcert-tripwire.yml");
