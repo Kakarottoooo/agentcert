@@ -1765,6 +1765,21 @@ button {
   gap: 16px;
 }
 
+.auth-secondary-action {
+  min-height: 40px;
+  color: var(--accent);
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.auth-secondary-action:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
 .auth-tabs {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
