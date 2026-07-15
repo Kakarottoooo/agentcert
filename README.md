@@ -79,6 +79,37 @@ Default outputs:
 - `.agentcert/latest/reviewed-failure-dataset.jsonl`
 - `.agentcert/latest/monitor.json`
 
+## Hosted Control Plane
+
+The optional hosted control plane turns the checked-in monitor into an
+authenticated operations console with open registration, project-scoped agent
+credentials, live run/event ingestion, runtime approval queues, observed-state
+verification, incident records, and private evidence storage.
+
+Machine integrations use REST, TypeScript, Python, or MCP. Agents never need to
+scrape the human dashboard, and project API keys cannot approve their own
+high-risk actions.
+
+```text
+packages/agentcert-control-plane  # Node API + Postgres + private artifacts
+packages/agentcert-sdk            # TypeScript client
+packages/agentcert-sdk-python     # Python client
+packages/agentcert-mcp-adapter    # MCP stdio tools
+```
+
+Production deployment: [docs/hosted-control-plane.md](docs/hosted-control-plane.md).
+API contract: [docs/openapi/control-plane-v1.yaml](docs/openapi/control-plane-v1.yaml).
+
+Once a project API key is created in **Integrations**, the existing CLI can
+publish the same validated evidence bundle it writes locally:
+
+```bash
+export AGENTCERT_BASE_URL="https://app.agentcert.dev"
+export AGENTCERT_PROJECT_ID="your-project-id"
+export AGENTCERT_API_KEY="ac_live_..."
+npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --push
+```
+
 ## GitHub Action
 
 ```yaml
@@ -257,9 +288,10 @@ $env:OPENAI_API_KEY = "<your key>"
 npm run tripwire:lab-stagehand
 ```
 
-The browser-use adapter reads model credentials from the shell and does not
-store secrets in the repository. AgentCert marks agents that require model keys
-as missing until you run them locally; it does not fabricate public-agent
+The browser-use and Stagehand adapters read model credentials from the shell
+and do not store secrets in the repository. The public matrix includes retained
+real-agent evidence; a new agent or model version remains missing until its own
+run is completed. AgentCert does not substitute fixture output for real-agent
 results.
 
 Lab snapshot schema: `schemas/agentcert-robustness-lab.schema.json`.

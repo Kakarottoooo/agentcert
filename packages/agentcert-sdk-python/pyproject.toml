@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentcert-sdk"
+version = "0.1.0"
+description = "Python client for the AgentCert hosted control plane"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [{ name = "AgentCert" }]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentcert_sdk"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: agentcert-control-plane
+    runtime: docker
+    dockerfilePath: ./Dockerfile.control-plane
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 10000
+      - key: AGENTCERT_DASHBOARD_DIR
+        value: /app/public-demo/agentcert-monitor
+      - key: AGENTCERT_STORAGE_BUCKET
+        value: agentcert-evidence
+      - key: AGENTCERT_MAX_ARTIFACT_BYTES
+        value: 20971520
+      - key: AGENTCERT_PUBLIC_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false

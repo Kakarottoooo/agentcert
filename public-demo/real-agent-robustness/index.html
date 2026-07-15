@@ -81,9 +81,9 @@
         <div>
           <h2>Run a real public agent: browser-use</h2>
           <p>
-            The checked-in page does not fabricate browser-use results. The adapter and config are included,
-            dependency import has been verified locally, and the lab marks browser-use as missing until
-            `OPENAI_API_KEY` is present for a real model-backed run.
+            The checked-in matrix includes a real browser-use run produced with a model key and retained as
+            evidence. Re-run the same adapter with your own `OPENAI_API_KEY` to compare a newer agent or model
+            version; AgentCert never substitutes fixture results for a requested real-agent run.
           </p>
         </div>
         <pre><code>python -m venv .venv-browser-use

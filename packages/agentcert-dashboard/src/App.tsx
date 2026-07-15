@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { compactBytes, compactDate, compactDuration, loadMonitorSnapshot, loadRunDetail, percent, submitFailureReview } from "./data";
+import HostedApp from "./HostedApp";
+import { detectHostedConfig, type HostedConfig } from "./hosted-api";
 import type {
   EvidenceArtifact,
   EvidenceTimelineItem,
@@ -39,6 +41,22 @@ const FAILURE_TYPES = [
 ];
 
 export default function App() {
+  const [hostedConfig, setHostedConfig] = useState<HostedConfig | null>();
+
+  useEffect(() => {
+    detectHostedConfig().then((config) => setHostedConfig(config ?? null));
+  }, []);
+
+  if (hostedConfig === undefined) {
+    return <div className="loading">Loading AgentCert...</div>;
+  }
+  if (hostedConfig) {
+    return <HostedApp config={hostedConfig} />;
+  }
+  return <MonitorApp />;
+}
+
+function MonitorApp() {
   const [snapshot, setSnapshot] = useState<MonitorSnapshot>();
   const [source, setSource] = useState<"api" | "static">("static");
   const [error, setError] = useState<string>();

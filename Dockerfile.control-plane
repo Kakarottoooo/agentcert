@@ -1,0 +1,22 @@
+FROM node:22-alpine AS build
+WORKDIR /app
+
+COPY packages/agentcert-dashboard/package*.json packages/agentcert-dashboard/
+COPY packages/agentcert-control-plane/package*.json packages/agentcert-control-plane/
+RUN npm --prefix packages/agentcert-dashboard ci && npm --prefix packages/agentcert-control-plane ci
+
+COPY packages/agentcert-dashboard packages/agentcert-dashboard
+COPY packages/agentcert-control-plane packages/agentcert-control-plane
+RUN npm --prefix packages/agentcert-dashboard run build && npm --prefix packages/agentcert-control-plane run build
+
+FROM node:22-alpine AS runtime
+ENV NODE_ENV=production
+WORKDIR /app
+COPY packages/agentcert-control-plane/package*.json packages/agentcert-control-plane/
+RUN npm --prefix packages/agentcert-control-plane ci --omit=dev
+COPY --from=build /app/packages/agentcert-control-plane/dist packages/agentcert-control-plane/dist
+COPY --from=build /app/packages/agentcert-control-plane/migrations packages/agentcert-control-plane/migrations
+COPY --from=build /app/public-demo/agentcert-monitor public-demo/agentcert-monitor
+EXPOSE 10000
+USER node
+CMD ["node", "packages/agentcert-control-plane/dist/cli.js"]

@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypedDict
 
@@ -53,7 +53,7 @@ async def record_event(state: BrowserTaskState, action: str, target: str, detail
     if not events_file:
         return
     payload = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "action": action,
         "target": target,
         "detail": detail,
@@ -83,7 +83,9 @@ async def main() -> None:
 def required_env(name: str) -> str:
     value = os.environ.get(name)
     if not value:
-        raise RuntimeError(f"Missing {name}. Tripwire injects this environment variable when it runs the agent.")
+        raise RuntimeError(
+            f"Missing {name}. Tripwire injects this environment variable when it runs the agent."
+        )
     return value
 
 

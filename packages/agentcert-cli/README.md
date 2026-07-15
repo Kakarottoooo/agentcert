@@ -34,6 +34,19 @@ Default outputs:
 - `.agentcert/latest/reviewed-failure-dataset.jsonl`
 - `.agentcert/latest/monitor.json`
 
+Push the validated evidence bundle into a hosted AgentCert project:
+
+```bash
+export AGENTCERT_BASE_URL="https://agentcert.example.com"
+export AGENTCERT_PROJECT_ID="your-project-id"
+export AGENTCERT_API_KEY="ac_live_..."
+npx agentcert push --evidence .agentcert/latest/agentcert-evidence.json
+```
+
+Add `--push` to `agentcert run` to run locally and upload the resulting bundle
+in one command. Project API keys can create runs, record events, and upload
+evidence, but cannot approve their own runtime actions.
+
 Review/export helpers:
 
 ```bash

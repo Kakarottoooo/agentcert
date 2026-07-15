@@ -1,0 +1,17 @@
+.git
+.github
+.agentcert
+.mcpbench
+.tripwire
+.venv
+**/.env
+**/node_modules
+**/dist
+**/__pycache__
+*.log
+*.tgz
+build
+coverage
+htmlcov
+playwright-report
+test-results
