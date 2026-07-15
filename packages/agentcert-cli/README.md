@@ -37,9 +37,7 @@ Default outputs:
 Push the validated evidence bundle into a hosted AgentCert project:
 
 ```bash
-export AGENTCERT_BASE_URL="https://agentcert.example.com"
-export AGENTCERT_PROJECT_ID="your-project-id"
-export AGENTCERT_API_KEY="ac_live_..."
+npx agentcert connect --server https://agentcert-control-plane.onrender.com --project your-project-id
 npx agentcert push --evidence .agentcert/latest/agentcert-evidence.json
 ```
 

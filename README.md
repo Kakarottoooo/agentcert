@@ -101,15 +101,15 @@ Production deployment: [docs/hosted-control-plane.md](docs/hosted-control-plane.
 API contract: [docs/openapi/control-plane-v1.yaml](docs/openapi/control-plane-v1.yaml).
 Public control plane: [agentcert-control-plane.onrender.com](https://agentcert-control-plane.onrender.com/).
 
-Once a project API key is created in **Integrations**, the existing CLI can
+Once a project API key is created in **Integrations**, connect the CLI once and
 publish the same validated evidence bundle it writes locally:
 
 ```bash
-export AGENTCERT_BASE_URL="https://agentcert-control-plane.onrender.com"
-export AGENTCERT_PROJECT_ID="your-project-id"
-export AGENTCERT_API_KEY="ac_live_..."
+npx agentcert connect --server https://agentcert-control-plane.onrender.com --project your-project-id
 npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --push
 ```
+
+External evaluation protocol: [docs/external-pilot.md](docs/external-pilot.md).
 
 ## GitHub Action
 
@@ -152,6 +152,12 @@ runs the public `@v0` action without an AgentCert source checkout, produces a
 validated `agentcert.evidence.v0.1` bundle, and uploads it to the hosted control
 plane. Its [workflow history](https://github.com/Kakarottoooo/agentcert-external-smoke/actions/workflows/agentcert.yml)
 is public.
+
+Teams testing a real agent can use the
+[external pilot protocol](docs/external-pilot.md) and submit onboarding friction
+through the **External pilot report** issue form. A failed agent run is useful
+pilot evidence; the goal is reproducibility and explainability, not a forced
+pass.
 
 Add `publish-pages: "true"` (plus `permissions: contents: write`) and the
 action also hosts your evidence reports on GitHub Pages and prints a clickable

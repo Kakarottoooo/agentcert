@@ -17,6 +17,57 @@ export interface PushEvidenceResult {
   externalId: string;
 }
 
+export interface VerifyControlPlaneOptions {
+  baseUrl: string;
+  projectId: string;
+  apiKey: string;
+  fetch?: typeof fetch;
+}
+
+export interface VerifiedControlPlaneConnection {
+  projectId: string;
+  runs: number;
+  evidence: number;
+}
+
+export class ControlPlaneRequestError extends Error {
+  constructor(message: string, readonly status?: number) {
+    super(message);
+    this.name = "ControlPlaneRequestError";
+  }
+}
+
+export async function verifyControlPlaneConnection(
+  options: VerifyControlPlaneOptions,
+): Promise<VerifiedControlPlaneConnection> {
+  const baseUrl = options.baseUrl.replace(/\/$/, "");
+  const request = options.fetch ?? fetch;
+  try {
+    const overview = await requestJson<{
+      projectId: string;
+      summary: { runs?: number; evidence?: number };
+    }>(request, `${baseUrl}/v1/projects/${encodeURIComponent(options.projectId)}/overview`, {
+      headers: { authorization: `Bearer ${options.apiKey}` },
+    });
+    return {
+      projectId: overview.projectId,
+      runs: overview.summary.runs ?? 0,
+      evidence: overview.summary.evidence ?? 0,
+    };
+  } catch (error) {
+    if (error instanceof ControlPlaneRequestError && error.status === 401) {
+      throw new Error("AgentCert API key was rejected. Create a new project API key and try again.");
+    }
+    if (error instanceof ControlPlaneRequestError && error.status === 403) {
+      throw new Error(`AgentCert API key cannot access project ${options.projectId}. Check the project ID and key scope.`);
+    }
+    if (error instanceof ControlPlaneRequestError && error.status === 404) {
+      throw new Error(`AgentCert project ${options.projectId} was not found.`);
+    }
+    throw error;
+  }
+}
+
 export async function pushEvidenceToControlPlane(options: PushEvidenceOptions): Promise<PushEvidenceResult> {
   const baseUrl = options.baseUrl.replace(/\/$/, "");
   if (!baseUrl || !options.projectId || !options.apiKey) {
@@ -113,7 +164,7 @@ async function requestJson<T extends Record<string, unknown>>(
     response = await request(url, { ...init, signal: init.signal ?? AbortSignal.timeout(30_000) });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`AgentCert control plane request failed: ${message}`);
+    throw new ControlPlaneRequestError(`AgentCert control plane request failed: ${message}`);
   }
   const text = await response.text();
   let value: Record<string, unknown> = {};
@@ -121,12 +172,15 @@ async function requestJson<T extends Record<string, unknown>>(
     try {
       value = JSON.parse(text) as Record<string, unknown>;
     } catch {
-      if (!response.ok) throw new Error(`AgentCert control plane returned HTTP ${response.status}.`);
-      throw new Error("AgentCert control plane returned invalid JSON.");
+      if (!response.ok) throw new ControlPlaneRequestError(`AgentCert control plane returned HTTP ${response.status}.`, response.status);
+      throw new ControlPlaneRequestError("AgentCert control plane returned invalid JSON.", response.status);
     }
   }
   if (!response.ok) {
-    throw new Error(typeof value.error === "string" ? value.error : `AgentCert control plane returned HTTP ${response.status}.`);
+    throw new ControlPlaneRequestError(
+      typeof value.error === "string" ? value.error : `AgentCert control plane returned HTTP ${response.status}.`,
+      response.status,
+    );
   }
   return value as T;
 }

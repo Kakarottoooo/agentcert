@@ -1370,6 +1370,103 @@ button {
   text-transform: uppercase;
 }
 
+.onboarding-band {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px 28px;
+  align-items: start;
+  margin-bottom: 18px;
+  padding: 22px;
+  background: #f7fbff;
+  border: 1px solid #b8cee6;
+  border-left: 4px solid var(--accent);
+}
+
+.onboarding-band.complete {
+  background: #f1fbf7;
+  border-color: #a9d9c5;
+  border-left-color: var(--teal);
+}
+
+.onboarding-copy h2,
+.connection-quickstart h2 {
+  margin: 5px 0 7px;
+  font-size: 20px;
+}
+
+.onboarding-copy p,
+.connection-quickstart p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.onboarding-band > button {
+  min-height: 36px;
+  padding: 0 12px;
+  color: var(--accent);
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.onboarding-band ol {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding-band li {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 54px;
+  padding: 9px 11px;
+  background: white;
+  border: 1px solid var(--border);
+}
+
+.onboarding-band li > b {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+}
+
+.onboarding-band li.done > b {
+  color: white;
+  background: var(--teal);
+  border-color: var(--teal);
+}
+
+.onboarding-band li span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.onboarding-band li strong,
+.onboarding-band li small {
+  overflow-wrap: anywhere;
+}
+
+.onboarding-band li small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .control-metrics {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1565,6 +1662,7 @@ button {
   border-radius: 6px;
   cursor: pointer;
   font-weight: 800;
+  white-space: nowrap;
 }
 
 .primary-action.compact {
@@ -1663,6 +1761,48 @@ button {
   gap: 18px;
 }
 
+.connection-quickstart {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(360px, 1.2fr);
+  gap: 24px;
+  align-items: center;
+  padding: 20px;
+  background: #f7fbff;
+  border: 1px solid #b8cee6;
+  border-left: 4px solid var(--accent);
+}
+
+.connection-quickstart pre {
+  min-width: 0;
+  overflow-x: auto;
+  margin: 0;
+  padding: 14px;
+  color: #e2e8f0;
+  background: #10233f;
+  border-radius: 5px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.secret-box > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.secret-box button {
+  min-height: 32px;
+  padding: 0 10px;
+  color: var(--accent);
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: 750;
+}
+
 .integration-layout pre,
 .secret-box code {
   display: block;
@@ -1675,6 +1815,10 @@ button {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 12px;
   line-height: 1.6;
+}
+
+.connection-quickstart pre {
+  margin: 0;
 }
 
 .key-revoke-actions {
@@ -1839,8 +1983,14 @@ button {
   }
   .control-metrics,
   .operations-band,
-  .inline-form {
+  .inline-form,
+  .connection-quickstart,
+  .onboarding-band,
+  .onboarding-band ol {
     grid-template-columns: 1fr;
+  }
+  .onboarding-band > button {
+    width: fit-content;
   }
   .control-metrics > div {
     min-height: 96px;

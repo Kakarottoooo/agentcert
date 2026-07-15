@@ -161,8 +161,9 @@ fallbacks, but new deployments should use the current key types above.
    permissions it is allowed to request.
 2. Open **Integrations**, select **Create API key**, and copy the secret
    immediately; only its hash is retained.
-3. Set `AGENTCERT_BASE_URL`, `AGENTCERT_PROJECT_ID`, and
-   `AGENTCERT_API_KEY` in the external agent's secret manager.
+3. Run the project-specific `agentcert connect` command shown in
+   **Integrations**. For CI, set `AGENTCERT_BASE_URL`,
+   `AGENTCERT_PROJECT_ID`, and `AGENTCERT_API_KEY` in the secret manager.
 4. Start one run, append events, complete the run, and confirm it appears in
    **Runs**.
 5. Propose a high-risk action and confirm that the Agent credential cannot
@@ -173,9 +174,7 @@ fallbacks, but new deployments should use the current key types above.
 Existing CLI users can publish without adopting an SDK:
 
 ```bash
-export AGENTCERT_BASE_URL="https://app.agentcert.dev"
-export AGENTCERT_PROJECT_ID="your-project-id"
-export AGENTCERT_API_KEY="ac_live_..."
+npx agentcert connect --server https://app.agentcert.dev --project your-project-id
 npx agentcert push --evidence .agentcert/latest/agentcert-evidence.json
 ```
 

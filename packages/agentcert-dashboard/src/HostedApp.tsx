@@ -162,15 +162,15 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
         <header className="hosted-header"><div><span className="eyebrow">{project?.slug ?? "workspace"}</span><h1>{viewTitle(view)}</h1></div><button onClick={() => void refresh()} disabled={loading}>Refresh</button></header>
         {error ? <div className="console-error">{error}</div> : null}
         {!data || !project ? <div className="loading">Loading control plane...</div> : (
-          <HostedViewContent view={view} data={data} project={project} session={session} refresh={refresh} />
+          <HostedViewContent view={view} data={data} project={project} session={session} refresh={refresh} onNavigate={setView} />
         )}
       </main>
     </div>
   );
 }
 
-function HostedViewContent({ view, data, project, session, refresh }: { view: HostedView; data: ConsoleData; project: HostedProject; session: HostedSession; refresh: () => Promise<void> }) {
-  if (view === "overview") return <HostedOverviewView data={data} />;
+function HostedViewContent({ view, data, project, session, refresh, onNavigate }: { view: HostedView; data: ConsoleData; project: HostedProject; session: HostedSession; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
+  if (view === "overview") return <HostedOverviewView data={data} project={project} onNavigate={onNavigate} />;
   if (view === "agents") return <AgentsView agents={data.agents} project={project} session={session} refresh={refresh} />;
   if (view === "runs") return <RunsTable runs={data.runs} />;
   if (view === "gates") return <RunsTable runs={data.runs.filter((run) => run.kind === "release_gate")} empty="No release-gate runs have been ingested." />;
@@ -180,9 +180,23 @@ function HostedViewContent({ view, data, project, session, refresh }: { view: Ho
   return <IntegrationsView project={project} session={session} />;
 }
 
-function HostedOverviewView({ data }: { data: ConsoleData }) {
+function HostedOverviewView({ data, project, onNavigate }: { data: ConsoleData; project: HostedProject; onNavigate: (view: HostedView) => void }) {
   const summary = data.overview.summary;
+  const firstEvidenceReady = summary.runs > 0 && summary.evidence > 0;
   return <>
+    <section className={`onboarding-band ${firstEvidenceReady ? "complete" : ""}`}>
+      <div className="onboarding-copy">
+        <span className="eyebrow">{firstEvidenceReady ? "Connection verified" : "First evidence"}</span>
+        <h2>{firstEvidenceReady ? "This project is receiving AgentCert evidence." : "Connect an external agent in three steps."}</h2>
+        <p>{firstEvidenceReady ? `${summary.runs} runs and ${summary.evidence} evidence objects are available for review.` : "Create a project key, connect the CLI, then push one deterministic run. The API key remains project-scoped and cannot approve runtime actions."}</p>
+      </div>
+      {firstEvidenceReady ? <button onClick={() => onNavigate("runs")}>Review runs</button> : <button className="primary-action compact" onClick={() => onNavigate("integrations")}>Open integrations</button>}
+      <ol>
+        <li className="done"><b>1</b><span><strong>Workspace ready</strong><small>{project.name}</small></span></li>
+        <li className={firstEvidenceReady ? "done" : ""}><b>2</b><span><strong>CLI connected</strong><small>Validated project credentials</small></span></li>
+        <li className={firstEvidenceReady ? "done" : ""}><b>3</b><span><strong>Evidence received</strong><small>Run, report, and provenance</small></span></li>
+      </ol>
+    </section>
     <section className="control-metrics">
       <ControlMetric label="Registered agents" value={summary.agents} />
       <ControlMetric label="Recent runs" value={summary.runs} detail={`${summary.passingRuns} passing`} />
@@ -221,13 +235,13 @@ function IncidentsView({ incidents }: { incidents: HostedIncident[] }) { return 
 function EvidenceView({ evidence, project, session }: { evidence: HostedEvidence[]; project: HostedProject; session: HostedSession }) { return <section className="data-section"><SectionTitle title="Evidence" caption="Private artifacts with SHA-256 provenance" /><div className="entity-list">{evidence.map((item) => <article key={item.id}><div><strong>{item.fileName}</strong><span>{item.kind} · {item.schemaVersion}</span></div><div><b>{compactBytes(item.sizeBytes)}</b><span className="hash">{item.sha256.slice(0, 20)}...</span></div><button onClick={() => void downloadEvidence(session, evidenceContentUrl(project.id, item.id), item.fileName)}>Open</button></article>)}{evidence.length === 0 ? <EmptyHosted text="No evidence uploaded yet." /> : null}</div></section>; }
 
 function IntegrationsView({ project, session }: { project: HostedProject; session: HostedSession }) {
-  const [secret, setSecret] = useState<string>(); const [error, setError] = useState<string>(); const [keys, setKeys] = useState<HostedApiKey[]>([]); const [pendingRevoke, setPendingRevoke] = useState<string>();
+  const [secret, setSecret] = useState<string>(); const [copied, setCopied] = useState(false); const [error, setError] = useState<string>(); const [keys, setKeys] = useState<HostedApiKey[]>([]); const [pendingRevoke, setPendingRevoke] = useState<string>();
   const refreshKeys = useCallback(async () => { try { setKeys(await loadHostedApiKeys(session, project.id)); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }, [project.id, session]);
   useEffect(() => { void refreshKeys(); }, [refreshKeys]);
   async function createKey() { try { const result = await createHostedApiKey(session, project.id, "Default integration"); setSecret(result.secret); await refreshKeys(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }
   async function revokeKey(id: string) { try { await revokeHostedApiKey(session, project.id, id); setPendingRevoke(undefined); await refreshKeys(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }
   const endpoint = window.location.origin;
-  return <div className="integration-layout"><section className="data-section"><div className="section-actions"><SectionTitle title="API access" caption="Project-scoped credentials for agents and CI" /><button className="primary-action compact" onClick={() => void createKey()}>Create API key</button></div>{secret ? <div className="secret-box"><strong>Copy this key now. It will not be shown again.</strong><code>{secret}</code></div> : null}{error ? <div className="form-error">{error}</div> : null}<div className="entity-list key-list">{keys.map((key) => <article key={key.id}><div><strong>{key.name}</strong><span>{key.prefix}...</span></div><div><b>{key.revokedAt ? "Revoked" : "Active"}</b><span>{key.lastUsedAt ? `Last used ${compactTime(key.lastUsedAt)}` : "Never used"}</span></div>{key.revokedAt ? null : pendingRevoke === key.id ? <div className="key-revoke-actions"><button onClick={() => setPendingRevoke(undefined)}>Cancel</button><button className="danger-action" onClick={() => void revokeKey(key.id)}>Confirm revoke</button></div> : <button onClick={() => setPendingRevoke(key.id)}>Revoke</button>}</article>)}{keys.length === 0 ? <EmptyHosted text="No API keys created yet." /> : null}</div></section><section className="data-section"><SectionTitle title="Agent environment" caption="Works with the TypeScript SDK, Python SDK, REST, and MCP adapter" /><pre>{`AGENTCERT_BASE_URL=${endpoint}\nAGENTCERT_PROJECT_ID=${project.id}\nAGENTCERT_API_KEY=ac_live_...`}</pre></section><section className="data-section"><SectionTitle title="First run" caption="Create a run, append events, then complete it" /><pre>{`npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --push\n# or use @agentcert/sdk / agentcert-sdk-python / MCP`}</pre></section></div>;
+  return <div className="integration-layout"><section className="connection-quickstart"><div><span className="eyebrow">Recommended</span><h2>Connect this project once</h2><p>The CLI validates the key before storing it in your user profile. Future push commands reuse the saved connection.</p></div><pre>{`npx agentcert connect --server ${endpoint} --project ${project.id}`}</pre></section><section className="data-section"><div className="section-actions"><SectionTitle title="API access" caption="Project-scoped credentials for agents and CI" /><button className="primary-action compact" onClick={() => void createKey()}>Create API key</button></div>{secret ? <div className="secret-box"><div><strong>Copy this key now. It will not be shown again.</strong><button onClick={() => { void navigator.clipboard.writeText(secret); setCopied(true); }}>{copied ? "Copied" : "Copy key"}</button></div><code>{secret}</code></div> : null}{error ? <div className="form-error">{error}</div> : null}<div className="entity-list key-list">{keys.map((key) => <article key={key.id}><div><strong>{key.name}</strong><span>{key.prefix}...</span></div><div><b>{key.revokedAt ? "Revoked" : "Active"}</b><span>{key.lastUsedAt ? `Last used ${compactTime(key.lastUsedAt)}` : "Never used"}</span></div>{key.revokedAt ? null : pendingRevoke === key.id ? <div className="key-revoke-actions"><button onClick={() => setPendingRevoke(undefined)}>Cancel</button><button className="danger-action" onClick={() => void revokeKey(key.id)}>Confirm revoke</button></div> : <button onClick={() => setPendingRevoke(key.id)}>Revoke</button>}</article>)}{keys.length === 0 ? <EmptyHosted text="No API keys created yet. Create one, then run the connection command above." /> : null}</div></section><section className="data-section"><SectionTitle title="First upload" caption="Run locally, then send the validated evidence bundle" /><pre>{`npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --push\n# or: npx agentcert push --evidence .agentcert/latest/agentcert-evidence.json`}</pre></section><section className="data-section"><SectionTitle title="CI environment" caption="Use secret-manager variables for ephemeral runners and SDK integrations" /><pre>{`AGENTCERT_BASE_URL=${endpoint}\nAGENTCERT_PROJECT_ID=${project.id}\nAGENTCERT_API_KEY=ac_live_...`}</pre></section></div>;
 }
 
 function ActionRows({ actions }: { actions: HostedAction[] }) { return <div className="compact-list">{actions.map((action) => <div key={action.id}><strong>{action.externalId}</strong><span>{action.actionType} · {action.riskLevel}</span><Status value={action.status} /></div>)}{actions.length === 0 ? <EmptyHosted text="No actions waiting for approval." /> : null}</div>; }
