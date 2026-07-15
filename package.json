@@ -37,9 +37,9 @@
     "dashboard:dev": "npm --prefix packages/agentcert-dashboard run dev",
     "agentcert:monitor-build": "npm run agentcert:run-public && npm run dashboard:build",
     "agentcert:serve": "npm run agentcert:monitor-build && node packages/agentcert-cli/dist/cli.js serve --corpus public-demo/browser-agent-robustness/evidence/agentcert-corpus.jsonl --artifact-root public-demo/browser-agent-robustness/evidence/tripwire-public-demo --static public-demo/agentcert-monitor --subject agentcert-public-demo",
-    "control-plane:install": "npm --prefix packages/agentcert-control-plane install && npm --prefix packages/agentcert-sdk install && npm --prefix packages/agentcert-mcp-adapter install",
+    "control-plane:install": "npm --prefix packages/agentcert-dashboard ci && npm --prefix packages/agentcert-control-plane ci && npm --prefix packages/agentcert-sdk ci && npm --prefix packages/agentcert-mcp-adapter ci",
     "control-plane:build": "npm --prefix packages/agentcert-dashboard run build && npm --prefix packages/agentcert-control-plane run build && npm --prefix packages/agentcert-sdk run build && npm --prefix packages/agentcert-mcp-adapter run build",
-    "control-plane:test": "npm --prefix packages/agentcert-control-plane test && npm --prefix packages/agentcert-sdk test && npm --prefix packages/agentcert-mcp-adapter test",
+    "control-plane:test": "npm --prefix packages/agentcert-control-plane test && npm --prefix packages/agentcert-sdk test && npm --prefix packages/agentcert-sdk run build && npm --prefix packages/agentcert-mcp-adapter test",
     "control-plane:dev": "npm run control-plane:build && node packages/agentcert-control-plane/dist/cli.js",
     "check": "npm run tripwire:build && npm run tripwire:test && npm run onegent:build && npm run onegent:test && npm run agentcert:build && npm run agentcert:test"
   },
