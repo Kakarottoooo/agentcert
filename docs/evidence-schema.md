@@ -51,6 +51,29 @@ independent reviewer must decide who controls and trusts that key.
 - `artifacts`: named paths for reports, traces, screenshots, DOM, or audit files.
 - `standards`: mapping notes and non-certification language.
 
+`artifactManifest` is an optional v0.1 extension for byte-level hosted
+reconciliation. New `agentcert push` uploads add it automatically:
+
+```json
+{
+  "artifactManifest": {
+    "schemaVersion": "agentcert.artifact_manifest.v0.1",
+    "entries": [
+      {
+        "path": "screenshots/step-1.png",
+        "sha256": "64 lowercase hexadecimal characters",
+        "sizeBytes": 42831,
+        "kind": "screenshot"
+      }
+    ]
+  }
+}
+```
+
+The field stays optional so existing `agentcert.evidence.v0.1` files remain
+readable. A hosted run without it is explicitly `partial` and `legacy`; it is
+never presented as byte-reconciled evidence.
+
 Optional metadata may appear inside evidence findings and product-specific
 artifacts. Consumers should ignore unknown optional fields and fail closed when
 required top-level fields or required enum values are missing.

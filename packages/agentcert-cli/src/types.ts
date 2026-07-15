@@ -4,6 +4,19 @@ export type AgentCertPhase = "pre-release" | "runtime";
 
 export const AGENTCERT_EVIDENCE_SCHEMA_VERSION = "agentcert.evidence.v0.1" as const;
 export const AGENTCERT_EVIDENCE_SCHEMA_SEMVER = "0.1.0" as const;
+export const AGENTCERT_ARTIFACT_MANIFEST_VERSION = "agentcert.artifact_manifest.v0.1" as const;
+
+export interface AgentCertArtifactManifestEntry {
+  path: string;
+  sha256: string;
+  sizeBytes: number;
+  kind: string;
+}
+
+export interface AgentCertArtifactManifest {
+  schemaVersion: typeof AGENTCERT_ARTIFACT_MANIFEST_VERSION;
+  entries: AgentCertArtifactManifestEntry[];
+}
 
 export interface AgentCertEvidence {
   id: string;
@@ -55,6 +68,7 @@ export interface AgentCertBundle {
   results: AgentCertResult[];
   evidence: AgentCertEvidence[];
   artifacts: Record<string, string>;
+  artifactManifest?: AgentCertArtifactManifest;
   standards: Array<{
     id: string;
     name: string;

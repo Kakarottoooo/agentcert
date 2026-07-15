@@ -208,6 +208,13 @@ files, 10 MiB per file, and 50 MiB per push. The run timeline records uploaded
 and skipped counts plus bounded skip reasons. `--no-artifacts` preserves the
 bundle-only behavior for restricted environments.
 
+Before upload, the CLI adds an `agentcert.artifact_manifest.v0.1` declaration
+containing each companion artifact's normalized path, SHA-256 digest, byte
+size, and kind. The bundle is stored first. Every later companion upload is
+checked against that stored declaration before object storage. Undeclared or
+mismatched bytes return `422` and mark the run's latest evidence attempt as
+rejected.
+
 ## Evidence Storage Governance
 
 The production defaults are 1 GiB stored evidence per project, 100 MiB per
@@ -235,9 +242,42 @@ node packages/agentcert-control-plane/dist/cli.js cleanup-evidence
 Storage quota, object count, and retention are visible on the project overview.
 Each run shows evidence bytes, the earliest expiry date, and one of:
 
-- `complete`: the bundle and every reported companion upload are present;
+- `complete`: a v0.1 manifest is present and every declared path, SHA-256,
+  byte size, and kind exactly matches the hosted object;
 - `partial`: a bundle or referenced companion artifact is missing or skipped;
 - `rejected`: the most recent upload attempt violated storage policy.
+
+Older bundles without a manifest remain readable but are reported as
+`partial` with legacy reconciliation status.
+
+### Enterprise legal hold
+
+Evidence is deleted after 90 days by default. Project owners and admins can
+apply for a legal hold from the **Evidence** view or API. A `requested` hold
+does not pause cleanup. Only a platform administrator listed in
+`AGENTCERT_PLATFORM_ADMIN_EMAILS` can approve, reject, or release it, and the
+requester cannot approve their own application. Approval represents an
+operator decision that enterprise eligibility and preservation scope have
+been verified outside the application.
+
+```bash
+# Project owner/admin
+curl -X POST "$AGENTCERT_URL/v1/projects/$PROJECT_ID/legal-holds" \
+  -H "Authorization: Bearer $USER_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"Preserve evidence for an active enterprise legal matter."}'
+
+# Platform administrator
+curl -X POST "$AGENTCERT_URL/v1/admin/legal-hold-requests/$REQUEST_ID/approve" \
+  -H "Authorization: Bearer $PLATFORM_ADMIN_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"reviewNote":"Enterprise eligibility and legal scope confirmed."}'
+```
+
+Approved holds exempt the whole project from scheduled evidence cleanup until
+an administrator calls the corresponding `/release` endpoint. Releasing a
+hold does not immediately delete data; it makes expired objects eligible for
+the next bounded cleanup pass.
 
 ## Open Registration
 

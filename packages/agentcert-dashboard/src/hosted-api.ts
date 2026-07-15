@@ -147,7 +147,32 @@ export interface HostedRunAnalysis {
     remainingBytes: number;
     retentionDays: number;
     expiresAt?: string;
+    legalHoldActive: boolean;
+    reconciliation: {
+      manifestVersion?: string;
+      declared: number;
+      matched: number;
+      missing: string[];
+      mismatched: Array<{ path: string; fields: string[] }>;
+      unexpected: string[];
+      legacy: boolean;
+    };
   };
+}
+
+export interface HostedLegalHoldRequest {
+  id: string;
+  projectId: string;
+  status: "requested" | "approved" | "rejected" | "released";
+  reason: string;
+  requestedByEmail?: string;
+  requestedAt: string;
+  reviewedByEmail?: string;
+  reviewNote?: string;
+  reviewedAt?: string;
+  releasedByEmail?: string;
+  releaseNote?: string;
+  releasedAt?: string;
 }
 
 export interface HostedApiKey {
@@ -167,6 +192,7 @@ export interface HostedOverview {
     remainingBytes: number;
     retentionDays: number;
     acceptedFormats: string[];
+    legalHold: HostedLegalHoldRequest | null;
   };
   summary: {
     agents: number;
@@ -333,6 +359,14 @@ export async function loadHostedIncidents(session: HostedSession, projectId: str
 
 export async function loadHostedEvidence(session: HostedSession, projectId: string): Promise<HostedEvidence[]> {
   return (await apiRequest<{ evidence: HostedEvidence[] }>(session, path(projectId, "evidence"))).evidence;
+}
+
+export async function requestHostedLegalHold(
+  session: HostedSession,
+  projectId: string,
+  reason: string,
+): Promise<HostedLegalHoldRequest> {
+  return apiRequest(session, path(projectId, "legal-holds"), { method: "POST", body: JSON.stringify({ reason }) });
 }
 
 export async function createHostedApiKey(session: HostedSession, projectId: string, name: string): Promise<{ secret: string; apiKey: { prefix: string; name: string } }> {

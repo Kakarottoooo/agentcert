@@ -53,12 +53,15 @@ class AgentCertClient:
         schema_version: str = "agentcert.evidence.v0.1",
         run_id: str | None = None,
         action_id: str | None = None,
+        source_path: str | None = None,
     ) -> dict[str, Any]:
         query = {"fileName": file_name, "kind": kind, "schemaVersion": schema_version}
         if run_id:
             query["runId"] = run_id
         if action_id:
             query["actionId"] = action_id
+        if source_path:
+            query["sourcePath"] = source_path
         return self._request(
             f"evidence?{urllib.parse.urlencode(query)}",
             method="POST",

@@ -6,6 +6,7 @@ export type ActionStatus = "ALLOWED" | "DENIED" | "PENDING_APPROVAL" | "APPROVED
 export type IncidentSeverity = "low" | "medium" | "high" | "critical";
 export type FailureReviewStatus = "confirmed" | "corrected";
 export type EvidenceCompletenessStatus = "complete" | "partial" | "rejected";
+export type LegalHoldStatus = "requested" | "approved" | "rejected" | "released";
 export type FailureType =
   | "prompt_injection"
   | "wrong_click"
@@ -134,6 +135,28 @@ export interface EvidenceStorageUsage {
   bytes: number;
 }
 
+export interface EvidenceArtifactManifestEntry {
+  path: string;
+  sha256: string;
+  sizeBytes: number;
+  kind: string;
+}
+
+export interface EvidenceArtifactManifest {
+  schemaVersion: "agentcert.artifact_manifest.v0.1";
+  entries: EvidenceArtifactManifestEntry[];
+}
+
+export interface EvidenceReconciliation {
+  manifestVersion?: string;
+  declared: number;
+  matched: number;
+  missing: string[];
+  mismatched: Array<{ path: string; fields: string[] }>;
+  unexpected: string[];
+  legacy: boolean;
+}
+
 export interface EvidenceCompleteness {
   status: EvidenceCompletenessStatus;
   reasons: string[];
@@ -143,6 +166,26 @@ export interface EvidenceCompleteness {
   remainingBytes: number;
   retentionDays: number;
   expiresAt?: string;
+  legalHoldActive: boolean;
+  reconciliation: EvidenceReconciliation;
+}
+
+export interface LegalHoldRequestRecord {
+  id: string;
+  projectId: string;
+  status: LegalHoldStatus;
+  reason: string;
+  requestedBy: string;
+  requestedByEmail?: string;
+  requestedAt: string;
+  reviewedBy?: string;
+  reviewedByEmail?: string;
+  reviewNote?: string;
+  reviewedAt?: string;
+  releasedBy?: string;
+  releasedByEmail?: string;
+  releaseNote?: string;
+  releasedAt?: string;
 }
 
 export interface IncidentRecord {

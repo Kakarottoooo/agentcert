@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   loadHostedRunAnalysis,
   readHostedAuthCallbackError,
+  requestHostedLegalHold,
   resendSignUpConfirmation,
   reviewHostedFailure,
   type HostedConfig,
@@ -82,6 +83,28 @@ describe("hosted run analysis", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/v1/projects/project-1/runs/run-1/analysis",
       expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer user-token" }) }),
+    );
+  });
+
+  it("submits legal hold applications through the project-scoped endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "hold-1", status: "requested" }), {
+      status: 201,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await requestHostedLegalHold(
+      { accessToken: "user-token" },
+      "project-1",
+      "Preserve evidence for an active enterprise legal matter.",
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/v1/projects/project-1/legal-holds",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ reason: "Preserve evidence for an active enterprise legal matter." }),
+      }),
     );
   });
 

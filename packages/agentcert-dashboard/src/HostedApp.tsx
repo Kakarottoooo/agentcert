@@ -13,6 +13,7 @@ import {
   loadOverview,
   readHostedAuthCallbackError,
   readHostedSession,
+  requestHostedLegalHold,
   resendSignUpConfirmation,
   reviewHostedAction,
   revokeHostedApiKey,
@@ -178,7 +179,7 @@ function HostedViewContent({ view, data, project, session, refresh, onNavigate }
   if (view === "gates") return <RunsTable runs={data.runs.filter((run) => run.kind === "release_gate")} empty="No release-gate runs have been ingested." />;
   if (view === "actions") return <ActionsView actions={data.actions} project={project} session={session} refresh={refresh} />;
   if (view === "incidents") return <IncidentsView incidents={data.incidents} />;
-  if (view === "evidence") return <EvidenceView evidence={data.evidence} project={project} session={session} />;
+  if (view === "evidence") return <EvidenceView evidence={data.evidence} overview={data.overview} project={project} session={session} refresh={refresh} />;
   return <IntegrationsView project={project} session={session} />;
 }
 
@@ -207,7 +208,7 @@ function HostedOverviewView({ data, project, onNavigate }: { data: ConsoleData; 
       <ControlMetric
         label="Evidence storage"
         value={compactBytes(data.overview.storage.usedBytes)}
-        detail={`${summary.evidence} objects · ${compactBytes(data.overview.storage.limitBytes)} cap · ${data.overview.storage.retentionDays}d retention`}
+        detail={`${summary.evidence} objects · ${compactBytes(data.overview.storage.limitBytes)} cap · ${data.overview.storage.legalHold?.status === "approved" ? "legal hold" : `${data.overview.storage.retentionDays}d retention`}`}
       />
     </section>
     <section className="operations-band"><div><SectionTitle title="Runtime queue" caption="Actions waiting for a human decision" /><ActionRows actions={data.actions.filter((action) => action.status === "PENDING_APPROVAL").slice(0, 5)} /></div><div><SectionTitle title="Open incidents" caption="Failed runs and verification gaps" /><IncidentRows incidents={data.incidents.filter((incident) => incident.status === "open").slice(0, 5)} /></div></section>
@@ -238,7 +239,34 @@ function ActionsView({ actions, project, session, refresh }: { actions: HostedAc
 }
 
 function IncidentsView({ incidents }: { incidents: HostedIncident[] }) { return <section className="data-section"><SectionTitle title="Incidents" caption="Failed runs, verification gaps, and first divergence" /><IncidentRows incidents={incidents} /></section>; }
-function EvidenceView({ evidence, project, session }: { evidence: HostedEvidence[]; project: HostedProject; session: HostedSession }) { return <section className="data-section"><SectionTitle title="Evidence" caption="Private artifacts with SHA-256 provenance" /><div className="entity-list">{evidence.map((item) => <article key={item.id}><div><strong>{item.fileName}</strong><span>{item.kind} · {item.schemaVersion}</span></div><div><b>{compactBytes(item.sizeBytes)}</b><span className="hash">{item.sha256.slice(0, 20)}...</span></div><button onClick={() => void downloadEvidence(session, evidenceContentUrl(project.id, item.id), item.fileName)}>Open</button></article>)}{evidence.length === 0 ? <EmptyHosted text="No evidence uploaded yet." /> : null}</div></section>; }
+function EvidenceView({ evidence, overview, project, session, refresh }: {
+  evidence: HostedEvidence[];
+  overview: HostedOverview;
+  project: HostedProject;
+  session: HostedSession;
+  refresh: () => Promise<void>;
+}) {
+  const legalHold = overview.storage.legalHold;
+  const canApply = !legalHold || legalHold.status === "rejected" || legalHold.status === "released";
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  async function apply(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError(undefined);
+    try { await requestHostedLegalHold(session, project.id, reason); setReason(""); await refresh(); }
+    catch (value) { setError(value instanceof Error ? value.message : String(value)); }
+    finally { setBusy(false); }
+  }
+  return <div className="evidence-registry-layout">
+    <section className={`legal-hold-panel ${legalHold?.status ?? "none"}`}>
+      <div><span className="eyebrow">Retention control</span><h2>{legalHold?.status === "approved" ? "Legal hold active" : `${overview.storage.retentionDays}-day default retention`}</h2>
+        <p>{legalHold?.status === "approved" ? "Automatic evidence deletion is paused for this project until a platform administrator releases the hold." : legalHold?.status === "requested" ? "The application is awaiting platform review. Normal retention continues until approval." : "Evidence is deleted after the retention window. Enterprise projects may apply for a reviewed legal hold."}</p></div>
+      {legalHold ? <dl><div><dt>Status</dt><dd><Status value={legalHold.status} /></dd></div><div><dt>Requested</dt><dd>{compactTime(legalHold.requestedAt)}</dd></div>{legalHold.reviewNote ? <div><dt>Review</dt><dd>{legalHold.reviewNote}</dd></div> : null}</dl> : null}
+      {canApply ? <form onSubmit={apply}><label><span>Legal hold reason</span><textarea required minLength={20} maxLength={2000} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Describe the legal matter, preservation scope, and enterprise contact." /></label>{error ? <div className="form-error">{error}</div> : null}<button className="primary-action compact" disabled={busy}>{busy ? "Submitting..." : "Apply for legal hold"}</button></form> : null}
+    </section>
+    <section className="data-section"><SectionTitle title="Evidence" caption="Private artifacts with SHA-256 provenance" /><div className="entity-list">{evidence.map((item) => <article key={item.id}><div><strong>{item.fileName}</strong><span>{item.kind} · {item.schemaVersion}</span></div><div><b>{compactBytes(item.sizeBytes)}</b><span className="hash">{item.sha256.slice(0, 20)}...</span></div><button onClick={() => void downloadEvidence(session, evidenceContentUrl(project.id, item.id), item.fileName)}>Open</button></article>)}{evidence.length === 0 ? <EmptyHosted text="No evidence uploaded yet." /> : null}</div></section>
+  </div>;
+}
 
 function IntegrationsView({ project, session }: { project: HostedProject; session: HostedSession }) {
   const [secret, setSecret] = useState<string>(); const [copied, setCopied] = useState(false); const [error, setError] = useState<string>(); const [keys, setKeys] = useState<HostedApiKey[]>([]); const [pendingRevoke, setPendingRevoke] = useState<string>();

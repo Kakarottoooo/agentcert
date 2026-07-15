@@ -89,6 +89,19 @@ async function handleRequest(
     return;
   }
 
+  if (segments[1] === "admin" && segments[2] === "legal-hold-requests") {
+    const requestId = segments[3];
+    const decision = segments[4];
+    if (request.method === "GET" && !requestId) {
+      sendJson(response, 200, { requests: await options.service.listPendingLegalHoldRequests(auth) });
+    } else if (request.method === "POST" && requestId && (decision === "approve" || decision === "reject" || decision === "release")) {
+      sendJson(response, 200, await options.service.reviewLegalHold(auth, requestId, decision, await readJson(request)));
+    } else {
+      throw new ControlPlaneError("Legal hold administration route was not found.", 404);
+    }
+    return;
+  }
+
   const projectId = segments[1] === "projects" ? segments[2] : undefined;
   if (!projectId) throw new ControlPlaneError("Project route was not found.", 404);
   const collection = segments[3];
@@ -161,6 +174,16 @@ async function handleRequest(
       return;
     }
     throw new ControlPlaneError("Evidence route was not found.", 404);
+  }
+  if (collection === "legal-holds") {
+    if (request.method === "GET" && !entityId) {
+      sendJson(response, 200, { requests: await options.service.listLegalHoldRequests(auth, projectId) });
+    } else if (request.method === "POST" && !entityId) {
+      sendJson(response, 201, await options.service.requestLegalHold(auth, projectId, await readJson(request)));
+    } else {
+      throw new ControlPlaneError("Legal hold route was not found.", 404);
+    }
+    return;
   }
   if (collection === "api-keys") {
     if (request.method === "GET" && !entityId) sendJson(response, 200, { apiKeys: await options.service.listApiKeys(auth, projectId) });

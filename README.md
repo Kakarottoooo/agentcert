@@ -90,7 +90,11 @@ shows behavior timelines and first divergence, previews uploaded screenshots,
 persists human-confirmed or corrected failure taxonomy labels, and exposes
 evidence completeness, storage use, and retention. The default hosted policy
 allows 100 MiB per run and 1 GiB per project, retains evidence for 90 days,
-and accepts PNG/JPEG/WebP, JSON/JSONL, HTML, PDF, and ZIP only.
+and accepts PNG/JPEG/WebP, JSON/JSONL, HTML, PDF, and ZIP only. Hosted pushes
+embed an `agentcert.artifact_manifest.v0.1` declaration and the server marks a
+run complete only when every artifact path, SHA-256 digest, byte size, and kind
+matches. Approved enterprise legal holds pause retention after platform review;
+an application alone does not stop the 90-day cleanup clock.
 
 Machine integrations use REST, TypeScript, Python, or MCP. Agents never need to
 scrape the human dashboard, and project API keys cannot approve their own

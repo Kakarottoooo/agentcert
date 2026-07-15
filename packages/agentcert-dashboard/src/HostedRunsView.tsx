@@ -114,7 +114,8 @@ function RunSummary({ analysis, bundle, divergence }: { analysis: HostedRunAnaly
       <div><dt>Events</dt><dd>{analysis.events.length}</dd></div>
       <div><dt>Evidence</dt><dd>{completeness.evidenceCount} · {compactBytes(completeness.bytesUsed)}</dd></div>
       <div><dt>Completeness</dt><dd>{label(completeness.status)}</dd></div>
-      <div><dt>Retention</dt><dd>{completeness.expiresAt ? compactDate(completeness.expiresAt) : `${completeness.retentionDays} days`}</dd></div>
+      <div><dt>Manifest</dt><dd>{completeness.reconciliation.legacy ? "Legacy" : `${completeness.reconciliation.matched}/${completeness.reconciliation.declared} matched`}</dd></div>
+      <div><dt>Retention</dt><dd>{completeness.legalHoldActive ? "Legal hold" : completeness.expiresAt ? compactDate(completeness.expiresAt) : `${completeness.retentionDays} days`}</dd></div>
       <div><dt>Reviews</dt><dd>{analysis.reviews.length}</dd></div>
       <div><dt>Duration</dt><dd>{duration(run.startedAt, run.completedAt)}</dd></div>
     </dl>
@@ -222,7 +223,8 @@ function FailureReviewEditor({ finding, analysis, pointers, divergence, onSaved,
 
 function ArtifactPanel({ analysis, pointers, project, session }: { analysis: HostedRunAnalysis; pointers: ReturnType<typeof artifactPointers>; project: HostedProject; session: HostedSession }) {
   const screenshot = analysis.evidence.find((item) => item.contentType.startsWith("image/") || item.kind === "screenshot");
-  return <section className="data-section hosted-artifact-section"><RunSectionTitle title="Artifacts and provenance" caption={`${label(analysis.evidenceCompleteness.status)} evidence · ${analysis.evidenceCompleteness.retentionDays}-day retention · uploaded objects are private and hash-addressed`} />
+  const reconciliation = analysis.evidenceCompleteness.reconciliation;
+  return <section className="data-section hosted-artifact-section"><RunSectionTitle title="Artifacts and provenance" caption={`${label(analysis.evidenceCompleteness.status)} evidence · ${reconciliation.legacy ? "manifest unavailable" : `${reconciliation.matched}/${reconciliation.declared} manifest entries matched`} · ${analysis.evidenceCompleteness.legalHoldActive ? "legal hold" : `${analysis.evidenceCompleteness.retentionDays}-day retention`}`} />
     <div className="artifact-workspace">
       <div className="hosted-artifact-preview">{screenshot ? <AuthenticatedImage evidence={screenshot} project={project} session={session} /> : <div><strong>No hosted screenshot</strong><p>Upload screenshot files as run evidence to preview them here.</p></div>}</div>
       <div className="hosted-artifact-list">

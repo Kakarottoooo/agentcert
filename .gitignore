@@ -17,6 +17,8 @@ out/
 node_modules/
 playwright-report/
 test-results/
+.playwright-cli/
+output/playwright/
 packages/*/node_modules/
 packages/*/dist/
 packages/*/.agentcert/

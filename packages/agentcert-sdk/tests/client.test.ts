@@ -20,4 +20,14 @@ describe("AgentCertClient", () => {
     const client = new AgentCertClient({ baseUrl: "https://agentcert.example", projectId: "project-1", apiKey: "bad", fetch: request as typeof fetch });
     await expect(client.getAction("action-1")).rejects.toThrow("Project access denied.");
   });
+
+  it("sends the manifest source path for companion evidence reconciliation", async () => {
+    const request = vi.fn(async () => new Response(JSON.stringify({ id: "evidence-1" }), { status: 201 }));
+    const client = new AgentCertClient({ baseUrl: "https://agentcert.example", projectId: "project-1", apiKey: "ac_live_test", fetch: request as typeof fetch });
+    await client.uploadEvidence({
+      bytes: Buffer.from("{}"), fileName: "trace.json", contentType: "application/json", kind: "trace",
+      runId: "run-1", sourcePath: "traces/trace.json",
+    });
+    expect(String(request.mock.calls[0]?.[0])).toContain("sourcePath=traces%2Ftrace.json");
+  });
 });

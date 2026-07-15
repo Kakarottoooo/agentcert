@@ -41,6 +41,7 @@ The top-level `agentcert-evidence.json` bundle requires:
 | `results` | Normalized MCPBench, Tripwire CI, Onegent Runtime, or AgentCert CLI results. |
 | `evidence` | Flattened findings across all results. |
 | `artifacts` | Named trace, report, screenshot, DOM, audit, or output paths. |
+| `artifactManifest` | Optional v0.1 path, SHA-256, byte-size, and kind declarations for hosted reconciliation. |
 | `standards` | Explicit standards mappings and non-certification notes. |
 
 ## Required Result Fields
