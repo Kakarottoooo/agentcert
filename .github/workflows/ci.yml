@@ -73,3 +73,23 @@ jobs:
         run: npm --prefix packages/agentcert-cli run build
       - name: Test AgentCert CLI
         run: npm --prefix packages/agentcert-cli test
+
+  control-plane:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            packages/agentcert-dashboard/package-lock.json
+            packages/agentcert-control-plane/package-lock.json
+            packages/agentcert-sdk/package-lock.json
+            packages/agentcert-mcp-adapter/package-lock.json
+      - name: Install control plane dependencies
+        run: npm run control-plane:install
+      - name: Test control plane packages
+        run: npm run control-plane:test
+      - name: Build control plane image
+        run: docker build --file Dockerfile.control-plane --tag agentcert-control-plane:ci .
