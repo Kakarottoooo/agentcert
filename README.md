@@ -99,12 +99,13 @@ packages/agentcert-mcp-adapter    # MCP stdio tools
 
 Production deployment: [docs/hosted-control-plane.md](docs/hosted-control-plane.md).
 API contract: [docs/openapi/control-plane-v1.yaml](docs/openapi/control-plane-v1.yaml).
+Public control plane: [agentcert-control-plane.onrender.com](https://agentcert-control-plane.onrender.com/).
 
 Once a project API key is created in **Integrations**, the existing CLI can
 publish the same validated evidence bundle it writes locally:
 
 ```bash
-export AGENTCERT_BASE_URL="https://app.agentcert.dev"
+export AGENTCERT_BASE_URL="https://agentcert-control-plane.onrender.com"
 export AGENTCERT_PROJECT_ID="your-project-id"
 export AGENTCERT_API_KEY="ac_live_..."
 npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --push
@@ -127,7 +128,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - uses: Kakarottoooo/agentcert/actions/tripwire@v0
         with:
@@ -145,6 +146,12 @@ The action uploads JUnit, an HTML Tripwire report, an AgentCert evidence
 bundle, an AgentCert HTML report, a badge SVG, a run manifest, a corpus JSONL
 file, a reviewed failure dataset, a monitor snapshot, and the ten-control
 release-gate JSON/HTML/JUnit outputs.
+
+Independent external proof: [agentcert-external-smoke](https://github.com/Kakarottoooo/agentcert-external-smoke)
+runs the public `@v0` action without an AgentCert source checkout, produces a
+validated `agentcert.evidence.v0.1` bundle, and uploads it to the hosted control
+plane. Its [workflow history](https://github.com/Kakarottoooo/agentcert-external-smoke/actions/workflows/agentcert.yml)
+is public.
 
 Add `publish-pages: "true"` (plus `permissions: contents: write`) and the
 action also hosts your evidence reports on GitHub Pages and prints a clickable
