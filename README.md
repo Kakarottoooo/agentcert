@@ -112,6 +112,14 @@ npx agentcert connect --server https://agentcert-control-plane.onrender.com --pr
 npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --push
 ```
 
+Hosted pushes include the validated evidence bundle and automatically upload
+referenced local screenshots, traces, DOM snapshots, and reports. Companion
+uploads are rooted at the current directory, reject path and symlink escapes,
+and are capped at 25 files, 10 MiB per file, and 50 MiB total. Missing, remote,
+non-file, or over-limit references remain visible as skipped run events rather
+than silent partial evidence. Use `--artifact-root <directory>` to set the
+allowed root, or `--no-artifacts` to upload only the evidence bundle.
+
 External evaluation protocol: [docs/external-pilot.md](docs/external-pilot.md).
 
 ## GitHub Action

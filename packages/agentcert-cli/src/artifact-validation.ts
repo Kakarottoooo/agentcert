@@ -6,8 +6,8 @@ export interface ArtifactValidationResult {
   missing: string[];
 }
 
-interface ArtifactPathEntry {
-  path: string;
+export interface EvidenceArtifactPath {
+  sourcePath: string;
   root: string;
 }
 
@@ -15,22 +15,24 @@ export async function validateEvidenceArtifacts(input: unknown, artifactRoot: st
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return { checked: 0, missing: [] };
   }
-  const paths = collectArtifactPaths(input as Record<string, unknown>, artifactRoot);
-  const uniquePaths = dedupeArtifactPathEntries(paths).filter((entry) => !looksLikeUrl(entry.path));
+  const uniquePaths = collectEvidenceArtifactPaths(input as Record<string, unknown>, artifactRoot)
+    .filter((entry) => !isRemoteArtifactPath(entry.sourcePath));
   const missing: string[] = [];
   for (const entry of uniquePaths) {
-    const fullPath = isAbsolute(entry.path) ? entry.path : resolve(entry.root, entry.path);
+    const fullPath = isAbsolute(entry.sourcePath) ? entry.sourcePath : resolve(entry.root, entry.sourcePath);
     try {
       await access(fullPath);
     } catch {
-      missing.push(entry.path);
+      missing.push(entry.sourcePath);
     }
   }
   return { checked: uniquePaths.length, missing };
 }
 
-function collectArtifactPaths(bundle: Record<string, unknown>, artifactRoot: string): ArtifactPathEntry[] {
-  const paths: ArtifactPathEntry[] = [];
+export function collectEvidenceArtifactPaths(input: unknown, artifactRoot: string): EvidenceArtifactPath[] {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return [];
+  const bundle = input as Record<string, unknown>;
+  const paths: EvidenceArtifactPath[] = [];
   const productRoots = productArtifactRoots(bundle, artifactRoot);
   collectStringValues(bundle.artifacts, paths, artifactRoot);
   const results = Array.isArray(bundle.results) ? bundle.results : [];
@@ -38,20 +40,31 @@ function collectArtifactPaths(bundle: Record<string, unknown>, artifactRoot: str
     if (result && typeof result === "object" && !Array.isArray(result)) {
       const resultRecord = result as Record<string, unknown>;
       collectStringValues(resultRecord.artifacts, paths, artifactRoot);
+      const product = typeof resultRecord.product === "string" ? resultRecord.product : undefined;
+      collectEvidencePaths(resultRecord.evidence, paths, product ? (productRoots.get(product) ?? artifactRoot) : artifactRoot);
     }
   }
-  const evidence = Array.isArray(bundle.evidence) ? bundle.evidence : [];
+  collectEvidencePaths(bundle.evidence, paths, artifactRoot, productRoots);
+  return dedupeArtifactPathEntries(paths);
+}
+
+function collectEvidencePaths(
+  input: unknown,
+  paths: EvidenceArtifactPath[],
+  root: string,
+  productRoots?: Map<string, string>,
+): void {
+  const evidence = Array.isArray(input) ? input : [];
   for (const item of evidence) {
     if (item && typeof item === "object" && !Array.isArray(item)) {
       const itemRecord = item as Record<string, unknown>;
       const artifactPath = itemRecord.artifactPath;
       if (typeof artifactPath === "string" && artifactPath.length > 0) {
         const source = typeof itemRecord.source === "string" ? itemRecord.source : undefined;
-        paths.push({ path: artifactPath, root: source ? (productRoots.get(source) ?? artifactRoot) : artifactRoot });
+        paths.push({ sourcePath: artifactPath, root: source && productRoots ? (productRoots.get(source) ?? root) : root });
       }
     }
   }
-  return paths;
 }
 
 function productArtifactRoots(bundle: Record<string, unknown>, artifactRoot: string): Map<string, string> {
@@ -75,22 +88,22 @@ function productArtifactRoots(bundle: Record<string, unknown>, artifactRoot: str
   return roots;
 }
 
-function collectStringValues(input: unknown, paths: ArtifactPathEntry[], root: string): void {
+function collectStringValues(input: unknown, paths: EvidenceArtifactPath[], root: string): void {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return;
   }
   for (const value of Object.values(input)) {
     if (typeof value === "string" && value.length > 0) {
-      paths.push({ path: value, root });
+      paths.push({ sourcePath: value, root });
     }
   }
 }
 
-function dedupeArtifactPathEntries(entries: ArtifactPathEntry[]): ArtifactPathEntry[] {
+function dedupeArtifactPathEntries(entries: EvidenceArtifactPath[]): EvidenceArtifactPath[] {
   const seen = new Set<string>();
-  const deduped: ArtifactPathEntry[] = [];
+  const deduped: EvidenceArtifactPath[] = [];
   for (const entry of entries) {
-    const key = `${entry.root}\0${entry.path}`;
+    const key = `${entry.root}\0${entry.sourcePath}`;
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(entry);
@@ -98,6 +111,6 @@ function dedupeArtifactPathEntries(entries: ArtifactPathEntry[]): ArtifactPathEn
   return deduped;
 }
 
-function looksLikeUrl(value: string): boolean {
+export function isRemoteArtifactPath(value: string): boolean {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
 }

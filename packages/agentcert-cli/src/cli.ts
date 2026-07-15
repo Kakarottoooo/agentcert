@@ -5,6 +5,7 @@ import { createInterface } from "node:readline/promises";
 import { validateEvidenceArtifacts } from "./artifact-validation.js";
 import { renderAgentCertBadge } from "./badge.js";
 import { buildEvidenceBundle } from "./bundle.js";
+import { collectCompanionArtifacts, MAX_REPORTED_COMPANION_ARTIFACT_SKIPS } from "./companion-artifacts.js";
 import {
   recordsFromAgentCertResult,
   evaluateFailureClassifier,
@@ -532,7 +533,7 @@ Saved connections are reused by agentcert push and agentcert run --push.
   agentcert monitor build --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/latest/monitor.json --subject my-agent
   agentcert monitor build --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --out .agentcert/latest/monitor.json --subject my-agent
   agentcert run --profile public-demo
-  agentcert push --evidence .agentcert/latest/agentcert-evidence.json --server https://agentcert.example.com --project <project-id>
+  agentcert push --evidence .agentcert/latest/agentcert-evidence.json --server https://agentcert.example.com --project <project-id> [--artifact-root .] [--no-artifacts]
   agentcert run --tripwire .tripwire/latest/tripwire-result.json --push
   agentcert run --mcpbench .mcpbench/latest/results.json --tripwire .tripwire/latest/tripwire-result.json --onegent .onegent/procurement/audit-packet.json --out .agentcert/latest --corpus .agentcert/corpus/corpus.jsonl --monitor-out .agentcert/latest/monitor.json --reviewed-dataset-out .agentcert/latest/reviewed-failure-dataset.jsonl
   agentcert release-gate --config agentcert.config.json --strict
@@ -564,6 +565,9 @@ async function pushHostedEvidence(bundle: AgentCertBundle, bytes: Uint8Array, fi
     projectId: readFlag("--project"),
     apiKey: readFlag("--api-key"),
   });
+  const companions = readBoolFlag("--no-artifacts")
+    ? undefined
+    : await collectCompanionArtifacts(bundle, resolve(readFlag("--artifact-root") ?? process.cwd()));
   const result = await pushEvidenceToControlPlane({
     baseUrl: connection.server,
     projectId: connection.projectId,
@@ -572,8 +576,23 @@ async function pushHostedEvidence(bundle: AgentCertBundle, bytes: Uint8Array, fi
     evidenceBytes: bytes,
     fileName,
     externalId: readFlag("--external-id"),
+    companionArtifacts: companions?.artifacts,
+    skippedCompanionArtifacts: companions?.skipped,
   });
   process.stdout.write(`Hosted run: ${result.runId}\nHosted evidence: ${result.evidenceId}\n`);
+  if (companions) {
+    process.stdout.write(
+      `Hosted companion artifacts: ${result.artifactsUploaded} uploaded, ${result.artifactsSkipped} skipped, ${result.artifactBytesUploaded} bytes.\n`,
+    );
+    for (const skipped of companions.skipped.slice(0, MAX_REPORTED_COMPANION_ARTIFACT_SKIPS)) {
+      process.stderr.write(
+        `Skipped companion artifact ${skipped.sourcePath}: ${skipped.reason}${skipped.detail ? ` (${skipped.detail})` : ""}.\n`,
+      );
+    }
+    if (companions.skipped.length > MAX_REPORTED_COMPANION_ARTIFACT_SKIPS) {
+      process.stderr.write(`${companions.skipped.length - MAX_REPORTED_COMPANION_ARTIFACT_SKIPS} additional skipped artifacts omitted.\n`);
+    }
+  }
 }
 
 async function promptValue(label: string): Promise<string> {

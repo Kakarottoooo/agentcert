@@ -1,4 +1,4 @@
-import type { HostedEvent, HostedFailureReview, HostedIncident } from "./hosted-api";
+import type { HostedEvent, HostedEvidence, HostedFailureReview, HostedIncident } from "./hosted-api";
 
 export const FAILURE_TYPES = [
   "prompt_injection",
@@ -122,6 +122,15 @@ export function artifactPointers(bundle: EvidenceBundleDocument | undefined): Ar
   return [...values.values()];
 }
 
+export function matchesUploadedArtifact(path: string, evidence: HostedEvidence[]): boolean {
+  const normalizedPath = normalizeArtifactPath(path);
+  const name = normalizedPath.split("/").pop();
+  return evidence.some((item) => {
+    const sourcePath = typeof item.metadata.sourcePath === "string" ? normalizeArtifactPath(item.metadata.sourcePath) : undefined;
+    return sourcePath === normalizedPath || (!sourcePath && item.fileName === name);
+  });
+}
+
 export function firstDivergence(
   reviews: HostedFailureReview[],
   incidents: HostedIncident[],
@@ -188,6 +197,10 @@ function artifactKind(path: string): ArtifactPointer["kind"] {
   if (/report|\.pdf$/.test(lower)) return "report";
   if (/\.jsonl?$/.test(lower)) return "json";
   return "other";
+}
+
+function normalizeArtifactPath(path: string): string {
+  return path.replace(/\\/g, "/");
 }
 
 function messageFromPayload(payload: Record<string, unknown>): string | undefined {

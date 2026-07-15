@@ -144,6 +144,7 @@ async function handleRequest(
         schemaVersion: url.searchParams.get("schemaVersion") ?? "agentcert.evidence.v0.1",
         runId: url.searchParams.get("runId") ?? undefined,
         actionId: url.searchParams.get("actionId") ?? undefined,
+        sourcePath: url.searchParams.get("sourcePath") ?? undefined,
       });
       sendJson(response, 201, evidence);
       return;

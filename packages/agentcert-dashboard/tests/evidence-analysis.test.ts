@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { artifactPointers, findingsForBundle, firstDivergence, parseEvidenceBundle } from "../src/evidence-analysis";
+import { artifactPointers, findingsForBundle, firstDivergence, matchesUploadedArtifact, parseEvidenceBundle } from "../src/evidence-analysis";
 
 const document = {
   schemaName: "agentcert.evidence_bundle",
@@ -38,6 +38,17 @@ describe("hosted evidence analysis", () => {
       status: "open", summary: "Run failed.", firstDivergence: "incident", createdAt: "2026-07-15T00:00:00.000Z",
     };
     expect(firstDivergence([review], [incident], [], [])).toBe("Agent selected Cancel at step 4.");
+  });
+
+  it("matches uploaded artifacts by source path and only falls back to file name for legacy uploads", () => {
+    const evidence = {
+      id: "evidence-1", projectId: "project-1", runId: "run-1", kind: "screenshot",
+      schemaVersion: "agentcert.evidence.v0.1", fileName: "step-4.png", contentType: "image/png",
+      sha256: "abc", sizeBytes: 3, metadata: { sourcePath: "screenshots/step-4.png" }, createdAt: "2026-07-15T00:00:00.000Z",
+    };
+    expect(matchesUploadedArtifact("screenshots\\step-4.png", [evidence])).toBe(true);
+    expect(matchesUploadedArtifact("other/step-4.png", [evidence])).toBe(false);
+    expect(matchesUploadedArtifact("legacy/step-4.png", [{ ...evidence, metadata: {} }])).toBe(true);
   });
 });
 
