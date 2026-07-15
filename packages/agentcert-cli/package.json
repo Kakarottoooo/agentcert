@@ -1,8 +1,29 @@
 {
   "name": "agentcert",
-  "version": "0.1.0",
-  "description": "Unified AgentCert evidence packet and report CLI.",
+  "version": "0.1.1",
+  "description": "Regression CI, evidence reports, and failure corpus tooling for browser agents.",
   "type": "module",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/Kakarottoooo/agentcert#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kakarottoooo/agentcert.git",
+    "directory": "packages/agentcert-cli"
+  },
+  "bugs": {
+    "url": "https://github.com/Kakarottoooo/agentcert/issues"
+  },
+  "keywords": [
+    "agent",
+    "browser-agent",
+    "ci",
+    "playwright",
+    "agent-security",
+    "llm",
+    "mcp",
+    "tripwire",
+    "evidence"
+  ],
   "bin": {
     "agentcert": "dist/cli.js"
   },

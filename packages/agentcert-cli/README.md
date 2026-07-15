@@ -2,6 +2,10 @@
 
 Unified evidence, corpus, monitor, and lab CLI for AgentCert.
 
+AgentCert is regression CI for browser agents. It runs Tripwire robustness
+checks, converts the result into evidence bundles, writes HTML reports and
+badges, and accumulates a local failure corpus.
+
 ## 5-minute local path
 
 ```bash
@@ -39,6 +43,11 @@ npx agentcert schema validate --schema classifier-eval --file examples/agentcert
 
 CI users can run Tripwire and AgentCert together with
 `Kakarottoooo/agentcert/actions/tripwire@v0`.
+
+The public Real Agent Robustness Lab compares browser-use, Stagehand, and
+Playwright-based agents over the same fault suite:
+
+https://kakarottoooo.github.io/agentcert/public-demo/real-agent-robustness/
 
 Corpus storage:
 

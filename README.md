@@ -6,7 +6,7 @@ Your browser agent passed yesterday. Will it still pass after you swap the
 model, tweak the prompt, or the target site ships a redesign? AgentCert's
 Tripwire engine replays your agent's task under nine realistic UI and network
 faults in CI, grades every run deterministically, and fails the build with
-evidence — screenshots, DOM snapshots, step traces, JUnit, and an HTML report —
+evidence: screenshots, DOM snapshots, step traces, JUnit, and an HTML report
 when the agent breaks.
 
 We run the same faults against real public agents. Current
@@ -28,7 +28,7 @@ matrix (same localhost refund task, same fault suite):
 
 Every run links to screenshots, DOM snapshots, and a step-level trace. Note the
 last row: under an injected HTTP failure, all five agents reached the
-`/success` URL while the page actually rendered a 503 error — every agent
+`/success` URL while the page actually rendered a 503 error. Every agent
 reported success on a failed task. Deterministic grading is what caught it.
 
 ## 5-Minute Quickstart
@@ -168,7 +168,7 @@ Lab snapshot schema: `schemas/agentcert-robustness-lab.schema.json`.
 ## The Evidence Layer
 
 Every Tripwire run (and every other AgentCert engine) emits artifacts in a
-versioned, machine-readable evidence format — `agentcert.evidence_bundle`
+versioned, machine-readable evidence format: `agentcert.evidence_bundle`
 schema family `1`, semver `1.0.0`. Runs accumulate into a local corpus with an
 automatic failure taxonomy and a human review ledger, and a monitor dashboard
 reads the aggregated snapshot.
