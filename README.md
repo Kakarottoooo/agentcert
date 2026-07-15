@@ -33,6 +33,21 @@ reported success on a failed task. Deterministic grading is what caught it.
 
 ## 5-Minute Quickstart
 
+Start with the no-key minimal browser-agent example when you want a known-good
+local smoke before wiring your own agent:
+
+```powershell
+npm run tripwire:build
+npm run agentcert:build
+npm --prefix examples/minimal-browser-agent install
+$server = Start-Process -PassThru -WindowStyle Hidden node -ArgumentList "examples/minimal-browser-agent/demo-server.mjs"
+node packages/tripwire-ci/dist/cli.js run -c examples/minimal-browser-agent/tripwire.yml --out .tripwire/minimal-browser-agent
+node packages/agentcert-cli/dist/cli.js run --tripwire .tripwire/minimal-browser-agent/tripwire-result.json --out .agentcert/minimal-browser-agent --subject minimal-browser-agent
+$server | Stop-Process
+```
+
+External projects start here:
+
 ```bash
 npx agentcert init --subject my-browser-agent
 ```
@@ -208,9 +223,11 @@ Validate any evidence artifact:
 
 ```powershell
 npx agentcert validate .agentcert/latest/agentcert-evidence.json
+npx agentcert validate .agentcert/latest/agentcert-evidence.json --check-artifacts
 ```
 
 Evidence schema v0.1 reference: [docs/evidence-schema.md](docs/evidence-schema.md).
+Release gate checklist: [docs/release-gate-checklist.md](docs/release-gate-checklist.md).
 
 ## Runtime Action Gating (Preview)
 

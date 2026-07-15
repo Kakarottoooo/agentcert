@@ -41,8 +41,15 @@ npx agentcert corpus metrics --corpus .agentcert/corpus/corpus.jsonl
 npx agentcert corpus export-reviewed --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/latest/reviewed-failure-dataset.jsonl
 npx agentcert corpus classifier-eval --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/latest/failure-classifier-evaluation.json
 npx agentcert validate .agentcert/latest/agentcert-evidence.json
+npx agentcert validate .agentcert/latest/agentcert-evidence.json --check-artifacts
 npx agentcert schema validate --schema evidence-bundle --file .agentcert/latest/agentcert-evidence.json
 npx agentcert schema validate --schema classifier-eval --file examples/agentcert/classifier-eval.example.json
+```
+
+Release gate checklist:
+
+```text
+docs/release-gate-checklist.md
 ```
 
 CI users can run Tripwire and AgentCert together with

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { validateEvidenceArtifacts } from "./artifact-validation.js";
 import { renderAgentCertBadge } from "./badge.js";
 import { buildEvidenceBundle } from "./bundle.js";
 import {
@@ -336,7 +337,8 @@ Next:
   if (!file) {
     throw new Error("Missing evidence file. Usage: agentcert validate <file> [--schema evidence-bundle].");
   }
-  const result = validateAgentCertSchema(schema, await readJson(file));
+  const input = await readJson(file);
+  const result = validateAgentCertSchema(schema, input);
   if (result.valid) {
     process.stdout.write(`Valid ${schema}: ${resolve(file)}\n`);
   } else {
@@ -345,6 +347,17 @@ Next:
       process.stdout.write(`- ${error}\n`);
     }
     process.exitCode = 1;
+  }
+  if (result.valid && schema === "evidence-bundle" && readBoolFlag("--check-artifacts")) {
+    const artifactResult = await validateEvidenceArtifacts(input, resolve(readFlag("--artifact-root") ?? process.cwd()));
+    process.stdout.write(`Artifact paths checked: ${artifactResult.checked}\n`);
+    if (artifactResult.missing.length > 0) {
+      process.stdout.write("Missing artifact paths:\n");
+      for (const missing of artifactResult.missing) {
+        process.stdout.write(`- ${missing}\n`);
+      }
+      process.exitCode = 1;
+    }
   }
 } else {
   process.stdout.write(`Usage:
@@ -363,6 +376,7 @@ Next:
   agentcert lab build --config examples/real-agents/robustness-lab/lab.config.json --out public-demo/real-agent-robustness/evidence/lab-snapshot.json
   agentcert serve --corpus .agentcert/corpus/corpus.jsonl --static public-demo/agentcert-monitor --artifact-root public-demo/browser-agent-robustness/evidence/tripwire-public-demo
   agentcert validate .agentcert/latest/agentcert-evidence.json
+  agentcert validate .agentcert/latest/agentcert-evidence.json --check-artifacts
   agentcert schema validate --schema evidence-bundle --file .agentcert/latest/agentcert-evidence.json
 `);
 }

@@ -58,8 +58,13 @@ required top-level fields or required enum values are missing.
 
 ```bash
 npx agentcert validate .agentcert/latest/agentcert-evidence.json
+npx agentcert validate .agentcert/latest/agentcert-evidence.json --check-artifacts
 npx agentcert validate examples/agentcert/evidence-bundle.example.json
 ```
+
+`--check-artifacts` verifies that artifact paths referenced by the evidence
+bundle exist from the current repository root. Use `--artifact-root <path>` when
+the bundle should be checked from a different root directory.
 
 The explicit command is also available:
 
