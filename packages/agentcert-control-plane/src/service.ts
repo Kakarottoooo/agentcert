@@ -1,7 +1,19 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { ArtifactStore } from "./artifacts.js";
 import { hashSecret } from "./auth.js";
-import type { ControlPlaneStore, BootstrapResult } from "./store.js";
+import {
+  EvidenceQuotaExceededError,
+  type BootstrapResult,
+  type ControlPlaneStore,
+} from "./store.js";
+import {
+  ACCEPTED_EVIDENCE_FORMATS,
+  DEFAULT_EVIDENCE_GOVERNANCE_POLICY,
+  EvidenceUploadValidationError,
+  calculateEvidenceCompleteness,
+  validateEvidenceUpload,
+  type EvidenceGovernancePolicy,
+} from "./evidence-governance.js";
 import type {
   ActionDecision,
   ActionRecord,
@@ -32,6 +44,7 @@ export class AgentCertControlPlane {
   constructor(
     readonly store: ControlPlaneStore,
     readonly artifacts: ArtifactStore,
+    readonly evidencePolicy: EvidenceGovernancePolicy = DEFAULT_EVIDENCE_GOVERNANCE_POLICY,
   ) {}
 
   async bootstrap(auth: AuthContext): Promise<BootstrapResult> {
@@ -170,7 +183,14 @@ export class AgentCertControlPlane {
       this.store.listIncidentsForRun(projectId, runId),
       this.store.listFailureReviews(projectId, runId),
     ]);
-    return { run, events, evidence, incidents, reviews };
+    return {
+      run,
+      events,
+      evidence,
+      incidents,
+      reviews,
+      evidenceCompleteness: calculateEvidenceCompleteness(run, events, evidence, this.evidencePolicy),
+    };
   }
 
   async reviewFailure(auth: AuthContext, projectId: string, runId: string, input: unknown): Promise<FailureReviewRecord> {
@@ -304,24 +324,62 @@ export class AgentCertControlPlane {
     await this.authorizeProject(auth, projectId);
     const sourcePath = input.sourcePath?.trim();
     if (sourcePath && sourcePath.length > 1024) throw new ControlPlaneError("sourcePath must be at most 1024 characters.");
-    if (input.runId && !(await this.store.getRun(projectId, input.runId))) throw new ControlPlaneError("Run was not found.", 404);
+    const run = input.runId ? await this.store.getRun(projectId, input.runId) : undefined;
+    if (input.runId && !run) throw new ControlPlaneError("Run was not found.", 404);
     if (input.actionId && !(await this.store.getAction(projectId, input.actionId))) throw new ControlPlaneError("Action was not found.", 404);
+    let validated;
+    try {
+      validated = validateEvidenceUpload(bytes, input);
+    } catch (error) {
+      if (error instanceof EvidenceUploadValidationError) {
+        if (run) await this.markRunEvidenceUpload(run, "rejected", error.message);
+        throw new ControlPlaneError(error.message, 415);
+      }
+      throw error;
+    }
     const sha256 = createHash("sha256").update(bytes).digest("hex");
     if (input.runId || input.actionId) {
       const existing = await this.store.findEvidenceByDigest(projectId, input.runId, input.actionId, input.kind, sha256);
-      if (existing) return existing;
+      if (existing) {
+        if (run) await this.markRunEvidenceUpload(run, "accepted");
+        return existing;
+      }
     }
     const id = randomUUID();
     const safeName = input.fileName.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 180) || "artifact.bin";
     const scope = input.runId ? `runs/${input.runId}` : input.actionId ? `actions/${input.actionId}` : `uploads/${id}`;
     const objectKey = `${projectId}/evidence/${scope}/${sha256}/${safeName}`;
-    await this.artifacts.put(objectKey, bytes, input.contentType);
+    const createdAt = new Date().toISOString();
     const evidence: EvidenceRecord = {
       id, projectId, runId: input.runId, actionId: input.actionId, kind: input.kind, schemaVersion: input.schemaVersion,
-      objectKey, fileName: safeName, contentType: input.contentType, sha256,
-      sizeBytes: bytes.length, metadata: sourcePath ? { sourcePath } : {}, createdAt: new Date().toISOString(),
+      objectKey, fileName: safeName, contentType: validated.contentType, sha256,
+      sizeBytes: bytes.length,
+      metadata: {
+        ...(sourcePath ? { sourcePath } : {}),
+        format: validated.format,
+        retentionExpiresAt: new Date(Date.parse(createdAt) + this.evidencePolicy.retentionDays * 86_400_000).toISOString(),
+        ...(validated.artifactReferenceCount === undefined ? {} : { artifactReferenceCount: validated.artifactReferenceCount }),
+      },
+      createdAt,
     };
-    return this.store.insertEvidence(evidence);
+    await this.artifacts.put(objectKey, bytes, validated.contentType);
+    try {
+      const stored = await this.store.insertEvidenceWithinQuota(
+        evidence,
+        this.evidencePolicy.projectLimitBytes,
+        this.evidencePolicy.runLimitBytes,
+      );
+      if (run) await this.markRunEvidenceUpload(run, "accepted");
+      return stored;
+    } catch (error) {
+      await this.artifacts.delete(objectKey).catch(() => undefined);
+      if (error instanceof EvidenceQuotaExceededError) {
+        const message = `${error.scope} evidence quota exceeded: ${error.usedBytes} of ${error.limitBytes} bytes are already used; ${error.requestedBytes} more were requested.`;
+        if (run) await this.markRunEvidenceUpload(run, "rejected", message);
+        throw new ControlPlaneError(message, 413);
+      }
+      throw error;
+    }
   }
 
   async listEvidence(auth: AuthContext, projectId: string): Promise<EvidenceRecord[]> {
@@ -336,6 +394,26 @@ export class AgentCertControlPlane {
     const artifact = await this.artifacts.get(evidence.objectKey);
     if (!artifact) throw new ControlPlaneError("Evidence object was not found in storage.", 404);
     return { evidence, artifact };
+  }
+
+  async cleanupExpiredEvidence(now = new Date(), limit = 500) {
+    const cutoff = new Date(now.getTime() - this.evidencePolicy.retentionDays * 86_400_000).toISOString();
+    const expired = await this.store.listEvidenceCreatedBefore(cutoff, limit);
+    const failures: Array<{ evidenceId: string; message: string }> = [];
+    let deleted = 0;
+    let bytesDeleted = 0;
+    for (const evidence of expired) {
+      try {
+        await this.artifacts.delete(evidence.objectKey);
+        if (await this.store.deleteEvidence(evidence.projectId, evidence.id)) {
+          deleted += 1;
+          bytesDeleted += evidence.sizeBytes;
+        }
+      } catch (error) {
+        failures.push({ evidenceId: evidence.id, message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    return { cutoff, scanned: expired.length, deleted, bytesDeleted, failed: failures.length, failures: failures.slice(0, 20) };
   }
 
   async createApiKey(auth: AuthContext, projectId: string, input: unknown): Promise<{ apiKey: PublicApiKeyRecord; secret: string }> {
@@ -365,12 +443,19 @@ export class AgentCertControlPlane {
 
   async overview(auth: AuthContext, projectId: string) {
     await this.authorizeProject(auth, projectId);
-    const [agents, runs, actions, incidents, evidence] = await Promise.all([
+    const [agents, runs, actions, incidents, evidence, storageUsage] = await Promise.all([
       this.store.listAgents(projectId), this.store.listRuns(projectId, 20), this.store.listActions(projectId, 20),
-      this.store.listIncidents(projectId, 20), this.store.listEvidence(projectId, 20),
+      this.store.listIncidents(projectId, 20), this.store.listEvidence(projectId, 20), this.store.evidenceUsage(projectId),
     ]);
     return {
       projectId,
+      storage: {
+        usedBytes: storageUsage.bytes,
+        limitBytes: this.evidencePolicy.projectLimitBytes,
+        remainingBytes: Math.max(0, this.evidencePolicy.projectLimitBytes - storageUsage.bytes),
+        retentionDays: this.evidencePolicy.retentionDays,
+        acceptedFormats: [...ACCEPTED_EVIDENCE_FORMATS],
+      },
       summary: {
         agents: agents.length,
         runs: runs.length,
@@ -383,6 +468,24 @@ export class AgentCertControlPlane {
       recentActions: actions.slice(0, 8),
       openIncidents: incidents.filter((item) => item.status === "open").slice(0, 8),
     };
+  }
+
+  private async markRunEvidenceUpload(run: RunRecord, result: "accepted" | "rejected", reason?: string): Promise<void> {
+    const current = await this.store.getRun(run.projectId, run.id) ?? run;
+    const previous = Math.max(
+      Date.parse(String(current.metadata.lastEvidenceAcceptedAt ?? "")) || 0,
+      Date.parse(String(current.metadata.lastEvidenceRejectedAt ?? "")) || 0,
+    );
+    const now = new Date(Math.max(Date.now(), previous + 1)).toISOString();
+    await this.store.upsertRun({
+      ...current,
+      metadata: {
+        ...current.metadata,
+        ...(result === "accepted"
+          ? { lastEvidenceAcceptedAt: now }
+          : { lastEvidenceRejectedAt: now, lastEvidenceRejectionReason: reason ?? "Evidence upload rejected." }),
+      },
+    });
   }
 }
 

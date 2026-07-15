@@ -87,7 +87,10 @@ credentials, live run/event ingestion, runtime approval queues, observed-state
 verification, incident records, private evidence storage, and a unified run
 evidence workspace. The hosted **Runs** view parses validated evidence bundles,
 shows behavior timelines and first divergence, previews uploaded screenshots,
-and persists human-confirmed or corrected failure taxonomy labels.
+persists human-confirmed or corrected failure taxonomy labels, and exposes
+evidence completeness, storage use, and retention. The default hosted policy
+allows 100 MiB per run and 1 GiB per project, retains evidence for 90 days,
+and accepts PNG/JPEG/WebP, JSON/JSONL, HTML, PDF, and ZIP only.
 
 Machine integrations use REST, TypeScript, Python, or MCP. Agents never need to
 scrape the human dashboard, and project API keys cannot approve their own

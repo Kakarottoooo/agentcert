@@ -30,6 +30,7 @@ export interface PreparedCompanionArtifact {
 
 export type CompanionArtifactSkipReason =
   | "remote_url"
+  | "unsupported_type"
   | "missing"
   | "outside_artifact_root"
   | "symlink"
@@ -67,6 +68,11 @@ export async function collectCompanionArtifacts(
   for (const entry of collectEvidenceArtifactPaths(bundle, root)) {
     if (isRemoteArtifactPath(entry.sourcePath)) {
       skipped.push(skip(entry, "remote_url"));
+      continue;
+    }
+    const descriptor = describeArtifact(entry.sourcePath);
+    if (!descriptor) {
+      skipped.push(skip(entry, "unsupported_type", "accepted formats: PNG, JPEG, WebP, JSON, JSONL, HTML, PDF, ZIP"));
       continue;
     }
     if (artifacts.length >= limits.maxFiles) {
@@ -140,7 +146,6 @@ export async function collectCompanionArtifacts(
       continue;
     }
 
-    const descriptor = describeArtifact(entry.sourcePath);
     artifacts.push({
       sourcePath: normalizeSourcePath(entry.sourcePath),
       fileName: basename(resolvedPath),
@@ -190,32 +195,19 @@ async function readBounded(path: string, maxBytes: number): Promise<BoundedReadR
   }
 }
 
-function describeArtifact(path: string): { kind: string; contentType: string } {
+function describeArtifact(path: string): { kind: string; contentType: string } | undefined {
   const lower = path.toLowerCase();
   const extension = extname(lower);
   if ([".png", ".jpg", ".jpeg", ".webp"].includes(extension)) {
     const imageType = extension === ".jpg" ? "jpeg" : extension.slice(1);
     return { kind: "screenshot", contentType: `image/${imageType}` };
   }
-  if (extension === ".svg") return { kind: "report", contentType: "image/svg+xml" };
-  if (extension === ".zip" || lower.includes("trace")) {
-    const contentType = extension === ".zip" ? "application/zip" : extension === ".json" ? "application/json" : "application/octet-stream";
-    return { kind: "trace", contentType };
-  }
-  if ([".html", ".htm"].includes(extension) || lower.includes("dom")) {
-    const contentType = [".html", ".htm"].includes(extension)
-      ? "text/html; charset=utf-8"
-      : extension === ".json"
-        ? "application/json"
-        : "application/octet-stream";
-    return { kind: "dom", contentType };
-  }
-  if (extension === ".json") return { kind: "json", contentType: "application/json" };
-  if (extension === ".jsonl") return { kind: "json", contentType: "application/x-ndjson" };
+  if (extension === ".zip") return { kind: "trace", contentType: "application/zip" };
+  if ([".html", ".htm"].includes(extension)) return { kind: "dom", contentType: "text/html; charset=utf-8" };
+  if (extension === ".json") return { kind: lower.includes("trace") ? "trace" : lower.includes("dom") ? "dom" : "json", contentType: "application/json" };
+  if (extension === ".jsonl") return { kind: lower.includes("trace") ? "trace" : "json", contentType: "application/x-ndjson" };
   if (extension === ".pdf") return { kind: "report", contentType: "application/pdf" };
-  if (extension === ".md") return { kind: "report", contentType: "text/markdown; charset=utf-8" };
-  if (extension === ".txt") return { kind: "artifact", contentType: "text/plain; charset=utf-8" };
-  return { kind: "artifact", contentType: "application/octet-stream" };
+  return undefined;
 }
 
 function normalizeSourcePath(path: string): string {

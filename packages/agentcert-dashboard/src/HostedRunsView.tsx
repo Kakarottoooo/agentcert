@@ -105,13 +105,16 @@ export default function HostedRunsView({ runs, project, session }: { runs: Hoste
 
 function RunSummary({ analysis, bundle, divergence }: { analysis: HostedRunAnalysis; bundle?: EvidenceBundleDocument; divergence?: string }) {
   const run = analysis.run;
+  const completeness = analysis.evidenceCompleteness;
   return <section className="hosted-run-summary">
-    <div><span className="eyebrow">{run.kind.replace(/_/g, " ")}</span><h2>{run.externalId}</h2><p>{divergence ?? "No behavior divergence was recorded for this run."}</p></div>
-    <RunStatus value={run.status} />
+    <div><span className="eyebrow">{run.kind.replace(/_/g, " ")}</span><h2>{run.externalId}</h2><p>{divergence ?? "No behavior divergence was recorded for this run."}</p>{completeness.reasons.length ? <p className="evidence-completeness-reason">{completeness.reasons.join(" ")}</p> : null}</div>
+    <div className="hosted-run-statuses"><RunStatus value={run.status} /><RunStatus value={completeness.status} /></div>
     <dl>
       <div><dt>Score</dt><dd>{score(run.score ?? bundle?.verdict.score)}</dd></div>
       <div><dt>Events</dt><dd>{analysis.events.length}</dd></div>
-      <div><dt>Evidence</dt><dd>{analysis.evidence.length}</dd></div>
+      <div><dt>Evidence</dt><dd>{completeness.evidenceCount} · {compactBytes(completeness.bytesUsed)}</dd></div>
+      <div><dt>Completeness</dt><dd>{label(completeness.status)}</dd></div>
+      <div><dt>Retention</dt><dd>{completeness.expiresAt ? compactDate(completeness.expiresAt) : `${completeness.retentionDays} days`}</dd></div>
       <div><dt>Reviews</dt><dd>{analysis.reviews.length}</dd></div>
       <div><dt>Duration</dt><dd>{duration(run.startedAt, run.completedAt)}</dd></div>
     </dl>
@@ -219,7 +222,7 @@ function FailureReviewEditor({ finding, analysis, pointers, divergence, onSaved,
 
 function ArtifactPanel({ analysis, pointers, project, session }: { analysis: HostedRunAnalysis; pointers: ReturnType<typeof artifactPointers>; project: HostedProject; session: HostedSession }) {
   const screenshot = analysis.evidence.find((item) => item.contentType.startsWith("image/") || item.kind === "screenshot");
-  return <section className="data-section hosted-artifact-section"><RunSectionTitle title="Artifacts and provenance" caption="Uploaded objects are private and hash-addressed; bundle-only paths remain explicit pointers" />
+  return <section className="data-section hosted-artifact-section"><RunSectionTitle title="Artifacts and provenance" caption={`${label(analysis.evidenceCompleteness.status)} evidence · ${analysis.evidenceCompleteness.retentionDays}-day retention · uploaded objects are private and hash-addressed`} />
     <div className="artifact-workspace">
       <div className="hosted-artifact-preview">{screenshot ? <AuthenticatedImage evidence={screenshot} project={project} session={session} /> : <div><strong>No hosted screenshot</strong><p>Upload screenshot files as run evidence to preview them here.</p></div>}</div>
       <div className="hosted-artifact-list">
@@ -261,6 +264,7 @@ function unique(values: string[]): string[] { return [...new Set(values)].sort()
 function label(value: string): string { return value.replace(/_/g, " "); }
 function clamp(value: number, min: number, max: number): number { return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : min; }
 function compactTime(value: string): string { return new Intl.DateTimeFormat("en", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
+function compactDate(value: string): string { return new Intl.DateTimeFormat("en", { year: "numeric", month: "short", day: "2-digit" }).format(new Date(value)); }
 function compactBytes(value: number): string { return value < 1024 ? `${value} B` : value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / 1024 / 1024).toFixed(1)} MB`; }
 function score(value?: number): string { if (value === undefined) return "-"; return `${Math.round(value <= 1 ? value * 100 : value)}%`; }
 function duration(start: string, end?: string): string { if (!end) return "In progress"; const ms = Math.max(0, Date.parse(end) - Date.parse(start)); return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`; }

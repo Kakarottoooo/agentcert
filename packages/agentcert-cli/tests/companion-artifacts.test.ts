@@ -44,50 +44,68 @@ describe("companion artifact collection", () => {
     expect(result.totalBytes).toBe(8);
     expect(result.skipped).toEqual(expect.arrayContaining([
       expect.objectContaining({ sourcePath: "https://example.com/external-report.json", reason: "remote_url" }),
-      expect.objectContaining({ sourcePath: ".tripwire/latest", reason: "not_file" }),
+      expect.objectContaining({ sourcePath: ".tripwire/latest", reason: "unsupported_type" }),
     ]));
   });
 
   it("never reads lexical or symlink-resolved paths outside the artifact root", async () => {
     const outside = join(parent, "outside");
     await mkdir(outside);
-    await writeFile(join(outside, "secret.txt"), "secret");
+    await writeFile(join(outside, "secret.json"), "secret");
     await symlink(outside, join(root, "escape"), "junction");
     const result = await collectCompanionArtifacts(bundle({
       artifacts: {
-        lexicalEscape: "../outside/secret.txt",
-        symlinkEscape: "escape/secret.txt",
+        lexicalEscape: "../outside/secret.json",
+        symlinkEscape: "escape/secret.json",
       },
     }), root);
 
     expect(result.artifacts).toHaveLength(0);
     expect(result.skipped).toEqual(expect.arrayContaining([
-      expect.objectContaining({ sourcePath: "../outside/secret.txt", reason: "outside_artifact_root" }),
-      expect.objectContaining({ sourcePath: "escape/secret.txt", reason: "outside_artifact_root" }),
+      expect.objectContaining({ sourcePath: "../outside/secret.json", reason: "outside_artifact_root" }),
+      expect.objectContaining({ sourcePath: "escape/secret.json", reason: "outside_artifact_root" }),
     ]));
   });
 
   it("enforces file count, individual size, and aggregate size without reading oversized files", async () => {
     await Promise.all([
-      writeFile(join(root, "a.txt"), "aaaa"),
-      writeFile(join(root, "b.txt"), "bbbb"),
-      writeFile(join(root, "large.txt"), "123456"),
+      writeFile(join(root, "a.json"), "aaaa"),
+      writeFile(join(root, "b.json"), "bbbb"),
+      writeFile(join(root, "large.json"), "123456"),
     ]);
     const sizeLimited = await collectCompanionArtifacts(bundle({
-      artifacts: { a: "a.txt", b: "b.txt", large: "large.txt" },
+      artifacts: { a: "a.json", b: "b.json", large: "large.json" },
     }), root, { maxFiles: 5, maxFileBytes: 5, maxTotalBytes: 6 });
 
-    expect(sizeLimited.artifacts.map((item) => item.sourcePath)).toEqual(["a.txt"]);
+    expect(sizeLimited.artifacts.map((item) => item.sourcePath)).toEqual(["a.json"]);
     expect(sizeLimited.skipped).toEqual(expect.arrayContaining([
-      expect.objectContaining({ sourcePath: "b.txt", reason: "total_size_limit" }),
-      expect.objectContaining({ sourcePath: "large.txt", reason: "file_too_large" }),
+      expect.objectContaining({ sourcePath: "b.json", reason: "total_size_limit" }),
+      expect.objectContaining({ sourcePath: "large.json", reason: "file_too_large" }),
     ]));
 
     const countLimited = await collectCompanionArtifacts(bundle({
-      artifacts: { a: "a.txt", b: "b.txt" },
+      artifacts: { a: "a.json", b: "b.json" },
     }), root, { maxFiles: 1, maxFileBytes: 10, maxTotalBytes: 10 });
     expect(countLimited.artifacts).toHaveLength(1);
-    expect(countLimited.skipped).toContainEqual(expect.objectContaining({ sourcePath: "b.txt", reason: "file_limit" }));
+    expect(countLimited.skipped).toContainEqual(expect.objectContaining({ sourcePath: "b.json", reason: "file_limit" }));
+  });
+
+  it("skips companion files outside the server evidence allowlist", async () => {
+    await Promise.all([
+      writeFile(join(root, "script.exe"), "MZpayload"),
+      writeFile(join(root, "diagram.svg"), "<svg/>"),
+      writeFile(join(root, "notes.md"), "# Notes"),
+    ]);
+    const result = await collectCompanionArtifacts(bundle({
+      artifacts: { executable: "script.exe", vector: "diagram.svg", notes: "notes.md" },
+    }), root);
+
+    expect(result.artifacts).toHaveLength(0);
+    expect(result.skipped).toEqual([
+      expect.objectContaining({ sourcePath: "script.exe", reason: "unsupported_type" }),
+      expect.objectContaining({ sourcePath: "diagram.svg", reason: "unsupported_type" }),
+      expect.objectContaining({ sourcePath: "notes.md", reason: "unsupported_type" }),
+    ]);
   });
 });
 

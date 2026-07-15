@@ -204,7 +204,11 @@ function HostedOverviewView({ data, project, onNavigate }: { data: ConsoleData; 
       <ControlMetric label="Recent runs" value={summary.runs} detail={`${summary.passingRuns} passing`} />
       <ControlMetric label="Pending approvals" value={summary.pendingApprovals} attention={summary.pendingApprovals > 0} />
       <ControlMetric label="Open incidents" value={summary.openIncidents} attention={summary.openIncidents > 0} />
-      <ControlMetric label="Evidence objects" value={summary.evidence} />
+      <ControlMetric
+        label="Evidence storage"
+        value={compactBytes(data.overview.storage.usedBytes)}
+        detail={`${summary.evidence} objects · ${compactBytes(data.overview.storage.limitBytes)} cap · ${data.overview.storage.retentionDays}d retention`}
+      />
     </section>
     <section className="operations-band"><div><SectionTitle title="Runtime queue" caption="Actions waiting for a human decision" /><ActionRows actions={data.actions.filter((action) => action.status === "PENDING_APPROVAL").slice(0, 5)} /></div><div><SectionTitle title="Open incidents" caption="Failed runs and verification gaps" /><IncidentRows incidents={data.incidents.filter((incident) => incident.status === "open").slice(0, 5)} /></div></section>
     <section className="data-section"><SectionTitle title="Recent runs" caption="Pre-release and runtime assurance activity" /><RunsTable runs={data.runs.slice(0, 8)} /></section>
@@ -248,7 +252,7 @@ function IntegrationsView({ project, session }: { project: HostedProject; sessio
 
 function ActionRows({ actions }: { actions: HostedAction[] }) { return <div className="compact-list">{actions.map((action) => <div key={action.id}><strong>{action.externalId}</strong><span>{action.actionType} · {action.riskLevel}</span><Status value={action.status} /></div>)}{actions.length === 0 ? <EmptyHosted text="No actions waiting for approval." /> : null}</div>; }
 function IncidentRows({ incidents }: { incidents: HostedIncident[] }) { return <div className="compact-list">{incidents.map((incident) => <div key={incident.id}><strong>{incident.summary}</strong><span>{incident.type}{incident.firstDivergence ? ` · ${incident.firstDivergence}` : ""}</span><Status value={incident.severity} /></div>)}{incidents.length === 0 ? <EmptyHosted text="No open incidents." /> : null}</div>; }
-function ControlMetric({ label, value, detail, attention }: { label: string; value: number; detail?: string; attention?: boolean }) { return <div className={attention ? "attention" : ""}><span>{label}</span><strong>{value}</strong><em>{detail ?? "Current project"}</em></div>; }
+function ControlMetric({ label, value, detail, attention }: { label: string; value: number | string; detail?: string; attention?: boolean }) { return <div className={attention ? "attention" : ""}><span>{label}</span><strong>{value}</strong><em>{detail ?? "Current project"}</em></div>; }
 function SectionTitle({ title, caption }: { title: string; caption: string }) { return <div className="section-title"><h2>{title}</h2><p>{caption}</p></div>; }
 function Status({ value }: { value: string }) { return <span className={`hosted-status ${value.toLowerCase().replace(/_/g, "-")}`}>{value.replace(/_/g, " ")}</span>; }
 function EmptyHosted({ text }: { text: string }) { return <div className="hosted-empty">{text}</div>; }

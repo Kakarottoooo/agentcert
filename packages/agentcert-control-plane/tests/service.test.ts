@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { MemoryArtifactStore } from "../src/artifacts.js";
+import type { EvidenceGovernancePolicy } from "../src/evidence-governance.js";
 import { AgentCertControlPlane, ControlPlaneError } from "../src/service.js";
 import { InMemoryControlPlaneStore } from "../src/store.js";
-import type { AuthContext } from "../src/types.js";
+import type { AuthContext, EvidenceRecord } from "../src/types.js";
 
 const user: AuthContext = { kind: "user", userId: "00000000-0000-4000-8000-000000000001", email: "owner@example.com" };
 
-async function setup() {
+async function setup(policy?: EvidenceGovernancePolicy) {
   const store = new InMemoryControlPlaneStore();
   const artifacts = new MemoryArtifactStore();
-  const service = new AgentCertControlPlane(store, artifacts);
+  const service = new AgentCertControlPlane(store, artifacts, policy);
   const bootstrap = await service.bootstrap(user);
   return { store, artifacts, service, projectId: bootstrap.project.id };
 }
@@ -114,14 +115,15 @@ describe("AgentCertControlPlane", () => {
 
   it("stores evidence with hash provenance and project-scoped retrieval", async () => {
     const { service, projectId } = await setup();
-    const evidence = await service.uploadEvidence(user, projectId, Buffer.from("evidence"), {
+    const evidence = await service.uploadEvidence(user, projectId, Buffer.from('{"trace":true}'), {
       fileName: "trace.json", contentType: "application/json", kind: "trace", schemaVersion: "agentcert.evidence.v0.1",
       sourcePath: ".tripwire/latest/trace.json",
     });
     expect(evidence.sha256).toMatch(/^[a-f0-9]{64}$/);
-    expect(evidence.metadata).toEqual({ sourcePath: ".tripwire/latest/trace.json" });
+    expect(evidence.metadata).toMatchObject({ sourcePath: ".tripwire/latest/trace.json", format: "JSON" });
+    expect(evidence.metadata.retentionExpiresAt).toEqual(expect.any(String));
     const result = await service.readEvidence(user, projectId, evidence.id);
-    expect(result.artifact.bytes.toString()).toBe("evidence");
+    expect(result.artifact.bytes.toString()).toBe('{"trace":true}');
     await expect(service.uploadEvidence(user, projectId, Buffer.from("bad"), {
       fileName: "trace.json", contentType: "application/json", kind: "trace", schemaVersion: "agentcert.evidence.v0.1",
       sourcePath: "x".repeat(1025),
@@ -139,11 +141,99 @@ describe("AgentCertControlPlane", () => {
       runId: run.id,
     };
 
-    const first = await service.uploadEvidence(user, projectId, Buffer.from("same evidence"), input);
-    const retried = await service.uploadEvidence(user, projectId, Buffer.from("same evidence"), input);
+    const first = await service.uploadEvidence(user, projectId, Buffer.from('{"same":true}'), input);
+    const retried = await service.uploadEvidence(user, projectId, Buffer.from('{"same":true}'), input);
 
     expect(retried.id).toBe(first.id);
     expect(await service.listEvidence(user, projectId)).toHaveLength(1);
+  });
+
+  it("enforces run and project evidence quotas without retaining rejected objects", async () => {
+    const runScoped = await setup({ projectLimitBytes: 100, runLimitBytes: 5, retentionDays: 90 });
+    const run = await runScoped.service.startRun(user, runScoped.projectId, { externalId: "run-quota", kind: "tripwire" });
+    await runScoped.service.uploadEvidence(user, runScoped.projectId, Buffer.from("{}"), {
+      fileName: "agentcert-evidence.json", contentType: "application/json", kind: "evidence_bundle",
+      schemaVersion: "agentcert.evidence.v0.1", runId: run.id,
+    });
+    await expect(runScoped.service.uploadEvidence(user, runScoped.projectId, Buffer.from('{"x":1}'), {
+      fileName: "trace.json", contentType: "application/json", kind: "trace",
+      schemaVersion: "agentcert.evidence.v0.1", runId: run.id,
+    })).rejects.toMatchObject<Partial<ControlPlaneError>>({ status: 413 });
+    expect(await runScoped.store.evidenceUsage(runScoped.projectId, run.id)).toEqual({ count: 1, bytes: 2 });
+    expect((await runScoped.service.runAnalysis(user, runScoped.projectId, run.id)).evidenceCompleteness.status).toBe("rejected");
+
+    const projectScoped = await setup({ projectLimitBytes: 5, runLimitBytes: 100, retentionDays: 90 });
+    await projectScoped.service.uploadEvidence(user, projectScoped.projectId, Buffer.from("{}"), {
+      fileName: "first.json", contentType: "application/json", kind: "json", schemaVersion: "agentcert.evidence.v0.1",
+    });
+    await expect(projectScoped.service.uploadEvidence(user, projectScoped.projectId, Buffer.from('{"x":1}'), {
+      fileName: "second.json", contentType: "application/json", kind: "json", schemaVersion: "agentcert.evidence.v0.1",
+    })).rejects.toMatchObject<Partial<ControlPlaneError>>({ status: 413 });
+    expect(await projectScoped.store.evidenceUsage(projectScoped.projectId)).toEqual({ count: 1, bytes: 2 });
+    expect((await projectScoped.service.overview(user, projectScoped.projectId)).storage).toMatchObject({
+      usedBytes: 2, limitBytes: 5, remainingBytes: 3, retentionDays: 90,
+    });
+  });
+
+  it("reports complete, partial, and rejected evidence states from hosted artifacts", async () => {
+    const { service, projectId } = await setup();
+    const run = await service.startRun(user, projectId, { externalId: "evidence-state", kind: "tripwire" });
+    const bundle = Buffer.from(JSON.stringify({ artifacts: { screenshot: "screenshots/step.png" } }));
+    await service.uploadEvidence(user, projectId, bundle, {
+      fileName: "agentcert-evidence.json", contentType: "application/json", kind: "evidence_bundle",
+      schemaVersion: "agentcert.evidence.v0.1", runId: run.id,
+    });
+    expect((await service.runAnalysis(user, projectId, run.id)).evidenceCompleteness).toMatchObject({
+      status: "partial", evidenceCount: 1,
+    });
+    await service.appendEvents(user, projectId, run.id, {
+      events: [{ sequence: 0, type: "agentcert.companion_artifacts.processed", payload: { uploadedCount: 1, skippedCount: 0 } }],
+    });
+    expect((await service.runAnalysis(user, projectId, run.id)).evidenceCompleteness.status).toBe("partial");
+
+    await service.uploadEvidence(user, projectId, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), {
+      fileName: "step.png", contentType: "image/png", kind: "screenshot",
+      schemaVersion: "agentcert.evidence.v0.1", runId: run.id, sourcePath: "screenshots/step.png",
+    });
+    expect((await service.runAnalysis(user, projectId, run.id)).evidenceCompleteness).toMatchObject({
+      status: "complete", evidenceCount: 2,
+    });
+
+    await expect(service.uploadEvidence(user, projectId, Buffer.from("MZpayload"), {
+      fileName: "hostile.json", contentType: "application/json", kind: "trace",
+      schemaVersion: "agentcert.evidence.v0.1", runId: run.id,
+    })).rejects.toMatchObject<Partial<ControlPlaneError>>({ status: 415 });
+    const rejected = await service.runAnalysis(user, projectId, run.id);
+    expect(rejected.evidenceCompleteness.status).toBe("rejected");
+    expect(rejected.evidenceCompleteness.reasons[0]).toContain("Executable files");
+  });
+
+  it("deletes expired objects before metadata and retains metadata when object deletion fails", async () => {
+    const { service, store, artifacts, projectId } = await setup();
+    const old = evidenceRecord(projectId, "old", "2025-01-01T00:00:00.000Z");
+    const recent = evidenceRecord(projectId, "recent", "2025-12-20T00:00:00.000Z");
+    await store.insertEvidence(old);
+    await store.insertEvidence(recent);
+    await artifacts.put(old.objectKey, Buffer.from("{}"), old.contentType);
+    await artifacts.put(recent.objectKey, Buffer.from("{}"), recent.contentType);
+
+    const result = await service.cleanupExpiredEvidence(new Date("2026-01-01T00:00:00.000Z"));
+    expect(result).toMatchObject({ scanned: 1, deleted: 1, bytesDeleted: 2, failed: 0 });
+    expect(await store.getEvidence(projectId, old.id)).toBeUndefined();
+    expect(await artifacts.get(old.objectKey)).toBeUndefined();
+    expect(await store.getEvidence(projectId, recent.id)).toEqual(recent);
+
+    class FailingDeleteStore extends MemoryArtifactStore {
+      override async delete(): Promise<void> { throw new Error("storage unavailable"); }
+    }
+    const failingArtifacts = new FailingDeleteStore();
+    const failingService = new AgentCertControlPlane(store, failingArtifacts);
+    const failed = evidenceRecord(projectId, "failed", "2025-01-02T00:00:00.000Z");
+    await store.insertEvidence(failed);
+    await failingArtifacts.put(failed.objectKey, Buffer.from("{}"), failed.contentType);
+    const failure = await failingService.cleanupExpiredEvidence(new Date("2026-01-01T00:00:00.000Z"));
+    expect(failure).toMatchObject({ scanned: 1, deleted: 0, failed: 1 });
+    expect(await store.getEvidence(projectId, failed.id)).toEqual(failed);
   });
 
   it("persists human failure reviews in run analysis and updates the same pattern", async () => {
@@ -236,3 +326,11 @@ describe("AgentCertControlPlane", () => {
     expect(await store.findApiKeyByHash(listed[0].secretHash)).toBeUndefined();
   });
 });
+
+function evidenceRecord(projectId: string, id: string, createdAt: string): EvidenceRecord {
+  return {
+    id, projectId, kind: "json", schemaVersion: "agentcert.evidence.v0.1", objectKey: `${projectId}/${id}.json`,
+    fileName: `${id}.json`, contentType: "application/json", sha256: id.padEnd(64, "0"), sizeBytes: 2,
+    metadata: {}, createdAt,
+  };
+}

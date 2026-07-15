@@ -138,6 +138,16 @@ export interface HostedRunAnalysis {
   evidence: HostedEvidence[];
   incidents: HostedIncident[];
   reviews: HostedFailureReview[];
+  evidenceCompleteness: {
+    status: "complete" | "partial" | "rejected";
+    reasons: string[];
+    evidenceCount: number;
+    bytesUsed: number;
+    runLimitBytes: number;
+    remainingBytes: number;
+    retentionDays: number;
+    expiresAt?: string;
+  };
 }
 
 export interface HostedApiKey {
@@ -151,6 +161,13 @@ export interface HostedApiKey {
 
 export interface HostedOverview {
   projectId: string;
+  storage: {
+    usedBytes: number;
+    limitBytes: number;
+    remainingBytes: number;
+    retentionDays: number;
+    acceptedFormats: string[];
+  };
   summary: {
     agents: number;
     runs: number;
