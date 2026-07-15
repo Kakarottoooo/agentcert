@@ -5,7 +5,7 @@ import type { AuthContext } from "./types.js";
 export interface AuthenticatorOptions {
   store: ControlPlaneStore;
   supabaseUrl?: string;
-  supabaseAnonKey?: string;
+  supabasePublishableKey?: string;
   devMode?: boolean;
 }
 
@@ -19,9 +19,9 @@ export class Authenticator {
     if (this.options.devMode && token === "dev-local-token") {
       return { kind: "user", userId: "00000000-0000-4000-8000-000000000001", email: "developer@localhost" };
     }
-    if (!this.options.supabaseUrl || !this.options.supabaseAnonKey) return undefined;
+    if (!this.options.supabaseUrl || !this.options.supabasePublishableKey) return undefined;
     const response = await fetch(`${this.options.supabaseUrl.replace(/\/$/, "")}/auth/v1/user`, {
-      headers: { apikey: this.options.supabaseAnonKey, authorization: `Bearer ${token}` },
+      headers: { apikey: this.options.supabasePublishableKey, authorization: `Bearer ${token}` },
     });
     if (!response.ok) return undefined;
     const user = (await response.json()) as { id?: string; email?: string };

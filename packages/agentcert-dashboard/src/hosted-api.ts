@@ -5,6 +5,8 @@ export interface HostedConfig {
   auth: {
     provider: "supabase" | "development";
     supabaseUrl?: string;
+    supabasePublishableKey?: string;
+    /** Legacy control-plane response compatibility. */
     supabaseAnonKey?: string;
     registrationOpen: boolean;
   };
@@ -275,10 +277,11 @@ function path(projectId: string, suffix: string): string {
 }
 
 async function supabaseRequest(config: HostedConfig, route: string, init: RequestInit): Promise<Response> {
-  if (!config.auth.supabaseUrl || !config.auth.supabaseAnonKey) throw new Error("Supabase authentication is not configured.");
+  const publishableKey = config.auth.supabasePublishableKey ?? config.auth.supabaseAnonKey;
+  if (!config.auth.supabaseUrl || !publishableKey) throw new Error("Supabase authentication is not configured.");
   return fetch(`${config.auth.supabaseUrl.replace(/\/$/, "")}${route}`, {
     ...init,
-    headers: { apikey: config.auth.supabaseAnonKey, "content-type": "application/json", ...init.headers },
+    headers: { apikey: publishableKey, "content-type": "application/json", ...init.headers },
   });
 }
 
