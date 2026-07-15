@@ -86,7 +86,7 @@ export class AgentCertClient {
     return this.json(`actions/${encodeURIComponent(actionId)}/verify`, { method: "POST", body: JSON.stringify({ observedState }) });
   }
 
-  async uploadEvidence(input: { bytes: Uint8Array; fileName: string; contentType?: string; kind?: string; schemaVersion?: string; runId?: string; actionId?: string }): Promise<Record<string, unknown>> {
+  async uploadEvidence(input: { bytes: Uint8Array; fileName: string; contentType?: string; kind?: string; schemaVersion?: string; runId?: string; actionId?: string; sourcePath?: string }): Promise<Record<string, unknown>> {
     const query = new URLSearchParams({
       fileName: input.fileName,
       kind: input.kind ?? "artifact",
@@ -94,6 +94,7 @@ export class AgentCertClient {
     });
     if (input.runId) query.set("runId", input.runId);
     if (input.actionId) query.set("actionId", input.actionId);
+    if (input.sourcePath) query.set("sourcePath", input.sourcePath);
     const body = new Uint8Array(input.bytes).buffer as ArrayBuffer;
     const response = await this.requestFetch(`${this.projectUrl("evidence")}?${query}`, {
       method: "POST",

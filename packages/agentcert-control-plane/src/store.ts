@@ -10,6 +10,7 @@ import type {
   EvidenceStorageUsage,
   FailureReviewRecord,
   IncidentRecord,
+  LegalHoldRequestRecord,
   Membership,
   Organization,
   Project,
@@ -57,13 +58,19 @@ export interface ControlPlaneStore {
   insertApproval(approval: ApprovalRecord): Promise<ApprovalRecord>;
   insertEvidence(evidence: EvidenceRecord): Promise<EvidenceRecord>;
   insertEvidenceWithinQuota(evidence: EvidenceRecord, projectLimitBytes: number, runLimitBytes: number): Promise<EvidenceRecord>;
-  findEvidenceByDigest(projectId: string, runId: string | undefined, actionId: string | undefined, kind: string, sha256: string): Promise<EvidenceRecord | undefined>;
+  findEvidenceByDigest(projectId: string, runId: string | undefined, actionId: string | undefined, kind: string, sha256: string, sourcePath?: string): Promise<EvidenceRecord | undefined>;
   getEvidence(projectId: string, evidenceId: string): Promise<EvidenceRecord | undefined>;
   listEvidence(projectId: string, limit?: number): Promise<EvidenceRecord[]>;
   listEvidenceForRun(projectId: string, runId: string): Promise<EvidenceRecord[]>;
   evidenceUsage(projectId: string, runId?: string): Promise<EvidenceStorageUsage>;
   listEvidenceCreatedBefore(before: string, limit?: number): Promise<EvidenceRecord[]>;
   deleteEvidence(projectId: string, evidenceId: string): Promise<boolean>;
+  deleteEvidenceUnlessHeld(projectId: string, evidenceId: string, deleteObject: () => Promise<void>): Promise<"deleted" | "held" | "missing">;
+  saveLegalHoldRequest(request: LegalHoldRequestRecord, expectedStatus?: LegalHoldRequestRecord["status"]): Promise<LegalHoldRequestRecord>;
+  getLegalHoldRequest(requestId: string): Promise<LegalHoldRequestRecord | undefined>;
+  listLegalHoldRequests(projectId: string, limit?: number): Promise<LegalHoldRequestRecord[]>;
+  listPendingLegalHoldRequests(limit?: number): Promise<LegalHoldRequestRecord[]>;
+  getApprovedLegalHold(projectId: string): Promise<LegalHoldRequestRecord | undefined>;
   insertIncident(incident: IncidentRecord): Promise<IncidentRecord>;
   listIncidents(projectId: string, limit?: number): Promise<IncidentRecord[]>;
   listIncidentsForRun(projectId: string, runId: string): Promise<IncidentRecord[]>;
@@ -90,6 +97,8 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   private incidents = new Map<string, IncidentRecord>();
   private failureReviews = new Map<string, FailureReviewRecord>();
   private apiKeys = new Map<string, ApiKeyRecord>();
+  private legalHoldRequests = new Map<string, LegalHoldRequestRecord>();
+  private retentionLocks = new Map<string, Promise<void>>();
 
   async migrate(): Promise<void> {}
 
@@ -219,14 +228,14 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   }
 
   async insertEvidence(evidence: EvidenceRecord): Promise<EvidenceRecord> {
-    const existing = await this.findEvidenceByDigest(evidence.projectId, evidence.runId, evidence.actionId, evidence.kind, evidence.sha256);
+    const existing = await this.findEvidenceByDigest(evidence.projectId, evidence.runId, evidence.actionId, evidence.kind, evidence.sha256, evidenceSourcePath(evidence));
     if (existing && (evidence.runId || evidence.actionId)) return existing;
     this.evidence.set(evidence.id, evidence);
     return evidence;
   }
 
   async insertEvidenceWithinQuota(evidence: EvidenceRecord, projectLimitBytes: number, runLimitBytes: number): Promise<EvidenceRecord> {
-    const existing = await this.findEvidenceByDigest(evidence.projectId, evidence.runId, evidence.actionId, evidence.kind, evidence.sha256);
+    const existing = await this.findEvidenceByDigest(evidence.projectId, evidence.runId, evidence.actionId, evidence.kind, evidence.sha256, evidenceSourcePath(evidence));
     if (existing && (evidence.runId || evidence.actionId)) return existing;
     const projectUsage = await this.evidenceUsage(evidence.projectId);
     if (projectUsage.bytes + evidence.sizeBytes > projectLimitBytes) {
@@ -246,9 +255,10 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
     return [...this.runs.values()].find((item) => item.projectId === projectId && item.externalId === externalId);
   }
 
-  async findEvidenceByDigest(projectId: string, runId: string | undefined, actionId: string | undefined, kind: string, sha256: string): Promise<EvidenceRecord | undefined> {
+  async findEvidenceByDigest(projectId: string, runId: string | undefined, actionId: string | undefined, kind: string, sha256: string, sourcePath?: string): Promise<EvidenceRecord | undefined> {
     return [...this.evidence.values()].find((item) => item.projectId === projectId
-      && item.runId === runId && item.actionId === actionId && item.kind === kind && item.sha256 === sha256);
+      && item.runId === runId && item.actionId === actionId && item.kind === kind && item.sha256 === sha256
+      && evidenceSourcePath(item) === sourcePath);
   }
 
   async getEvidence(projectId: string, evidenceId: string): Promise<EvidenceRecord | undefined> {
@@ -274,8 +284,11 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
 
   async listEvidenceCreatedBefore(before: string, limit = 500): Promise<EvidenceRecord[]> {
     const cutoff = Date.parse(before);
+    const heldProjects = new Set([...this.legalHoldRequests.values()]
+      .filter((request) => request.status === "approved")
+      .map((request) => request.projectId));
     return [...this.evidence.values()]
-      .filter((item) => Date.parse(item.createdAt) < cutoff)
+      .filter((item) => Date.parse(item.createdAt) < cutoff && !heldProjects.has(item.projectId))
       .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
       .slice(0, limit);
   }
@@ -283,6 +296,70 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   async deleteEvidence(projectId: string, evidenceId: string): Promise<boolean> {
     const evidence = this.evidence.get(evidenceId);
     return evidence?.projectId === projectId ? this.evidence.delete(evidenceId) : false;
+  }
+
+  async deleteEvidenceUnlessHeld(
+    projectId: string,
+    evidenceId: string,
+    deleteObject: () => Promise<void>,
+  ): Promise<"deleted" | "held" | "missing"> {
+    return this.withRetentionLock(projectId, async () => {
+      if (await this.getApprovedLegalHold(projectId)) return "held";
+      const evidence = this.evidence.get(evidenceId);
+      if (!evidence || evidence.projectId !== projectId) return "missing";
+      await deleteObject();
+      this.evidence.delete(evidenceId);
+      return "deleted";
+    });
+  }
+
+  async saveLegalHoldRequest(
+    request: LegalHoldRequestRecord,
+    expectedStatus?: LegalHoldRequestRecord["status"],
+  ): Promise<LegalHoldRequestRecord> {
+    return this.withRetentionLock(request.projectId, async () => {
+      const existing = this.legalHoldRequests.get(request.id);
+      if (expectedStatus && existing?.status !== expectedStatus) throw new LegalHoldStateConflictError(expectedStatus);
+      const active = [...this.legalHoldRequests.values()].find((item) =>
+        item.projectId === request.projectId && item.id !== request.id && (item.status === "requested" || item.status === "approved"));
+      if (active && (request.status === "requested" || request.status === "approved")) {
+        throw new Error("An active legal hold request already exists for this project.");
+      }
+      this.legalHoldRequests.set(request.id, request);
+      return request;
+    });
+  }
+
+  async getLegalHoldRequest(requestId: string): Promise<LegalHoldRequestRecord | undefined> {
+    return this.legalHoldRequests.get(requestId);
+  }
+
+  async listLegalHoldRequests(projectId: string, limit = 20): Promise<LegalHoldRequestRecord[]> {
+    return newest([...this.legalHoldRequests.values()].filter((item) => item.projectId === projectId), "requestedAt").slice(0, limit);
+  }
+
+  async listPendingLegalHoldRequests(limit = 100): Promise<LegalHoldRequestRecord[]> {
+    return [...this.legalHoldRequests.values()].filter((item) => item.status === "requested")
+      .sort((left, right) => left.requestedAt.localeCompare(right.requestedAt)).slice(0, limit);
+  }
+
+  async getApprovedLegalHold(projectId: string): Promise<LegalHoldRequestRecord | undefined> {
+    return [...this.legalHoldRequests.values()].find((item) => item.projectId === projectId && item.status === "approved");
+  }
+
+  private async withRetentionLock<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.retentionLocks.get(projectId) ?? Promise.resolve();
+    let release = (): void => undefined;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    const queued = previous.then(() => current);
+    this.retentionLocks.set(projectId, queued);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.retentionLocks.get(projectId) === queued) this.retentionLocks.delete(projectId);
+    }
   }
 
   async insertIncident(incident: IncidentRecord): Promise<IncidentRecord> {
@@ -354,7 +431,7 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
   }
 
   async migrate(): Promise<void> {
-    for (const name of ["001_initial.sql", "002_failure_reviews.sql", "003_evidence_retention.sql"]) {
+    for (const name of ["001_initial.sql", "002_failure_reviews.sql", "003_evidence_retention.sql", "004_legal_holds.sql"]) {
       const migration = await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8");
       await this.pool.query(migration);
     }
@@ -570,7 +647,7 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     );
     if (result.rows[0]) return evidenceFromRow(result.rows[0]);
     return required(
-      await this.findEvidenceByDigest(evidence.projectId, evidence.runId, evidence.actionId, evidence.kind, evidence.sha256),
+      await this.findEvidenceByDigest(evidence.projectId, evidence.runId, evidence.actionId, evidence.kind, evidence.sha256, evidenceSourcePath(evidence)),
       "evidence",
     );
   }
@@ -582,8 +659,9 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [evidence.projectId]);
       const existing = await client.query(
         `SELECT * FROM agentcert_evidence WHERE project_id=$1 AND run_id IS NOT DISTINCT FROM $2
-         AND action_id IS NOT DISTINCT FROM $3 AND kind=$4 AND sha256=$5 ORDER BY created_at LIMIT 1`,
-        [evidence.projectId, evidence.runId ?? null, evidence.actionId ?? null, evidence.kind, evidence.sha256],
+         AND action_id IS NOT DISTINCT FROM $3 AND kind=$4 AND sha256=$5
+         AND COALESCE(metadata->>'sourcePath','')=COALESCE($6,'') ORDER BY created_at LIMIT 1`,
+        [evidence.projectId, evidence.runId ?? null, evidence.actionId ?? null, evidence.kind, evidence.sha256, evidenceSourcePath(evidence) ?? null],
       );
       if (existing.rows[0] && (evidence.runId || evidence.actionId)) {
         await client.query("COMMIT");
@@ -627,12 +705,13 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     return one(this.pool.query("SELECT * FROM agentcert_runs WHERE project_id=$1 AND external_id=$2", [projectId, externalId]), runFromRow);
   }
 
-  async findEvidenceByDigest(projectId: string, runId: string | undefined, actionId: string | undefined, kind: string, sha256: string): Promise<EvidenceRecord | undefined> {
+  async findEvidenceByDigest(projectId: string, runId: string | undefined, actionId: string | undefined, kind: string, sha256: string, sourcePath?: string): Promise<EvidenceRecord | undefined> {
     return one(
       this.pool.query(
         `SELECT * FROM agentcert_evidence WHERE project_id=$1 AND run_id IS NOT DISTINCT FROM $2
-         AND action_id IS NOT DISTINCT FROM $3 AND kind=$4 AND sha256=$5 ORDER BY created_at LIMIT 1`,
-        [projectId, runId ?? null, actionId ?? null, kind, sha256],
+         AND action_id IS NOT DISTINCT FROM $3 AND kind=$4 AND sha256=$5
+         AND COALESCE(metadata->>'sourcePath','')=COALESCE($6,'') ORDER BY created_at LIMIT 1`,
+        [projectId, runId ?? null, actionId ?? null, kind, sha256, sourcePath ?? null],
       ),
       evidenceFromRow,
     );
@@ -668,7 +747,16 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
 
   async listEvidenceCreatedBefore(before: string, limit = 500): Promise<EvidenceRecord[]> {
     return many(
-      this.pool.query("SELECT * FROM agentcert_evidence WHERE created_at < $1 ORDER BY created_at ASC LIMIT $2", [before, limit]),
+      this.pool.query(
+        `SELECT e.* FROM agentcert_evidence e
+         WHERE e.created_at < $1
+           AND NOT EXISTS (
+             SELECT 1 FROM agentcert_legal_hold_requests h
+             WHERE h.project_id=e.project_id AND h.status='approved'
+           )
+         ORDER BY e.created_at ASC LIMIT $2`,
+        [before, limit],
+      ),
       evidenceFromRow,
     );
   }
@@ -676,6 +764,89 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
   async deleteEvidence(projectId: string, evidenceId: string): Promise<boolean> {
     const result = await this.pool.query("DELETE FROM agentcert_evidence WHERE project_id=$1 AND id=$2", [projectId, evidenceId]);
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async deleteEvidenceUnlessHeld(
+    projectId: string,
+    evidenceId: string,
+    deleteObject: () => Promise<void>,
+  ): Promise<"deleted" | "held" | "missing"> {
+    const client = await this.pool.connect();
+    const lockKey = retentionLockKey(projectId);
+    try {
+      await client.query("SELECT pg_advisory_lock(hashtext($1))", [lockKey]);
+      const hold = await client.query(
+        "SELECT 1 FROM agentcert_legal_hold_requests WHERE project_id=$1 AND status='approved' LIMIT 1",
+        [projectId],
+      );
+      if (hold.rows[0]) return "held";
+      const evidence = await client.query("SELECT 1 FROM agentcert_evidence WHERE project_id=$1 AND id=$2", [projectId, evidenceId]);
+      if (!evidence.rows[0]) return "missing";
+      await deleteObject();
+      const deleted = await client.query("DELETE FROM agentcert_evidence WHERE project_id=$1 AND id=$2", [projectId, evidenceId]);
+      return (deleted.rowCount ?? 0) > 0 ? "deleted" : "missing";
+    } finally {
+      await client.query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey]).catch(() => undefined);
+      client.release();
+    }
+  }
+
+  async saveLegalHoldRequest(
+    request: LegalHoldRequestRecord,
+    expectedStatus?: LegalHoldRequestRecord["status"],
+  ): Promise<LegalHoldRequestRecord> {
+    const client = await this.pool.connect();
+    const lockKey = retentionLockKey(request.projectId);
+    try {
+      await client.query("SELECT pg_advisory_lock(hashtext($1))", [lockKey]);
+      const values = [request.id, request.projectId, request.status, request.reason, request.requestedBy, request.requestedByEmail ?? null,
+        request.requestedAt, request.reviewedBy ?? null, request.reviewedByEmail ?? null, request.reviewNote ?? null,
+        request.reviewedAt ?? null, request.releasedBy ?? null, request.releasedByEmail ?? null, request.releaseNote ?? null,
+        request.releasedAt ?? null];
+      const result = expectedStatus
+        ? await client.query(
+          `UPDATE agentcert_legal_hold_requests SET status=$3,reviewed_by=$8,reviewed_by_email=$9,
+           review_note=$10,reviewed_at=$11,released_by=$12,released_by_email=$13,release_note=$14,released_at=$15
+           WHERE id=$1 AND project_id=$2 AND status=$16 RETURNING *`,
+          [...values, expectedStatus],
+        )
+        : await client.query(
+          `INSERT INTO agentcert_legal_hold_requests
+           (id,project_id,status,reason,requested_by,requested_by_email,requested_at,reviewed_by,reviewed_by_email,review_note,reviewed_at,released_by,released_by_email,release_note,released_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+          values,
+        );
+      if (!result.rows[0] && expectedStatus) throw new LegalHoldStateConflictError(expectedStatus);
+      return legalHoldFromRow(result.rows[0]);
+    } finally {
+      await client.query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey]).catch(() => undefined);
+      client.release();
+    }
+  }
+
+  async getLegalHoldRequest(requestId: string): Promise<LegalHoldRequestRecord | undefined> {
+    return one(this.pool.query("SELECT * FROM agentcert_legal_hold_requests WHERE id=$1", [requestId]), legalHoldFromRow);
+  }
+
+  async listLegalHoldRequests(projectId: string, limit = 20): Promise<LegalHoldRequestRecord[]> {
+    return many(
+      this.pool.query("SELECT * FROM agentcert_legal_hold_requests WHERE project_id=$1 ORDER BY requested_at DESC LIMIT $2", [projectId, limit]),
+      legalHoldFromRow,
+    );
+  }
+
+  async listPendingLegalHoldRequests(limit = 100): Promise<LegalHoldRequestRecord[]> {
+    return many(
+      this.pool.query("SELECT * FROM agentcert_legal_hold_requests WHERE status='requested' ORDER BY requested_at ASC LIMIT $1", [limit]),
+      legalHoldFromRow,
+    );
+  }
+
+  async getApprovedLegalHold(projectId: string): Promise<LegalHoldRequestRecord | undefined> {
+    return one(
+      this.pool.query("SELECT * FROM agentcert_legal_hold_requests WHERE project_id=$1 AND status='approved' ORDER BY reviewed_at DESC LIMIT 1", [projectId]),
+      legalHoldFromRow,
+    );
   }
 
   async insertIncident(incident: IncidentRecord): Promise<IncidentRecord> {
@@ -785,6 +956,26 @@ function evidenceFromRow(row: Record<string, unknown>): EvidenceRecord {
   return { id: text(row.id), projectId: text(row.project_id), runId: optionalText(row.run_id), actionId: optionalText(row.action_id), kind: text(row.kind),
     schemaVersion: text(row.schema_version), objectKey: text(row.object_key), fileName: text(row.file_name), contentType: text(row.content_type), sha256: text(row.sha256),
     sizeBytes: number(row.size_bytes), metadata: object(row.metadata), createdAt: iso(row.created_at) };
+}
+
+export class LegalHoldStateConflictError extends Error {
+  constructor(readonly expectedStatus: LegalHoldRequestRecord["status"]) {
+    super(`Legal hold status changed before the ${expectedStatus} transition completed.`);
+    this.name = "LegalHoldStateConflictError";
+  }
+}
+function evidenceSourcePath(evidence: EvidenceRecord): string | undefined {
+  return typeof evidence.metadata.sourcePath === "string" ? evidence.metadata.sourcePath : undefined;
+}
+function retentionLockKey(projectId: string): string { return `agentcert-retention:${projectId}`; }
+function legalHoldFromRow(row: Record<string, unknown>): LegalHoldRequestRecord {
+  return {
+    id: text(row.id), projectId: text(row.project_id), status: text(row.status) as LegalHoldRequestRecord["status"],
+    reason: text(row.reason), requestedBy: text(row.requested_by), requestedByEmail: optionalText(row.requested_by_email),
+    requestedAt: iso(row.requested_at), reviewedBy: optionalText(row.reviewed_by), reviewedByEmail: optionalText(row.reviewed_by_email),
+    reviewNote: optionalText(row.review_note), reviewedAt: optionalIso(row.reviewed_at), releasedBy: optionalText(row.released_by),
+    releasedByEmail: optionalText(row.released_by_email), releaseNote: optionalText(row.release_note), releasedAt: optionalIso(row.released_at),
+  };
 }
 function incidentFromRow(row: Record<string, unknown>): IncidentRecord {
   return { id: text(row.id), projectId: text(row.project_id), agentId: optionalText(row.agent_id), runId: optionalText(row.run_id), actionId: optionalText(row.action_id),

@@ -2,6 +2,8 @@ import { extname } from "node:path";
 import type {
   EventRecord,
   EvidenceCompleteness,
+  EvidenceArtifactManifest,
+  EvidenceArtifactManifestEntry,
   EvidenceRecord,
   RunRecord,
 } from "./types.js";
@@ -34,6 +36,7 @@ export interface ValidatedEvidenceUpload {
   contentType: string;
   format: typeof ACCEPTED_EVIDENCE_FORMATS[number];
   artifactReferenceCount?: number;
+  artifactManifest?: EvidenceArtifactManifest;
 }
 
 export class EvidenceUploadValidationError extends Error {
@@ -92,7 +95,10 @@ export function validateEvidenceUpload(
   const parsedJson = validateContent(bytes, descriptor.format);
   return {
     ...descriptor,
-    ...(input.kind === "evidence_bundle" ? { artifactReferenceCount: countArtifactReferences(parsedJson) } : {}),
+    ...(input.kind === "evidence_bundle" ? {
+      artifactReferenceCount: countArtifactReferences(parsedJson),
+      artifactManifest: parseArtifactManifest(parsedJson),
+    } : {}),
   };
 }
 
@@ -101,6 +107,7 @@ export function calculateEvidenceCompleteness(
   events: EventRecord[],
   evidence: EvidenceRecord[],
   policy: EvidenceGovernancePolicy,
+  legalHoldActive = false,
 ): EvidenceCompleteness {
   const bytesUsed = evidence.reduce((total, item) => total + item.sizeBytes, 0);
   const base = {
@@ -109,13 +116,18 @@ export function calculateEvidenceCompleteness(
     runLimitBytes: policy.runLimitBytes,
     remainingBytes: Math.max(0, policy.runLimitBytes - bytesUsed),
     retentionDays: policy.retentionDays,
-    expiresAt: earliestExpiry(evidence, policy.retentionDays),
+    expiresAt: legalHoldActive ? undefined : earliestExpiry(evidence, policy.retentionDays),
+    legalHoldActive,
   };
+  const bundle = evidence.find((item) => item.kind === "evidence_bundle");
+  const manifest = manifestFromMetadata(bundle?.metadata.artifactManifest);
+  const reconciliation = reconcileEvidence(manifest, evidence);
   const acceptedAt = timestamp(run.metadata.lastEvidenceAcceptedAt);
   const rejectedAt = timestamp(run.metadata.lastEvidenceRejectedAt);
   if (rejectedAt > 0 && rejectedAt >= acceptedAt) {
     return {
       ...base,
+      reconciliation,
       status: "rejected",
       reasons: [typeof run.metadata.lastEvidenceRejectionReason === "string"
         ? run.metadata.lastEvidenceRejectionReason
@@ -123,26 +135,159 @@ export function calculateEvidenceCompleteness(
     };
   }
 
-  const bundle = evidence.find((item) => item.kind === "evidence_bundle");
-  if (!bundle) return { ...base, status: "partial", reasons: ["No evidence bundle has been uploaded for this run."] };
+  if (!bundle) return { ...base, reconciliation, status: "partial", reasons: ["No evidence bundle has been uploaded for this run."] };
+  if (!manifest) {
+    return {
+      ...base,
+      reconciliation,
+      status: "partial",
+      reasons: ["The evidence bundle has no agentcert.artifact_manifest.v0.1 declaration and cannot be byte-reconciled."],
+    };
+  }
   const processed = [...events].reverse().find((item) => item.type === "agentcert.companion_artifacts.processed");
   const skippedCount = numeric(processed?.payload.skippedCount);
   if (processed && skippedCount > 0) {
-    return { ...base, status: "partial", reasons: [`${skippedCount} referenced companion artifact(s) were skipped.`] };
+    return { ...base, reconciliation, status: "partial", reasons: [`${skippedCount} referenced companion artifact(s) were skipped.`] };
   }
   const expected = numeric(bundle.metadata.artifactReferenceCount);
-  const uploadedSources = new Set(evidence
-    .filter((item) => item.kind !== "evidence_bundle")
-    .map((item) => item.metadata.sourcePath)
-    .filter((value): value is string => typeof value === "string"));
-  if (expected > uploadedSources.size) {
+  if (expected > manifest.entries.length) {
     return {
       ...base,
+      reconciliation,
       status: "partial",
-      reasons: [`The bundle references ${expected} artifact(s), but only ${uploadedSources.size} companion source path(s) are hosted.`],
+      reasons: [`The bundle references ${expected} local artifact(s), but its manifest declares only ${manifest.entries.length}.`],
     };
   }
-  return { ...base, status: "complete", reasons: [] };
+  if (reconciliation.missing.length || reconciliation.mismatched.length || reconciliation.unexpected.length) {
+    const reasons = [
+      ...(reconciliation.missing.length ? [`${reconciliation.missing.length} declared artifact(s) are missing.`] : []),
+      ...(reconciliation.mismatched.length ? [`${reconciliation.mismatched.length} uploaded artifact(s) do not match their manifest declaration.`] : []),
+      ...(reconciliation.unexpected.length ? [`${reconciliation.unexpected.length} uploaded artifact(s) are not declared by the manifest.`] : []),
+    ];
+    return { ...base, reconciliation, status: "partial", reasons };
+  }
+  return { ...base, reconciliation, status: "complete", reasons: [] };
+}
+
+export function parseArtifactManifest(value: unknown): EvidenceArtifactManifest | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const bundle = value as Record<string, unknown>;
+  if (!("artifactManifest" in bundle)) return undefined;
+  return validateArtifactManifest(bundle.artifactManifest);
+}
+
+export function normalizeManifestPath(value: string): string {
+  const path = value.replace(/\\/g, "/").replace(/^\.\//, "").trim();
+  if (!path || path.length > 1024 || path.startsWith("/") || /^[A-Za-z]:\//.test(path)) {
+    throw new EvidenceUploadValidationError("Artifact manifest paths must be relative and at most 1024 characters.");
+  }
+  if (path.split("/").some((segment) => segment === "" || segment === "..")) {
+    throw new EvidenceUploadValidationError("Artifact manifest paths cannot contain empty or parent segments.");
+  }
+  return path;
+}
+
+export function assertArtifactMatchesManifest(
+  manifest: EvidenceArtifactManifest,
+  input: { sourcePath?: string; sha256: string; sizeBytes: number; kind: string },
+): EvidenceArtifactManifestEntry {
+  if (!input.sourcePath) throw new EvidenceUploadValidationError("Manifest-reconciled artifact uploads require sourcePath.");
+  const path = normalizeManifestPath(input.sourcePath);
+  const entry = manifest.entries.find((item) => item.path === path);
+  if (!entry) throw new EvidenceUploadValidationError(`Artifact ${path} is not declared by the evidence bundle manifest.`);
+  const mismatches = [
+    ...(entry.sha256 === input.sha256 ? [] : ["sha256"]),
+    ...(entry.sizeBytes === input.sizeBytes ? [] : ["sizeBytes"]),
+    ...(entry.kind === input.kind ? [] : ["kind"]),
+  ];
+  if (mismatches.length) {
+    throw new EvidenceUploadValidationError(`Artifact ${path} does not match its manifest declaration (${mismatches.join(", ")}).`);
+  }
+  return entry;
+}
+
+function validateArtifactManifest(value: unknown): EvidenceArtifactManifest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new EvidenceUploadValidationError("artifactManifest must be an object.");
+  }
+  const manifest = value as Record<string, unknown>;
+  if (manifest.schemaVersion !== "agentcert.artifact_manifest.v0.1") {
+    throw new EvidenceUploadValidationError("Unsupported artifact manifest version.");
+  }
+  if (!Array.isArray(manifest.entries) || manifest.entries.length > 500) {
+    throw new EvidenceUploadValidationError("artifactManifest.entries must contain at most 500 entries.");
+  }
+  const paths = new Set<string>();
+  const entries = manifest.entries.map((raw): EvidenceArtifactManifestEntry => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new EvidenceUploadValidationError("Each artifact manifest entry must be an object.");
+    }
+    const entry = raw as Record<string, unknown>;
+    const path = normalizeManifestPath(typeof entry.path === "string" ? entry.path : "");
+    if (paths.has(path)) throw new EvidenceUploadValidationError(`Artifact manifest path ${path} is duplicated.`);
+    paths.add(path);
+    if (typeof entry.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(entry.sha256)) {
+      throw new EvidenceUploadValidationError(`Artifact manifest entry ${path} has an invalid SHA-256 digest.`);
+    }
+    if (!Number.isSafeInteger(entry.sizeBytes) || Number(entry.sizeBytes) < 0) {
+      throw new EvidenceUploadValidationError(`Artifact manifest entry ${path} has an invalid sizeBytes value.`);
+    }
+    if (typeof entry.kind !== "string" || !entry.kind || entry.kind.length > 64) {
+      throw new EvidenceUploadValidationError(`Artifact manifest entry ${path} has an invalid kind.`);
+    }
+    return { path, sha256: entry.sha256, sizeBytes: Number(entry.sizeBytes), kind: entry.kind };
+  });
+  return { schemaVersion: "agentcert.artifact_manifest.v0.1", entries };
+}
+
+export function manifestFromMetadata(value: unknown): EvidenceArtifactManifest | undefined {
+  if (!value) return undefined;
+  try {
+    return validateArtifactManifest(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function reconcileEvidence(manifest: EvidenceArtifactManifest | undefined, evidence: EvidenceRecord[]) {
+  if (!manifest) {
+    return { declared: 0, matched: 0, missing: [], mismatched: [], unexpected: [], legacy: true };
+  }
+  const uploaded = new Map<string, EvidenceRecord>();
+  const unexpected: string[] = [];
+  for (const item of evidence.filter((candidate) => candidate.kind !== "evidence_bundle")) {
+    const rawPath = item.metadata.sourcePath;
+    if (typeof rawPath !== "string") {
+      unexpected.push(item.fileName);
+      continue;
+    }
+    try { uploaded.set(normalizeManifestPath(rawPath), item); } catch { unexpected.push(rawPath); }
+  }
+  const declaredPaths = new Set(manifest.entries.map((entry) => entry.path));
+  for (const path of uploaded.keys()) if (!declaredPaths.has(path)) unexpected.push(path);
+  const missing: string[] = [];
+  const mismatched: Array<{ path: string; fields: string[] }> = [];
+  let matched = 0;
+  for (const entry of manifest.entries) {
+    const item = uploaded.get(entry.path);
+    if (!item) { missing.push(entry.path); continue; }
+    const fields = [
+      ...(item.sha256 === entry.sha256 ? [] : ["sha256"]),
+      ...(item.sizeBytes === entry.sizeBytes ? [] : ["sizeBytes"]),
+      ...(item.kind === entry.kind ? [] : ["kind"]),
+    ];
+    if (fields.length) mismatched.push({ path: entry.path, fields });
+    else matched += 1;
+  }
+  return {
+    manifestVersion: manifest.schemaVersion,
+    declared: manifest.entries.length,
+    matched,
+    missing,
+    mismatched,
+    unexpected: [...new Set(unexpected)].sort(),
+    legacy: false,
+  };
 }
 
 function validateContent(bytes: Buffer, format: typeof ACCEPTED_EVIDENCE_FORMATS[number]): unknown {

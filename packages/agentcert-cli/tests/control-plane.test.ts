@@ -89,7 +89,11 @@ describe("hosted evidence push", () => {
       expect.stringContaining("https://agentcert.example.com/v1/projects/project-1/evidence?"),
       "https://agentcert.example.com/v1/projects/project-1/runs/hosted-run-1/complete",
     ]);
-    expect(new Uint8Array(calls[2].init?.body as ArrayBuffer)).toEqual(bytes);
+    const uploadedBundle = JSON.parse(new TextDecoder().decode(new Uint8Array(calls[2].init?.body as ArrayBuffer)));
+    expect(uploadedBundle).toMatchObject({
+      runId: bundle.runId,
+      artifactManifest: { schemaVersion: "agentcert.artifact_manifest.v0.1", entries: [] },
+    });
     expect(JSON.parse(String(calls[3].init?.body))).toMatchObject({
       status: "failed",
       score: 0.6,
@@ -133,6 +137,11 @@ describe("hosted evidence push", () => {
     expect(artifactUpload?.url).toContain("sourcePath=screenshots%2Fstep-1.png");
     expect(artifactUpload?.init?.headers).toMatchObject({ "content-type": "image/png" });
     expect(new Uint8Array(artifactUpload?.init?.body as ArrayBuffer)).toEqual(screenshot);
+    const bundleUpload = calls.find((call) => call.url.includes("kind=evidence_bundle"));
+    expect(JSON.parse(new TextDecoder().decode(new Uint8Array(bundleUpload?.init?.body as ArrayBuffer))).artifactManifest).toMatchObject({
+      schemaVersion: "agentcert.artifact_manifest.v0.1",
+      entries: [{ path: "screenshots/step-1.png", sizeBytes: screenshot.byteLength, kind: "screenshot" }],
+    });
     const artifactEvent = calls.find((call) => String(call.init?.body).includes("agentcert.companion_artifacts.processed"));
     expect(JSON.parse(String(artifactEvent?.init?.body))).toMatchObject({
       events: [{
@@ -176,6 +185,30 @@ describe("hosted evidence push", () => {
       fetch: request as typeof fetch,
     })).rejects.toThrow("Artifact storage failed.");
     expect(urls.some((url) => url.endsWith("/complete"))).toBe(false);
+  });
+
+  it("preserves an existing manifest when companion collection is intentionally disabled", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const request = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input); calls.push({ url, init });
+      if (url.endsWith("/runs")) return jsonResponse(201, { id: "hosted-run-1" });
+      if (url.includes("/evidence?")) return jsonResponse(201, { id: "hosted-evidence-1" });
+      return jsonResponse(200, {});
+    });
+    const declared = {
+      ...bundle,
+      artifactManifest: {
+        schemaVersion: "agentcert.artifact_manifest.v0.1" as const,
+        entries: [{ path: "trace.json", sha256: "a".repeat(64), sizeBytes: 2, kind: "trace" }],
+      },
+    };
+    await pushEvidenceToControlPlane({
+      baseUrl: "https://agentcert.example.com", projectId: "project-1", apiKey: "ac_live_secret",
+      bundle: declared, evidenceBytes: new TextEncoder().encode(JSON.stringify(declared)), fetch: request as typeof fetch,
+    });
+    const upload = calls.find((call) => call.url.includes("kind=evidence_bundle"));
+    const uploaded = JSON.parse(new TextDecoder().decode(new Uint8Array(upload?.init?.body as ArrayBuffer)));
+    expect(uploaded.artifactManifest).toEqual(declared.artifactManifest);
   });
 
   it("surfaces API errors without returning a partial success", async () => {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { MemoryArtifactStore } from "../src/artifacts.js";
 import type { EvidenceGovernancePolicy } from "../src/evidence-governance.js";
@@ -7,10 +8,10 @@ import type { AuthContext, EvidenceRecord } from "../src/types.js";
 
 const user: AuthContext = { kind: "user", userId: "00000000-0000-4000-8000-000000000001", email: "owner@example.com" };
 
-async function setup(policy?: EvidenceGovernancePolicy) {
+async function setup(policy?: EvidenceGovernancePolicy, platformAdminEmails: string[] = []) {
   const store = new InMemoryControlPlaneStore();
   const artifacts = new MemoryArtifactStore();
-  const service = new AgentCertControlPlane(store, artifacts, policy);
+  const service = new AgentCertControlPlane(store, artifacts, policy, platformAdminEmails);
   const bootstrap = await service.bootstrap(user);
   return { store, artifacts, service, projectId: bootstrap.project.id };
 }
@@ -178,7 +179,19 @@ describe("AgentCertControlPlane", () => {
   it("reports complete, partial, and rejected evidence states from hosted artifacts", async () => {
     const { service, projectId } = await setup();
     const run = await service.startRun(user, projectId, { externalId: "evidence-state", kind: "tripwire" });
-    const bundle = Buffer.from(JSON.stringify({ artifacts: { screenshot: "screenshots/step.png" } }));
+    const screenshot = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+    const bundle = Buffer.from(JSON.stringify({
+      artifacts: { screenshot: "screenshots/step.png" },
+      artifactManifest: {
+        schemaVersion: "agentcert.artifact_manifest.v0.1",
+        entries: [{
+          path: "screenshots/step.png",
+          sha256: createHash("sha256").update(screenshot).digest("hex"),
+          sizeBytes: screenshot.length,
+          kind: "screenshot",
+        }],
+      },
+    }));
     await service.uploadEvidence(user, projectId, bundle, {
       fileName: "agentcert-evidence.json", contentType: "application/json", kind: "evidence_bundle",
       schemaVersion: "agentcert.evidence.v0.1", runId: run.id,
@@ -191,12 +204,13 @@ describe("AgentCertControlPlane", () => {
     });
     expect((await service.runAnalysis(user, projectId, run.id)).evidenceCompleteness.status).toBe("partial");
 
-    await service.uploadEvidence(user, projectId, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), {
+    await service.uploadEvidence(user, projectId, screenshot, {
       fileName: "step.png", contentType: "image/png", kind: "screenshot",
       schemaVersion: "agentcert.evidence.v0.1", runId: run.id, sourcePath: "screenshots/step.png",
     });
     expect((await service.runAnalysis(user, projectId, run.id)).evidenceCompleteness).toMatchObject({
       status: "complete", evidenceCount: 2,
+      reconciliation: { declared: 1, matched: 1, missing: [], mismatched: [], unexpected: [], legacy: false },
     });
 
     await expect(service.uploadEvidence(user, projectId, Buffer.from("MZpayload"), {
@@ -206,6 +220,65 @@ describe("AgentCertControlPlane", () => {
     const rejected = await service.runAnalysis(user, projectId, run.id);
     expect(rejected.evidenceCompleteness.status).toBe("rejected");
     expect(rejected.evidenceCompleteness.reasons[0]).toContain("Executable files");
+  });
+
+  it("rejects companion bytes and paths that do not match the bundle manifest", async () => {
+    const { service, projectId } = await setup();
+    const run = await service.startRun(user, projectId, { externalId: "manifest-rejection", kind: "tripwire" });
+    const expected = Buffer.from('{"step":1}');
+    await service.uploadEvidence(user, projectId, Buffer.from(JSON.stringify({
+      artifactManifest: {
+        schemaVersion: "agentcert.artifact_manifest.v0.1",
+        entries: [{
+          path: "trace.json",
+          sha256: createHash("sha256").update(expected).digest("hex"),
+          sizeBytes: expected.length,
+          kind: "trace",
+        }],
+      },
+    })), {
+      fileName: "agentcert-evidence.json", contentType: "application/json", kind: "evidence_bundle",
+      schemaVersion: "agentcert.evidence.v0.1", runId: run.id,
+    });
+
+    await expect(service.uploadEvidence(user, projectId, Buffer.from('{"step":2}'), {
+      fileName: "trace.json", contentType: "application/json", kind: "trace",
+      schemaVersion: "agentcert.evidence.v0.1", runId: run.id, sourcePath: "trace.json",
+    })).rejects.toMatchObject<Partial<ControlPlaneError>>({ status: 422 });
+    await expect(service.uploadEvidence(user, projectId, expected, {
+      fileName: "other.json", contentType: "application/json", kind: "trace",
+      schemaVersion: "agentcert.evidence.v0.1", runId: run.id, sourcePath: "other.json",
+    })).rejects.toThrow("not declared");
+    expect(await service.listEvidence(user, projectId)).toHaveLength(1);
+    expect((await service.runAnalysis(user, projectId, run.id)).evidenceCompleteness.status).toBe("rejected");
+  });
+
+  it("reconciles identical artifact bytes declared at different paths", async () => {
+    const { service, projectId } = await setup();
+    const run = await service.startRun(user, projectId, { externalId: "duplicate-bytes", kind: "tripwire" });
+    const bytes = Buffer.from('{"same":true}');
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    await service.uploadEvidence(user, projectId, Buffer.from(JSON.stringify({
+      artifactManifest: {
+        schemaVersion: "agentcert.artifact_manifest.v0.1",
+        entries: ["first.json", "second.json"].map((path) => ({ path, sha256, sizeBytes: bytes.length, kind: "trace" })),
+      },
+    })), {
+      fileName: "agentcert-evidence.json", contentType: "application/json", kind: "evidence_bundle",
+      schemaVersion: "agentcert.evidence.v0.1", runId: run.id,
+    });
+    for (const sourcePath of ["first.json", "second.json"]) {
+      await service.uploadEvidence(user, projectId, bytes, {
+        fileName: sourcePath, contentType: "application/json", kind: "trace",
+        schemaVersion: "agentcert.evidence.v0.1", runId: run.id, sourcePath,
+      });
+    }
+    const analysis = await service.runAnalysis(user, projectId, run.id);
+    expect(analysis.evidence).toHaveLength(3);
+    expect(new Set(analysis.evidence.map((item) => item.objectKey)).size).toBe(3);
+    expect(analysis.evidenceCompleteness).toMatchObject({
+      status: "complete", reconciliation: { declared: 2, matched: 2 },
+    });
   });
 
   it("deletes expired objects before metadata and retains metadata when object deletion fails", async () => {
@@ -234,6 +307,117 @@ describe("AgentCertControlPlane", () => {
     const failure = await failingService.cleanupExpiredEvidence(new Date("2026-01-01T00:00:00.000Z"));
     expect(failure).toMatchObject({ scanned: 1, deleted: 0, failed: 1 });
     expect(await store.getEvidence(projectId, failed.id)).toEqual(failed);
+  });
+
+  it("requires a reviewed legal hold before exempting a project from 90-day cleanup", async () => {
+    const { service, store, artifacts, projectId } = await setup(undefined, ["platform@example.com"]);
+    const platformAdmin: AuthContext = {
+      kind: "user", userId: "00000000-0000-4000-8000-000000000002", email: "platform@example.com",
+    };
+    const pendingEvidence = evidenceRecord(projectId, "pending", "2025-01-01T00:00:00.000Z");
+    await store.insertEvidence(pendingEvidence);
+    await artifacts.put(pendingEvidence.objectKey, Buffer.from("{}"), pendingEvidence.contentType);
+
+    const request = await service.requestLegalHold(user, projectId, {
+      reason: "Preserve evidence for an active enterprise legal matter.",
+    });
+    expect(request.status).toBe("requested");
+    expect((await service.overview(user, projectId)).storage.legalHold).toMatchObject({ status: "requested" });
+    expect(await service.cleanupExpiredEvidence(new Date("2026-01-01T00:00:00.000Z"))).toMatchObject({ deleted: 1 });
+
+    await expect(service.reviewLegalHold(user, request.id, "approve", { reviewNote: "Enterprise contract confirmed." }))
+      .rejects.toMatchObject<Partial<ControlPlaneError>>({ status: 403 });
+    await expect(service.reviewLegalHold({ ...platformAdmin, userId: user.userId }, request.id, "approve", {
+      reviewNote: "Enterprise contract confirmed.",
+    })).rejects.toThrow("cannot be approved by its requester");
+
+    const approved = await service.reviewLegalHold(platformAdmin, request.id, "approve", {
+      reviewNote: "Enterprise eligibility and legal scope confirmed.",
+    });
+    expect(approved.status).toBe("approved");
+    const heldEvidence = evidenceRecord(projectId, "held", "2025-01-02T00:00:00.000Z");
+    await store.insertEvidence(heldEvidence);
+    await artifacts.put(heldEvidence.objectKey, Buffer.from("{}"), heldEvidence.contentType);
+    expect(await service.cleanupExpiredEvidence(new Date("2026-01-01T00:00:00.000Z"))).toMatchObject({ scanned: 0, deleted: 0 });
+    expect((await service.runAnalysis(user, projectId, (await service.startRun(user, projectId, { externalId: "held-run", kind: "custom" })).id)).evidenceCompleteness)
+      .toMatchObject({ legalHoldActive: true, expiresAt: undefined });
+
+    const released = await service.reviewLegalHold(platformAdmin, request.id, "release", {
+      reviewNote: "Legal matter closed; normal retention resumes.",
+    });
+    expect(released).toMatchObject({
+      status: "released",
+      reviewNote: "Enterprise eligibility and legal scope confirmed.",
+      releaseNote: "Legal matter closed; normal retention resumes.",
+    });
+    expect(await service.cleanupExpiredEvidence(new Date("2026-01-01T00:00:00.000Z"))).toMatchObject({ deleted: 1 });
+  });
+
+  it("serializes legal hold approval with an in-progress retention deletion", async () => {
+    let markDeleteStarted = (): void => undefined;
+    let allowDelete = (): void => undefined;
+    const deleteStarted = new Promise<void>((resolve) => { markDeleteStarted = resolve; });
+    const deleteAllowed = new Promise<void>((resolve) => { allowDelete = resolve; });
+    class BlockingDeleteStore extends MemoryArtifactStore {
+      override async delete(objectKey: string): Promise<void> {
+        markDeleteStarted();
+        await deleteAllowed;
+        await super.delete(objectKey);
+      }
+    }
+
+    const store = new InMemoryControlPlaneStore();
+    const artifacts = new BlockingDeleteStore();
+    const service = new AgentCertControlPlane(store, artifacts, undefined, ["platform@example.com"]);
+    const projectId = (await service.bootstrap(user)).project.id;
+    const evidence = evidenceRecord(projectId, "legal-hold-race", "2025-01-01T00:00:00.000Z");
+    await store.insertEvidence(evidence);
+    await artifacts.put(evidence.objectKey, Buffer.from("{}"), evidence.contentType);
+    const request = await service.requestLegalHold(user, projectId, {
+      reason: "Preserve evidence for an active enterprise legal matter.",
+    });
+
+    const cleanup = service.cleanupExpiredEvidence(new Date("2026-01-01T00:00:00.000Z"));
+    await deleteStarted;
+    let approvalSettled = false;
+    const approval = service.reviewLegalHold({
+      kind: "user", userId: "00000000-0000-4000-8000-000000000002", email: "platform@example.com",
+    }, request.id, "approve", {
+      reviewNote: "Enterprise eligibility and legal scope confirmed.",
+    }).finally(() => { approvalSettled = true; });
+    await Promise.resolve();
+    expect(approvalSettled).toBe(false);
+
+    allowDelete();
+    expect(await cleanup).toMatchObject({ deleted: 1 });
+    expect(await approval).toMatchObject({ status: "approved" });
+  });
+
+  it("allows only one concurrent legal hold decision to commit", async () => {
+    const { service, projectId } = await setup(undefined, ["first@example.com", "second@example.com"]);
+    const request = await service.requestLegalHold(user, projectId, {
+      reason: "Preserve evidence while an enterprise legal review is active.",
+    });
+    const decisions = await Promise.allSettled([
+      service.reviewLegalHold({
+        kind: "user", userId: "00000000-0000-4000-8000-000000000002", email: "first@example.com",
+      }, request.id, "approve", { reviewNote: "Enterprise eligibility was confirmed." }),
+      service.reviewLegalHold({
+        kind: "user", userId: "00000000-0000-4000-8000-000000000003", email: "second@example.com",
+      }, request.id, "reject", { reviewNote: "Enterprise eligibility was not confirmed." }),
+    ]);
+    expect(decisions.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = decisions.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    expect(rejected?.reason).toMatchObject({ status: 409 });
+  });
+
+  it("allows only project owners or admins to apply for a legal hold", async () => {
+    const { service, projectId } = await setup();
+    await expect(service.requestLegalHold({ kind: "api_key", projectId }, projectId, {
+      reason: "Preserve this enterprise evidence for active litigation.",
+    })).rejects.toMatchObject<Partial<ControlPlaneError>>({ status: 403 });
+    await expect(service.requestLegalHold(user, projectId, { reason: "too short" }))
+      .rejects.toThrow("20 to 2000");
   });
 
   it("persists human failure reviews in run analysis and updates the same pattern", async () => {

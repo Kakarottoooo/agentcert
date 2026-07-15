@@ -1,4 +1,5 @@
 import type { AgentCertBundle } from "./types.js";
+import { serializeHostedEvidenceBundle } from "./artifact-manifest.js";
 import {
   MAX_REPORTED_COMPANION_ARTIFACT_SKIPS,
   type PreparedCompanionArtifact,
@@ -85,8 +86,16 @@ export async function pushEvidenceToControlPlane(options: PushEvidenceOptions): 
   }
   const request = options.fetch ?? fetch;
   const projectUrl = `${baseUrl}/v1/projects/${encodeURIComponent(options.projectId)}`;
-  const externalId = options.externalId ?? options.bundle.runId;
-  const kind = hostedRunKind(options.bundle);
+  const companionArtifacts = options.companionArtifacts ?? [];
+  const hostedEvidence = options.companionArtifacts === undefined && options.bundle.artifactManifest
+    ? {
+      bundle: options.bundle,
+      bytes: new TextEncoder().encode(`${JSON.stringify(options.bundle, null, 2)}\n`),
+    }
+    : serializeHostedEvidenceBundle(options.bundle, companionArtifacts);
+  const bundle = hostedEvidence.bundle;
+  const externalId = options.externalId ?? bundle.runId;
+  const kind = hostedRunKind(bundle);
   const headers = { authorization: `Bearer ${options.apiKey}` };
 
   const run = await requestJson<{ id: string }>(request, `${projectUrl}/runs`, {
@@ -95,11 +104,11 @@ export async function pushEvidenceToControlPlane(options: PushEvidenceOptions): 
     body: JSON.stringify({
       externalId,
       kind,
-      schemaVersion: options.bundle.schemaVersion,
-      startedAt: options.bundle.generatedAt,
+      schemaVersion: bundle.schemaVersion,
+      startedAt: bundle.generatedAt,
       metadata: {
-        subject: options.bundle.subject,
-        products: options.bundle.summary.products,
+        subject: bundle.subject,
+        products: bundle.summary.products,
       },
     }),
   });
@@ -112,12 +121,12 @@ export async function pushEvidenceToControlPlane(options: PushEvidenceOptions): 
         sequence: 0,
         type: "agentcert.evidence.created",
         actor: "agentcert-cli",
-        occurredAt: options.bundle.generatedAt,
+        occurredAt: bundle.generatedAt,
         payload: {
-          verdict: options.bundle.verdict,
-          totalEvidence: options.bundle.summary.totalEvidence,
-          criticalEvidence: options.bundle.summary.criticalEvidence,
-          highEvidence: options.bundle.summary.highEvidence,
+          verdict: bundle.verdict,
+          totalEvidence: bundle.summary.totalEvidence,
+          criticalEvidence: bundle.summary.criticalEvidence,
+          highEvidence: bundle.summary.highEvidence,
         },
       }],
     }),
@@ -126,23 +135,22 @@ export async function pushEvidenceToControlPlane(options: PushEvidenceOptions): 
   const query = new URLSearchParams({
     fileName: options.fileName ?? "agentcert-evidence.json",
     kind: "evidence_bundle",
-    schemaVersion: options.bundle.schemaVersion,
+    schemaVersion: bundle.schemaVersion,
     runId: run.id,
   });
   const evidence = await requestJson<{ id: string }>(request, `${projectUrl}/evidence?${query}`, {
     method: "POST",
     headers: { ...headers, "content-type": "application/json" },
-    body: new Uint8Array(options.evidenceBytes).buffer as ArrayBuffer,
+    body: new Uint8Array(hostedEvidence.bytes).buffer as ArrayBuffer,
   });
 
-  const companionArtifacts = options.companionArtifacts ?? [];
   const skippedArtifacts = options.skippedCompanionArtifacts ?? [];
   let artifactBytesUploaded = 0;
   for (const artifact of companionArtifacts) {
     const artifactQuery = new URLSearchParams({
       fileName: artifact.fileName,
       kind: artifact.kind,
-      schemaVersion: options.bundle.schemaVersion,
+      schemaVersion: bundle.schemaVersion,
       runId: run.id,
       sourcePath: artifact.sourcePath,
     });
@@ -163,7 +171,7 @@ export async function pushEvidenceToControlPlane(options: PushEvidenceOptions): 
           sequence: 1,
           type: "agentcert.companion_artifacts.processed",
           actor: "agentcert-cli",
-          occurredAt: options.bundle.generatedAt,
+          occurredAt: bundle.generatedAt,
           payload: {
             uploadedCount: companionArtifacts.length,
             skippedCount: skippedArtifacts.length,
@@ -178,19 +186,20 @@ export async function pushEvidenceToControlPlane(options: PushEvidenceOptions): 
     });
   }
 
-  const firstDivergence = options.bundle.evidence.find((item) => item.severity === "critical" || item.severity === "high")?.message;
+  const firstDivergence = bundle.evidence.find((item) => item.severity === "critical" || item.severity === "high")?.message;
   await requestJson(request, `${projectUrl}/runs/${encodeURIComponent(run.id)}/complete`, {
     method: "POST",
     headers: { ...headers, "content-type": "application/json" },
     body: JSON.stringify({
-      status: options.bundle.verdict.passed ? "passed" : "failed",
-      score: options.bundle.verdict.score,
-      summary: `${options.bundle.subject.name}: ${options.bundle.verdict.level}`,
+      status: bundle.verdict.passed ? "passed" : "failed",
+      score: bundle.verdict.score,
+      summary: `${bundle.subject.name}: ${bundle.verdict.level}`,
       firstDivergence,
-      completedAt: options.bundle.generatedAt,
+      completedAt: bundle.generatedAt,
       metadata: {
         evidenceId: evidence.id,
-        evidenceSchemaVersion: options.bundle.schemaVersion,
+        evidenceSchemaVersion: bundle.schemaVersion,
+        artifactManifestVersion: bundle.artifactManifest?.schemaVersion,
         companionArtifactsUploaded: companionArtifacts.length,
         companionArtifactsSkipped: skippedArtifacts.length,
         companionArtifactBytesUploaded: artifactBytesUploaded,

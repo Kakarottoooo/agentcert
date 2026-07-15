@@ -29,6 +29,8 @@ services:
         value: 86400000
       - key: AGENTCERT_EVIDENCE_CLEANUP_BATCH
         value: 500
+      - key: AGENTCERT_PLATFORM_ADMIN_EMAILS
+        sync: false
       - key: AGENTCERT_PUBLIC_URL
         sync: false
       - key: DATABASE_URL

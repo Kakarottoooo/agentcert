@@ -1691,6 +1691,92 @@ button {
   font-size: 12px;
 }
 
+.evidence-registry-layout {
+  display: grid;
+  gap: 18px;
+}
+
+.legal-hold-panel {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(260px, 0.8fr);
+  gap: 18px 28px;
+  padding: 20px;
+  background: #f7fbff;
+  border: 1px solid #b8cee6;
+  border-left: 4px solid var(--accent);
+}
+
+.legal-hold-panel.approved {
+  background: var(--teal-soft);
+  border-color: #9bcdbb;
+  border-left-color: var(--teal);
+}
+
+.legal-hold-panel h2 {
+  margin: 5px 0 8px;
+  font-size: 20px;
+}
+
+.legal-hold-panel p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.legal-hold-panel dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.legal-hold-panel dl div {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.legal-hold-panel dt,
+.legal-hold-panel form span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.legal-hold-panel dd {
+  margin: 0;
+  font-size: 12px;
+}
+
+.legal-hold-panel form {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 10px;
+}
+
+.legal-hold-panel form label {
+  display: grid;
+  gap: 6px;
+}
+
+.legal-hold-panel textarea {
+  min-height: 82px;
+  padding: 10px;
+  resize: vertical;
+  color: var(--text);
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+}
+
+.legal-hold-panel form button {
+  width: fit-content;
+}
+
 .hash {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
@@ -2492,8 +2578,17 @@ button {
   .action-list article {
     grid-template-columns: 1fr;
   }
+  .run-filter-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .filter-result {
+    justify-items: start;
+  }
   .run-analysis-layout {
-    grid-template-columns: 250px minmax(0, 1fr);
+    grid-template-columns: 1fr;
+  }
+  .run-selector {
+    max-height: 310px;
   }
   .analysis-grid,
   .artifact-workspace,
@@ -2525,7 +2620,8 @@ button {
   .inline-form,
   .connection-quickstart,
   .onboarding-band,
-  .onboarding-band ol {
+  .onboarding-band ol,
+  .legal-hold-panel {
     grid-template-columns: 1fr;
   }
   .onboarding-band > button {

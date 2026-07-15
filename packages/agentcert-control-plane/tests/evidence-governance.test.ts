@@ -39,4 +39,23 @@ describe("evidence governance", () => {
       fileName: "trace.json", contentType: "application/json", kind: "trace",
     })).toThrow("bytes do not match");
   });
+
+  it("validates artifact manifest entries in evidence bundles", () => {
+    const sha256 = "a".repeat(64);
+    expect(validateEvidenceUpload(Buffer.from(JSON.stringify({
+      artifactManifest: {
+        schemaVersion: "agentcert.artifact_manifest.v0.1",
+        entries: [{ path: "screenshots/step.png", sha256, sizeBytes: 8, kind: "screenshot" }],
+      },
+    })), { fileName: "evidence.json", contentType: "application/json", kind: "evidence_bundle" })).toMatchObject({
+      artifactManifest: { entries: [{ path: "screenshots/step.png", sha256, sizeBytes: 8, kind: "screenshot" }] },
+    });
+
+    expect(() => validateEvidenceUpload(Buffer.from(JSON.stringify({
+      artifactManifest: {
+        schemaVersion: "agentcert.artifact_manifest.v0.1",
+        entries: [{ path: "../outside.png", sha256, sizeBytes: 8, kind: "screenshot" }],
+      },
+    })), { fileName: "evidence.json", contentType: "application/json", kind: "evidence_bundle" })).toThrow("parent segments");
+  });
 });

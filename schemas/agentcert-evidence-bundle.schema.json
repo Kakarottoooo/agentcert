@@ -122,6 +122,33 @@
         "type": "string"
       }
     },
+    "artifactManifest": {
+      "description": "Optional v0.1 byte-level declaration used by hosted reconciliation. Older v0.1 bundles remain readable but are not considered fully reconciled.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "entries"],
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "const": "agentcert.artifact_manifest.v0.1"
+        },
+        "entries": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "sha256", "sizeBytes", "kind"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "sizeBytes": { "type": "integer", "minimum": 0 },
+              "kind": { "type": "string", "minLength": 1, "maxLength": 64 }
+            }
+          }
+        }
+      }
+    },
     "standards": {
       "type": "array",
       "items": {

@@ -35,6 +35,20 @@ class ClientTest(unittest.TestCase):
         )
         self.assertEqual(request.headers["Authorization"], "Bearer ac_live_test")
 
+    @patch("urllib.request.urlopen", return_value=FakeResponse())
+    def test_upload_evidence_includes_manifest_source_path(self, urlopen):
+        client = AgentCertClient("https://agentcert.example", "project-1", "ac_live_test")
+        client.upload_evidence(
+            b"{}",
+            "trace.json",
+            content_type="application/json",
+            kind="trace",
+            run_id="run-1",
+            source_path="traces/trace.json",
+        )
+        request = urlopen.call_args.args[0]
+        self.assertIn("sourcePath=traces%2Ftrace.json", request.full_url)
+
 
 if __name__ == "__main__":
     unittest.main()

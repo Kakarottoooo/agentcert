@@ -200,6 +200,7 @@ paths:
         "201": {description: Evidence metadata with SHA-256 digest and retention metadata}
         "413": {description: Per-run or per-project evidence quota exceeded}
         "415": {description: Unsupported, mislabeled, malformed, or executable evidence artifact}
+        "422": {description: Companion path, SHA-256, byte size, or kind does not match the stored bundle manifest}
   /v1/projects/{projectId}/evidence/{evidenceId}/content:
     get:
       summary: Download private evidence through the authenticated control plane
@@ -227,6 +228,47 @@ paths:
         - {$ref: "#/components/parameters/ProjectId"}
         - {$ref: "#/components/parameters/ApiKeyId"}
       responses: {"200": {description: Revoked API key metadata}}
+  /v1/projects/{projectId}/legal-holds:
+    get:
+      summary: List legal hold applications and decisions for a project
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses: {"200": {description: Legal hold request history}}
+    post:
+      summary: Apply for enterprise legal hold; retention continues until platform approval
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties: {reason: {type: string, minLength: 20, maxLength: 2000}}
+      responses:
+        "201": {description: Legal hold application created}
+        "409": {description: Project already has a requested or approved hold}
+  /v1/admin/legal-hold-requests:
+    get:
+      summary: List pending legal hold applications (platform administrators only)
+      responses: {"200": {description: Pending applications}}
+  /v1/admin/legal-hold-requests/{requestId}/{decision}:
+    post:
+      summary: Approve, reject, or release a legal hold (platform administrators only)
+      parameters:
+        - {in: path, name: requestId, required: true, schema: {type: string, format: uuid}}
+        - {in: path, name: decision, required: true, schema: {enum: [approve, reject, release]}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reviewNote]
+              properties: {reviewNote: {type: string, minLength: 10, maxLength: 2000}}
+      responses:
+        "200": {description: Updated legal hold decision}
+        "403": {description: Platform administrator access required}
+        "409": {description: Invalid state transition or requester attempted self-approval}
 components:
   securitySchemes:
     bearerAuth:

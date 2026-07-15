@@ -3,6 +3,7 @@ import type { ArtifactStore } from "./artifacts.js";
 import { hashSecret } from "./auth.js";
 import {
   EvidenceQuotaExceededError,
+  LegalHoldStateConflictError,
   type BootstrapResult,
   type ControlPlaneStore,
 } from "./store.js";
@@ -10,7 +11,9 @@ import {
   ACCEPTED_EVIDENCE_FORMATS,
   DEFAULT_EVIDENCE_GOVERNANCE_POLICY,
   EvidenceUploadValidationError,
+  assertArtifactMatchesManifest,
   calculateEvidenceCompleteness,
+  manifestFromMetadata,
   validateEvidenceUpload,
   type EvidenceGovernancePolicy,
 } from "./evidence-governance.js";
@@ -26,6 +29,7 @@ import type {
   FailureReviewRecord,
   FailureType,
   IncidentRecord,
+  LegalHoldRequestRecord,
   RunKind,
   RunRecord,
   RunStatus,
@@ -41,11 +45,16 @@ export class ControlPlaneError extends Error {
 }
 
 export class AgentCertControlPlane {
+  readonly platformAdminEmails: ReadonlySet<string>;
+
   constructor(
     readonly store: ControlPlaneStore,
     readonly artifacts: ArtifactStore,
     readonly evidencePolicy: EvidenceGovernancePolicy = DEFAULT_EVIDENCE_GOVERNANCE_POLICY,
-  ) {}
+    platformAdminEmails: Iterable<string> = [],
+  ) {
+    this.platformAdminEmails = new Set([...platformAdminEmails].map((email) => email.trim().toLowerCase()).filter(Boolean));
+  }
 
   async bootstrap(auth: AuthContext): Promise<BootstrapResult> {
     requireUser(auth);
@@ -177,11 +186,12 @@ export class AgentCertControlPlane {
     await this.authorizeProject(auth, projectId);
     const run = await this.store.getRun(projectId, runId);
     if (!run) throw new ControlPlaneError("Run was not found.", 404);
-    const [events, evidence, incidents, reviews] = await Promise.all([
+    const [events, evidence, incidents, reviews, legalHold] = await Promise.all([
       this.store.listEvents(projectId, runId),
       this.store.listEvidenceForRun(projectId, runId),
       this.store.listIncidentsForRun(projectId, runId),
       this.store.listFailureReviews(projectId, runId),
+      this.store.getApprovedLegalHold(projectId),
     ]);
     return {
       run,
@@ -189,7 +199,7 @@ export class AgentCertControlPlane {
       evidence,
       incidents,
       reviews,
-      evidenceCompleteness: calculateEvidenceCompleteness(run, events, evidence, this.evidencePolicy),
+      evidenceCompleteness: calculateEvidenceCompleteness(run, events, evidence, this.evidencePolicy, Boolean(legalHold)),
     };
   }
 
@@ -322,7 +332,7 @@ export class AgentCertControlPlane {
     },
   ): Promise<EvidenceRecord> {
     await this.authorizeProject(auth, projectId);
-    const sourcePath = input.sourcePath?.trim();
+    let sourcePath = input.sourcePath?.trim();
     if (sourcePath && sourcePath.length > 1024) throw new ControlPlaneError("sourcePath must be at most 1024 characters.");
     const run = input.runId ? await this.store.getRun(projectId, input.runId) : undefined;
     if (input.runId && !run) throw new ControlPlaneError("Run was not found.", 404);
@@ -338,8 +348,29 @@ export class AgentCertControlPlane {
       throw error;
     }
     const sha256 = createHash("sha256").update(bytes).digest("hex");
+    if (run && input.kind !== "evidence_bundle") {
+      const runEvidence = await this.store.listEvidenceForRun(projectId, run.id);
+      const bundle = runEvidence.find((item) => item.kind === "evidence_bundle");
+      const manifest = manifestFromMetadata(bundle?.metadata.artifactManifest);
+      if (manifest) {
+        try {
+          sourcePath = assertArtifactMatchesManifest(manifest, {
+            sourcePath,
+            sha256,
+            sizeBytes: bytes.length,
+            kind: input.kind,
+          }).path;
+        } catch (error) {
+          if (error instanceof EvidenceUploadValidationError) {
+            await this.markRunEvidenceUpload(run, "rejected", error.message);
+            throw new ControlPlaneError(error.message, 422);
+          }
+          throw error;
+        }
+      }
+    }
     if (input.runId || input.actionId) {
-      const existing = await this.store.findEvidenceByDigest(projectId, input.runId, input.actionId, input.kind, sha256);
+      const existing = await this.store.findEvidenceByDigest(projectId, input.runId, input.actionId, input.kind, sha256, sourcePath);
       if (existing) {
         if (run) await this.markRunEvidenceUpload(run, "accepted");
         return existing;
@@ -348,7 +379,7 @@ export class AgentCertControlPlane {
     const id = randomUUID();
     const safeName = input.fileName.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 180) || "artifact.bin";
     const scope = input.runId ? `runs/${input.runId}` : input.actionId ? `actions/${input.actionId}` : `uploads/${id}`;
-    const objectKey = `${projectId}/evidence/${scope}/${sha256}/${safeName}`;
+    const objectKey = `${projectId}/evidence/${scope}/${sha256}/${id}-${safeName}`;
     const createdAt = new Date().toISOString();
     const evidence: EvidenceRecord = {
       id, projectId, runId: input.runId, actionId: input.actionId, kind: input.kind, schemaVersion: input.schemaVersion,
@@ -359,6 +390,7 @@ export class AgentCertControlPlane {
         format: validated.format,
         retentionExpiresAt: new Date(Date.parse(createdAt) + this.evidencePolicy.retentionDays * 86_400_000).toISOString(),
         ...(validated.artifactReferenceCount === undefined ? {} : { artifactReferenceCount: validated.artifactReferenceCount }),
+        ...(validated.artifactManifest === undefined ? {} : { artifactManifest: validated.artifactManifest }),
       },
       createdAt,
     };
@@ -404,8 +436,12 @@ export class AgentCertControlPlane {
     let bytesDeleted = 0;
     for (const evidence of expired) {
       try {
-        await this.artifacts.delete(evidence.objectKey);
-        if (await this.store.deleteEvidence(evidence.projectId, evidence.id)) {
+        const result = await this.store.deleteEvidenceUnlessHeld(
+          evidence.projectId,
+          evidence.id,
+          () => this.artifacts.delete(evidence.objectKey),
+        );
+        if (result === "deleted") {
           deleted += 1;
           bytesDeleted += evidence.sizeBytes;
         }
@@ -414,6 +450,83 @@ export class AgentCertControlPlane {
       }
     }
     return { cutoff, scanned: expired.length, deleted, bytesDeleted, failed: failures.length, failures: failures.slice(0, 20) };
+  }
+
+  async requestLegalHold(auth: AuthContext, projectId: string, input: unknown): Promise<LegalHoldRequestRecord> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    requireUser(auth);
+    const body = record(input);
+    const reason = requiredString(body, "reason");
+    if (reason.length < 20 || reason.length > 2_000) {
+      throw new ControlPlaneError("reason must contain 20 to 2000 characters.");
+    }
+    const active = (await this.store.listLegalHoldRequests(projectId, 20))
+      .find((request) => request.status === "requested" || request.status === "approved");
+    if (active) throw new ControlPlaneError(`This project already has a ${active.status} legal hold request.`, 409);
+    const request: LegalHoldRequestRecord = {
+      id: randomUUID(), projectId, status: "requested", reason, requestedBy: auth.userId,
+      requestedByEmail: auth.email, requestedAt: new Date().toISOString(),
+    };
+    try {
+      return await this.store.saveLegalHoldRequest(request);
+    } catch (error) {
+      if (databaseErrorCode(error) === "23505") throw new ControlPlaneError("This project already has an active legal hold request.", 409);
+      throw error;
+    }
+  }
+
+  async listLegalHoldRequests(auth: AuthContext, projectId: string): Promise<LegalHoldRequestRecord[]> {
+    await this.authorizeProject(auth, projectId);
+    return this.store.listLegalHoldRequests(projectId);
+  }
+
+  async listPendingLegalHoldRequests(auth: AuthContext): Promise<LegalHoldRequestRecord[]> {
+    this.requirePlatformAdmin(auth);
+    return this.store.listPendingLegalHoldRequests();
+  }
+
+  async reviewLegalHold(
+    auth: AuthContext,
+    requestId: string,
+    decision: "approve" | "reject" | "release",
+    input: unknown,
+  ): Promise<LegalHoldRequestRecord> {
+    this.requirePlatformAdmin(auth);
+    requireUser(auth);
+    const current = await this.store.getLegalHoldRequest(requestId);
+    if (!current) throw new ControlPlaneError("Legal hold request was not found.", 404);
+    if (decision === "release" && current.status !== "approved") {
+      throw new ControlPlaneError(`Legal hold cannot be released from status ${current.status}.`, 409);
+    }
+    if (decision !== "release" && current.status !== "requested") {
+      throw new ControlPlaneError(`Legal hold request cannot be reviewed from status ${current.status}.`, 409);
+    }
+    if (decision === "approve" && current.requestedBy === auth.userId) {
+      throw new ControlPlaneError("A legal hold request cannot be approved by its requester.", 409);
+    }
+    const body = record(input);
+    const reviewNote = requiredString(body, "reviewNote");
+    if (reviewNote.length < 10 || reviewNote.length > 2_000) {
+      throw new ControlPlaneError("reviewNote must contain 10 to 2000 characters.");
+    }
+    const reviewedAt = new Date().toISOString();
+    try {
+      if (decision === "release") {
+        return await this.store.saveLegalHoldRequest({
+          ...current, status: "released", releasedBy: auth.userId, releasedByEmail: auth.email,
+          releaseNote: reviewNote, releasedAt: reviewedAt,
+        }, "approved");
+      }
+      return await this.store.saveLegalHoldRequest({
+        ...current, status: decision === "approve" ? "approved" : "rejected",
+        reviewedBy: auth.userId, reviewedByEmail: auth.email, reviewNote, reviewedAt,
+      }, "requested");
+    } catch (error) {
+      if (error instanceof LegalHoldStateConflictError) {
+        throw new ControlPlaneError("Legal hold status changed while this decision was being recorded.", 409);
+      }
+      throw error;
+    }
   }
 
   async createApiKey(auth: AuthContext, projectId: string, input: unknown): Promise<{ apiKey: PublicApiKeyRecord; secret: string }> {
@@ -443,9 +556,10 @@ export class AgentCertControlPlane {
 
   async overview(auth: AuthContext, projectId: string) {
     await this.authorizeProject(auth, projectId);
-    const [agents, runs, actions, incidents, evidence, storageUsage] = await Promise.all([
+    const [agents, runs, actions, incidents, evidence, storageUsage, legalHolds] = await Promise.all([
       this.store.listAgents(projectId), this.store.listRuns(projectId, 20), this.store.listActions(projectId, 20),
       this.store.listIncidents(projectId, 20), this.store.listEvidence(projectId, 20), this.store.evidenceUsage(projectId),
+      this.store.listLegalHoldRequests(projectId, 1),
     ]);
     return {
       projectId,
@@ -455,6 +569,7 @@ export class AgentCertControlPlane {
         remainingBytes: Math.max(0, this.evidencePolicy.projectLimitBytes - storageUsage.bytes),
         retentionDays: this.evidencePolicy.retentionDays,
         acceptedFormats: [...ACCEPTED_EVIDENCE_FORMATS],
+        legalHold: legalHolds[0] ?? null,
       },
       summary: {
         agents: agents.length,
@@ -486,6 +601,13 @@ export class AgentCertControlPlane {
           : { lastEvidenceRejectedAt: now, lastEvidenceRejectionReason: reason ?? "Evidence upload rejected." }),
       },
     });
+  }
+
+  private requirePlatformAdmin(auth: AuthContext): void {
+    requireUser(auth);
+    if (!auth.email || !this.platformAdminEmails.has(auth.email.toLowerCase())) {
+      throw new ControlPlaneError("Platform administrator access is required.", 403);
+    }
   }
 }
 
@@ -536,6 +658,7 @@ function optionalRecord(value: unknown): Record<string, unknown> | undefined { c
 function requiredString(value: Record<string, unknown>, key: string): string { const result = optionalString(value, key); if (!result) throw new ControlPlaneError(`${key} is required.`); return result; }
 function optionalString(value: Record<string, unknown>, key: string): string | undefined { return typeof value[key] === "string" && value[key].trim() ? value[key].trim() : undefined; }
 function optionalNumber(value: Record<string, unknown>, key: string): number | undefined { return typeof value[key] === "number" && Number.isFinite(value[key]) ? value[key] : undefined; }
+function databaseErrorCode(error: unknown): string | undefined { return error && typeof error === "object" && "code" in error ? String(error.code) : undefined; }
 function stringList(value: unknown): string[] { return Array.isArray(value) ? [...new Set(value.filter((item): item is string => typeof item === "string" && item.length > 0))] : []; }
 function integer(value: unknown, fallback: number): number { return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : fallback; }
 function optionalNonNegativeInteger(value: unknown): number | undefined { return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined; }

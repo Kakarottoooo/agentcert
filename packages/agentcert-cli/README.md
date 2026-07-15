@@ -49,6 +49,11 @@ files, 10 MiB per file, and 50 MiB total. Skipped references are reported in
 the CLI and hosted run timeline. Companion uploads are restricted to
 PNG/JPEG/WebP, JSON/JSONL, HTML, PDF, and ZIP; other extensions are skipped
 before they are read. Pass `--no-artifacts` to upload only the JSON bundle.
+Hosted pushes embed an `agentcert.artifact_manifest.v0.1` declaration with the
+normalized path, SHA-256 digest, byte size, and kind of every prepared
+companion artifact. The control plane reports `complete` only after every
+hosted object exactly matches that declaration; missing, skipped, undeclared,
+or mismatched artifacts remain observable as `partial` or `rejected`.
 Project API keys can create runs, record events, and upload evidence, but
 cannot approve their own runtime actions.
 

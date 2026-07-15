@@ -39,7 +39,11 @@ const evidencePolicy: EvidenceGovernancePolicy = {
   runLimitBytes: integerEnv("AGENTCERT_RUN_STORAGE_BYTES", 100 * 1024 * 1024),
   retentionDays: integerEnv("AGENTCERT_EVIDENCE_RETENTION_DAYS", 90),
 };
-const service = new AgentCertControlPlane(store, artifacts, evidencePolicy);
+const platformAdminEmails = (process.env.AGENTCERT_PLATFORM_ADMIN_EMAILS ?? "")
+  .split(",")
+  .map((email) => email.trim())
+  .filter(Boolean);
+const service = new AgentCertControlPlane(store, artifacts, evidencePolicy, platformAdminEmails);
 const authenticator = new Authenticator({ store, supabaseUrl, supabasePublishableKey, devMode });
 const publicConfig: PublicConfig = {
   kind: "agentcert.control_plane_config",
