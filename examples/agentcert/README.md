@@ -27,6 +27,12 @@ Schema examples in this directory:
 - `classifier-eval.example.json`
 - `monitor-snapshot.example.json`
 
+Validate the evidence example:
+
+```powershell
+node packages/agentcert-cli/dist/cli.js validate examples/agentcert/evidence-bundle.example.json
+```
+
 If an underlying engine exits non-zero after writing an evidence artifact, add
 `"allowCommandFailure": true` to that job in `agentcert.config.json`. AgentCert
 will still load the artifact and then apply the final unified verdict.

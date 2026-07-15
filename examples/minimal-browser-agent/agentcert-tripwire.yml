@@ -1,0 +1,39 @@
+name: AgentCert Tripwire
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  tripwire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install example agent dependencies
+        run: npm --prefix examples/minimal-browser-agent install
+
+      - name: Start local demo app
+        run: |
+          node examples/minimal-browser-agent/demo-server.mjs > demo-server.log 2>&1 &
+          echo $! > demo-server.pid
+
+      - uses: Kakarottoooo/agentcert/actions/tripwire@v0
+        with:
+          config: examples/minimal-browser-agent/tripwire.yml
+          out: .tripwire/latest
+          fail-under: "0.8"
+          subject: minimal-browser-agent
+          agentcert-out: .agentcert/latest
+          fail-on-verdict: "true"
+
+      - name: Stop local demo app
+        if: always()
+        run: |
+          if [ -f demo-server.pid ]; then
+            kill "$(cat demo-server.pid)" || true
+          fi

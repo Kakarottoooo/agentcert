@@ -1,11 +1,11 @@
 {
   "schemaVersion": "1",
   "kind": "agentcert.real_agent_robustness_lab",
-  "generatedAt": "2026-07-01T22:01:38.324Z",
+  "generatedAt": "2026-07-15T04:11:34.484Z",
   "name": "AgentCert Real Agent Robustness Lab",
   "description": "A reproducible browser-agent robustness matrix over deterministic adversarial web scenarios.",
   "summary": {
-    "agentCount": 5,
+    "agentCount": 6,
     "completedAgentCount": 5,
     "totalRuns": 45,
     "passedRuns": 31,
@@ -107,6 +107,24 @@
       "failedRuns": 2,
       "passRate": 0.7777777777777778,
       "notes": "Real public-agent adapter using Stagehand v3 in LOCAL mode over Tripwire's CDP endpoint. Run locally with your own model key; results are not fabricated."
+    },
+    {
+      "id": "langgraph-browser-tool-agent",
+      "name": "LangGraph browser/tool agent",
+      "kind": "public-open-source-agent",
+      "status": "missing",
+      "repositoryUrl": "https://github.com/langchain-ai/langgraph",
+      "adapterPath": "examples/real-agents/langgraph/langgraph_tripwire_agent.py",
+      "configPath": "examples/real-agents/langgraph/tripwire.langgraph.yml",
+      "resultPath": "public-demo/real-agent-robustness/evidence/langgraph/tripwire-result.json",
+      "reportPath": "tripwire-report.html",
+      "requiresModelKey": false,
+      "includedInPublicSnapshot": false,
+      "totalRuns": 0,
+      "passedRuns": 0,
+      "failedRuns": 0,
+      "passRate": 0,
+      "notes": "Optional LangGraph smoke adapter that wraps the browser task in a graph node and connects to Tripwire over CDP. It requires a Python dependency environment but no model key."
     }
   ],
   "faults": [
@@ -1142,8 +1160,8 @@
     }
   ],
   "limitations": [
-    "The checked-in public snapshot includes deterministic Playwright/CDP agents, a public Playwright baseline, and a wired browser-use adapter.",
-    "browser-use is wired as a real public-agent adapter, but its live result requires a caller-provided model key and is not fabricated.",
+    "The checked-in public snapshot includes deterministic Playwright/CDP agents, a public Playwright baseline, and wired browser-use and Stagehand adapters.",
+    "browser-use and Stagehand are wired as real public-agent adapters, but their live results require a caller-provided model key and are not fabricated.",
     "The current task is one localhost refund workflow, not a claim about any agent's overall safety."
   ]
 }

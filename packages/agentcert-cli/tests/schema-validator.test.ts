@@ -5,8 +5,8 @@ describe("AgentCert schema validator", () => {
   it("accepts a minimal evidence bundle", () => {
     const result = validateAgentCertSchema("evidence-bundle", {
       schemaName: "agentcert.evidence_bundle",
-      schemaVersion: "1",
-      schemaSemver: "1.0.0",
+      schemaVersion: "agentcert.evidence.v0.1",
+      schemaSemver: "0.1.0",
       kind: "agentcert.evidence_bundle",
       runId: "run_1",
       generatedAt: "2026-01-01T00:00:00Z",

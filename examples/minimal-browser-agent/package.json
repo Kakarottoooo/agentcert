@@ -1,0 +1,15 @@
+{
+  "name": "agentcert-minimal-browser-agent-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node demo-server.mjs"
+  },
+  "dependencies": {
+    "agentcert": "file:../..",
+    "playwright": "^1.60.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

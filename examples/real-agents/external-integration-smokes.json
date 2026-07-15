@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "agentcert.integration-smokes.v0.1",
+  "generatedBy": "checked-in integration inventory",
+  "integrations": [
+    {
+      "id": "browser-use",
+      "name": "browser-use",
+      "repositoryUrl": "https://github.com/browser-use/browser-use",
+      "path": "examples/real-agents/browser-use",
+      "requiresModelKey": true,
+      "command": "npm run tripwire:lab-browser-use",
+      "evidencePath": "public-demo/real-agent-robustness/evidence/browser-use/tripwire-result.json",
+      "status": "wired"
+    },
+    {
+      "id": "stagehand",
+      "name": "Stagehand",
+      "repositoryUrl": "https://github.com/browserbase/stagehand",
+      "path": "examples/real-agents/stagehand",
+      "requiresModelKey": true,
+      "command": "npm run tripwire:lab-stagehand",
+      "evidencePath": "public-demo/real-agent-robustness/evidence/stagehand/tripwire-result.json",
+      "status": "wired"
+    },
+    {
+      "id": "playwright-aria-agent",
+      "name": "Playwright ARIA agent",
+      "repositoryUrl": "https://github.com/microsoft/playwright",
+      "path": "examples/real-agents/playwright-agent",
+      "requiresModelKey": false,
+      "command": "npm run tripwire:lab-playwright-agent",
+      "evidencePath": "public-demo/real-agent-robustness/evidence/playwright-agent/tripwire-result.json",
+      "status": "checked-in-evidence"
+    },
+    {
+      "id": "langgraph-browser-tool-agent",
+      "name": "LangGraph browser/tool agent",
+      "repositoryUrl": "https://github.com/langchain-ai/langgraph",
+      "path": "examples/real-agents/langgraph",
+      "requiresModelKey": false,
+      "command": "npm run tripwire:lab-langgraph",
+      "evidencePath": "public-demo/real-agent-robustness/evidence/langgraph/tripwire-result.json",
+      "status": "wired"
+    },
+    {
+      "id": "mcp-server-smoke",
+      "name": "MCP server smoke",
+      "repositoryUrl": "https://github.com/modelcontextprotocol",
+      "path": "examples/real-agents/mcp-server-smoke",
+      "requiresModelKey": false,
+      "command": "mcpbench eval --server-command \"python examples/servers/github_like_server.py\" --suite basic-tool-use --agent scripted --script passing --output-dir .mcpbench/mcp-server-smoke",
+      "evidencePath": ".mcpbench/mcp-server-smoke/results.json",
+      "status": "wired"
+    }
+  ]
+}

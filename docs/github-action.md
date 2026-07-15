@@ -35,6 +35,12 @@ browser or computer-use agent under test. The action runs Tripwire, then writes
 the AgentCert evidence bundle, corpus, reviewed failure dataset, monitor
 snapshot, badge, manifest, and JUnit/HTML reports.
 
+Generate starter files:
+
+```bash
+npx agentcert init --subject my-browser-agent --github-action
+```
+
 ```yaml
 name: AgentCert Tripwire
 
@@ -105,7 +111,7 @@ jobs:
 ```
 
 One-time setup: enable GitHub Pages for the `gh-pages` branch in the caller
-repository settings (Settings → Pages → Deploy from a branch → `gh-pages`).
+repository settings (Settings -> Pages -> Deploy from a branch -> `gh-pages`).
 
 The action then exposes:
 
@@ -119,4 +125,4 @@ The action then exposes:
 The badge links to the hosted `agentcert-report.html`, and the full Tripwire
 report (with screenshots, DOM snapshots, and traces) is published next to it at
 `<pages-url>/tripwire/tripwire-report.html`. Evidence is published on both
-passing and failing runs — that is the point of an evidence layer.
+passing and failing runs. That is the point of an evidence layer.

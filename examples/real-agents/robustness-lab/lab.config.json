@@ -69,6 +69,19 @@
       "requiresModelKey": true,
       "includedInPublicSnapshot": false,
       "notes": "Real public-agent adapter using Stagehand v3 in LOCAL mode over Tripwire's CDP endpoint. Run locally with your own model key; results are not fabricated."
+    },
+    {
+      "id": "langgraph-browser-tool-agent",
+      "name": "LangGraph browser/tool agent",
+      "kind": "public-open-source-agent",
+      "repositoryUrl": "https://github.com/langchain-ai/langgraph",
+      "adapterPath": "examples/real-agents/langgraph/langgraph_tripwire_agent.py",
+      "configPath": "examples/real-agents/langgraph/tripwire.langgraph.yml",
+      "resultPath": "public-demo/real-agent-robustness/evidence/langgraph/tripwire-result.json",
+      "reportPath": "tripwire-report.html",
+      "publicPathPrefix": "./evidence/langgraph/",
+      "includedInPublicSnapshot": false,
+      "notes": "Optional LangGraph smoke adapter that wraps the browser task in a graph node and connects to Tripwire over CDP. It requires a Python dependency environment but no model key."
     }
   ],
   "limitations": [

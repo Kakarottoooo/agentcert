@@ -12,6 +12,9 @@ badges, and accumulates a local failure corpus.
 npx agentcert init --subject my-browser-agent
 ```
 
+This writes `agentcert.config.json` and `tripwire.yml`. Add `--github-action`
+when you also want `.github/workflows/agentcert-tripwire.yml`.
+
 Edit `tripwire.yml` so `startUrl` and `agent.command` point at your app and
 browser agent. After Tripwire has produced `.tripwire/latest/tripwire-result.json`,
 build the AgentCert outputs:
@@ -37,6 +40,7 @@ Review/export helpers:
 npx agentcert corpus metrics --corpus .agentcert/corpus/corpus.jsonl
 npx agentcert corpus export-reviewed --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/latest/reviewed-failure-dataset.jsonl
 npx agentcert corpus classifier-eval --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/latest/failure-classifier-evaluation.json
+npx agentcert validate .agentcert/latest/agentcert-evidence.json
 npx agentcert schema validate --schema evidence-bundle --file .agentcert/latest/agentcert-evidence.json
 npx agentcert schema validate --schema classifier-eval --file examples/agentcert/classifier-eval.example.json
 ```
@@ -48,6 +52,18 @@ The public Real Agent Robustness Lab compares browser-use, Stagehand, and
 Playwright-based agents over the same fault suite:
 
 https://kakarottoooo.github.io/agentcert/public-demo/real-agent-robustness/
+
+Minimal no-key browser-agent example in the GitHub repo:
+
+```text
+examples/minimal-browser-agent/
+```
+
+External integration smoke matrix in the GitHub repo:
+
+```text
+examples/real-agents/external-integration-smokes.md
+```
 
 Corpus storage:
 

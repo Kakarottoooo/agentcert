@@ -1,3 +1,5 @@
+import { AGENTCERT_EVIDENCE_SCHEMA_SEMVER, AGENTCERT_EVIDENCE_SCHEMA_VERSION } from "./types.js";
+
 export type AgentCertSchemaId =
   | "evidence-bundle"
   | "result"
@@ -48,8 +50,8 @@ export function validateAgentCertSchema(schema: AgentCertSchemaId, input: unknow
 
 function validateEvidenceBundle(value: Record<string, unknown>, errors: string[]): void {
   requiredConst(value, "schemaName", "agentcert.evidence_bundle", errors);
-  requiredConst(value, "schemaVersion", "1", errors);
-  requiredConst(value, "schemaSemver", "1.0.0", errors);
+  requiredConst(value, "schemaVersion", AGENTCERT_EVIDENCE_SCHEMA_VERSION, errors);
+  requiredConst(value, "schemaSemver", AGENTCERT_EVIDENCE_SCHEMA_SEMVER, errors);
   requiredConst(value, "kind", "agentcert.evidence_bundle", errors);
   requiredString(value, "runId", errors);
   requiredString(value, "generatedAt", errors);

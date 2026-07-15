@@ -37,6 +37,9 @@ import {
 import { buildRobustnessLabSnapshot, readRobustnessLabConfig, renderRobustnessLabSummary, writeRobustnessLabSnapshot } from "./lab.js";
 import type { AgentCertConfig, AgentCertResult } from "./types.js";
 
+process.on("uncaughtException", reportFatalError);
+process.on("unhandledRejection", reportFatalError);
+
 const command = process.argv[2] ?? "help";
 
 if (command === "init") {
@@ -45,6 +48,7 @@ if (command === "init") {
   const githubWorkflowPath = resolve(readFlag("--github-action-out") ?? ".github/workflows/agentcert-tripwire.yml");
   const subject = readFlag("--subject") ?? "my-browser-agent";
   const force = readBoolFlag("--force");
+  const writeGitHubAction = (readBoolFlag("--github-action") || process.argv.includes("--github-action-out")) && !readBoolFlag("--skip-github-action");
   const config: AgentCertRunProfile = {
     schemaVersion: "1",
     subject: {
@@ -85,15 +89,15 @@ if (command === "init") {
     await writeStarterFile(tripwireConfigPath, starterTripwireConfig(subject), force);
     process.stdout.write(`Wrote ${tripwireConfigPath}\n`);
   }
-  if (!readBoolFlag("--skip-github-action")) {
+  if (writeGitHubAction) {
     await writeStarterFile(githubWorkflowPath, starterGitHubActionWorkflow(subject), force);
     process.stdout.write(`Wrote ${githubWorkflowPath}\n`);
   }
   process.stdout.write(`
 Next:
   1. Edit tripwire.yml so startUrl and agent.command/agent.args match your app and browser agent.
-  2. Commit .github/workflows/agentcert-tripwire.yml to run AgentCert in CI.
-  3. Or run locally after Tripwire writes .tripwire/latest/tripwire-result.json:
+  2. Run in CI with Kakarottoooo/agentcert/actions/tripwire@v0, or re-run init with --github-action to write a workflow template.
+  3. Run locally after Tripwire writes .tripwire/latest/tripwire-result.json:
      npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --subject ${JSON.stringify(subject)} --fail-on-verdict
 `);
 } else if (command === "report") {
@@ -326,10 +330,27 @@ Next:
   agentcert schema validate --schema classifier-eval --file examples/agentcert/classifier-eval.example.json
 `);
   }
+} else if (command === "validate") {
+  const schema = parseSchemaId(readFlag("--schema") ?? "evidence-bundle");
+  const file = readFlag("--file") ?? readFirstPositionalAfterCommand();
+  if (!file) {
+    throw new Error("Missing evidence file. Usage: agentcert validate <file> [--schema evidence-bundle].");
+  }
+  const result = validateAgentCertSchema(schema, await readJson(file));
+  if (result.valid) {
+    process.stdout.write(`Valid ${schema}: ${resolve(file)}\n`);
+  } else {
+    process.stdout.write(`Invalid ${schema}: ${resolve(file)}\n`);
+    for (const error of result.errors) {
+      process.stdout.write(`- ${error}\n`);
+    }
+    process.exitCode = 1;
+  }
 } else {
   process.stdout.write(`Usage:
   agentcert init --subject my-browser-agent
   agentcert init --out agentcert.config.json --tripwire-config tripwire.yml --force
+  agentcert init --subject my-browser-agent --github-action
   agentcert report --mcpbench .mcpbench/latest/results.json --tripwire .tripwire/latest/tripwire-result.json --onegent .onegent/procurement/audit-packet.json --out .agentcert/latest --subject my-agent
   agentcert corpus ingest --tripwire .tripwire/latest/tripwire-result.json --out .agentcert/corpus/corpus.jsonl --subject my-agent
   agentcert corpus review --corpus .agentcert/corpus/corpus.jsonl --reviews .agentcert/corpus/failure-reviews.jsonl --pattern-key <failure-key> --type wrong_click --status corrected
@@ -341,6 +362,7 @@ Next:
   agentcert run --mcpbench .mcpbench/latest/results.json --tripwire .tripwire/latest/tripwire-result.json --onegent .onegent/procurement/audit-packet.json --out .agentcert/latest --corpus .agentcert/corpus/corpus.jsonl --monitor-out .agentcert/latest/monitor.json --reviewed-dataset-out .agentcert/latest/reviewed-failure-dataset.jsonl
   agentcert lab build --config examples/real-agents/robustness-lab/lab.config.json --out public-demo/real-agent-robustness/evidence/lab-snapshot.json
   agentcert serve --corpus .agentcert/corpus/corpus.jsonl --static public-demo/agentcert-monitor --artifact-root public-demo/browser-agent-robustness/evidence/tripwire-public-demo
+  agentcert validate .agentcert/latest/agentcert-evidence.json
   agentcert schema validate --schema evidence-bundle --file .agentcert/latest/agentcert-evidence.json
 `);
 }
@@ -384,6 +406,19 @@ async function loadArtifactResults(
 function readFlag(name: string): string | undefined {
   const index = process.argv.indexOf(name);
   return index >= 0 ? process.argv[index + 1] : undefined;
+}
+
+function readFirstPositionalAfterCommand(): string | undefined {
+  for (let index = 3; index < process.argv.length; index += 1) {
+    const value = process.argv[index];
+    if (!value) continue;
+    if (value.startsWith("--")) {
+      index += 1;
+      continue;
+    }
+    return value;
+  }
+  return undefined;
 }
 
 function readBoolFlag(name: string): boolean {
@@ -491,6 +526,41 @@ async function writeStarterFile(path: string, content: string, force: boolean): 
     }
     throw error;
   }
+}
+
+function reportFatalError(error: unknown): void {
+  process.stderr.write(formatCliError(error));
+  process.exit(1);
+}
+
+function formatCliError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = error && typeof error === "object" && "code" in error ? String(error.code) : undefined;
+  const detail = [`AgentCert error: ${message}`];
+  const hint = errorHint(message, code);
+  if (hint) {
+    detail.push("", hint);
+  }
+  return `${detail.join("\n")}\n`;
+}
+
+function errorHint(message: string, code: string | undefined): string | undefined {
+  if (code === "ENOENT") {
+    return "Hint: check the artifact path. Run `npx agentcert init` for starter config, then run Tripwire before `npx agentcert run`.";
+  }
+  if (message.includes("agentcert run requires")) {
+    return "Hint: run `npx agentcert init`, pass `--tripwire .tripwire/latest/tripwire-result.json`, or use `--config agentcert.config.json`.";
+  }
+  if (message.includes("No AgentCert artifacts were loaded") || message.includes("No input artifacts were provided")) {
+    return "Hint: provide at least one artifact with `--tripwire`, `--mcpbench`, `--onegent`, or configure `agentcert.config.json`.";
+  }
+  if (message.includes("Unexpected token") || message.includes("JSON")) {
+    return "Hint: AgentCert expected JSON. Check that the artifact file exists and was not replaced by logs or HTML.";
+  }
+  if (message.includes("already exists")) {
+    return "Hint: re-run with `--force` to overwrite starter files, or choose a different `--out` path.";
+  }
+  return undefined;
 }
 
 function starterTripwireConfig(subject: string): string {

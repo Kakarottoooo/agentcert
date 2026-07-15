@@ -1,7 +1,7 @@
 {
   "schemaName": "agentcert.evidence_bundle",
-  "schemaVersion": "1",
-  "schemaSemver": "1.0.0",
+  "schemaVersion": "agentcert.evidence.v0.1",
+  "schemaSemver": "0.1.0",
   "kind": "agentcert.evidence_bundle",
   "runId": "agentcert_example_001",
   "generatedAt": "2026-01-01T00:00:00Z",

@@ -28,12 +28,12 @@
     },
     "schemaVersion": {
       "type": "string",
-      "const": "1",
-      "description": "Compatibility family for AgentCert evidence bundles."
+      "const": "agentcert.evidence.v0.1",
+      "description": "Stable AgentCert evidence bundle schema version."
     },
     "schemaSemver": {
       "type": "string",
-      "const": "1.0.0",
+      "const": "0.1.0",
       "description": "Semver release of the evidence bundle schema."
     },
     "kind": {

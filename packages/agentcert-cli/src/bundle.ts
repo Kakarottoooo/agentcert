@@ -1,4 +1,4 @@
-import type { AgentCertBundle, AgentCertResult } from "./types.js";
+import { AGENTCERT_EVIDENCE_SCHEMA_SEMVER, AGENTCERT_EVIDENCE_SCHEMA_VERSION, type AgentCertBundle, type AgentCertResult } from "./types.js";
 
 export function buildEvidenceBundle(results: AgentCertResult[], subjectName: string, subjectType = "agent"): AgentCertBundle {
   const evidence = results.flatMap((result) => result.evidence);
@@ -16,8 +16,8 @@ export function buildEvidenceBundle(results: AgentCertResult[], subjectName: str
 
   return {
     schemaName: "agentcert.evidence_bundle",
-    schemaVersion: "1",
-    schemaSemver: "1.0.0",
+    schemaVersion: AGENTCERT_EVIDENCE_SCHEMA_VERSION,
+    schemaSemver: AGENTCERT_EVIDENCE_SCHEMA_SEMVER,
     kind: "agentcert.evidence_bundle",
     runId: `agentcert_${Date.now()}`,
     generatedAt: new Date().toISOString(),

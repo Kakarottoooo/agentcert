@@ -83,7 +83,8 @@ describe("AgentCert evidence normalization", () => {
     const bundle = buildEvidenceBundle([mcpbench, onegent], "demo-agent", "agent");
 
     expect(bundle.schemaName).toBe("agentcert.evidence_bundle");
-    expect(bundle.schemaSemver).toBe("1.0.0");
+    expect(bundle.schemaVersion).toBe("agentcert.evidence.v0.1");
+    expect(bundle.schemaSemver).toBe("0.1.0");
     expect(bundle.kind).toBe("agentcert.evidence_bundle");
     expect(bundle.subject.name).toBe("demo-agent");
     expect(bundle.verdict.passed).toBe(true);

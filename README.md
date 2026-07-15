@@ -41,7 +41,12 @@ This writes:
 
 - `agentcert.config.json`: AgentCert evidence, corpus, monitor, badge, and gate defaults.
 - `tripwire.yml`: starter browser-agent robustness suite with popup, button-text drift, prompt-injection banner, slow-network, and HTTP-failure faults.
-- `.github/workflows/agentcert-tripwire.yml`: GitHub Action template for PR gates.
+
+To also write a GitHub Actions template:
+
+```bash
+npx agentcert init --subject my-browser-agent --github-action
+```
 
 Edit `tripwire.yml` so `startUrl` points at your local/staging app and
 `agent.command` / `agent.args` launch your browser or computer-use agent. After
@@ -69,14 +74,30 @@ Default outputs:
 ## GitHub Action
 
 ```yaml
-- uses: Kakarottoooo/agentcert/actions/tripwire@v0
-  with:
-    config: tripwire.yml
-    out: .tripwire/latest
-    fail-under: "0.8"
-    subject: my-browser-agent
-    agentcert-out: .agentcert/latest
-    fail-on-verdict: "true"
+name: AgentCert Tripwire
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  tripwire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: Kakarottoooo/agentcert/actions/tripwire@v0
+        with:
+          config: tripwire.yml
+          out: .tripwire/latest
+          fail-under: "0.8"
+          subject: my-browser-agent
+          agentcert-out: .agentcert/latest
+          fail-on-verdict: "true"
 ```
 
 The action uploads JUnit, an HTML Tripwire report, an AgentCert evidence
@@ -141,6 +162,11 @@ npm run tripwire:lab-reference
 npm run agentcert:lab-build
 ```
 
+External integration smoke matrix:
+[examples/real-agents/external-integration-smokes.md](examples/real-agents/external-integration-smokes.md).
+It tracks browser-use, Stagehand, a Playwright browser agent, a LangGraph
+browser/tool agent, and an MCP server/tool smoke.
+
 Run browser-use locally when a model key is available:
 
 ```powershell
@@ -169,19 +195,22 @@ Lab snapshot schema: `schemas/agentcert-robustness-lab.schema.json`.
 
 Every Tripwire run (and every other AgentCert engine) emits artifacts in a
 versioned, machine-readable evidence format: `agentcert.evidence_bundle`
-schema family `1`, semver `1.0.0`. Runs accumulate into a local corpus with an
+schema version `agentcert.evidence.v0.1`, semver `0.1.0`. Runs accumulate into a local corpus with an
 automatic failure taxonomy and a human review ledger, and a monitor dashboard
 reads the aggregated snapshot.
 
-- Schema guide: [docs/standards/evidence-schema.md](docs/standards/evidence-schema.md)
+- Schema guide: [docs/evidence-schema.md](docs/evidence-schema.md)
+- Extended standards/taxonomy notes: [docs/standards/evidence-schema.md](docs/standards/evidence-schema.md)
 - Corpus, review ledger, monitor, and local console reference: [docs/evidence-and-corpus.md](docs/evidence-and-corpus.md)
 - Hosted demo monitor: [AgentCert Monitor](https://kakarottoooo.github.io/agentcert/public-demo/agentcert-monitor/)
 
 Validate any evidence artifact:
 
 ```powershell
-node packages/agentcert-cli/dist/cli.js schema validate --schema evidence-bundle --file examples/agentcert/evidence-bundle.example.json
+npx agentcert validate .agentcert/latest/agentcert-evidence.json
 ```
+
+Evidence schema v0.1 reference: [docs/evidence-schema.md](docs/evidence-schema.md).
 
 ## Runtime Action Gating (Preview)
 

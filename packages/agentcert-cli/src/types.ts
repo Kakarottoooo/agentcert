@@ -2,6 +2,9 @@ export type EvidenceSeverity = "critical" | "high" | "medium" | "low" | "info";
 
 export type AgentCertPhase = "pre-release" | "runtime";
 
+export const AGENTCERT_EVIDENCE_SCHEMA_VERSION = "agentcert.evidence.v0.1" as const;
+export const AGENTCERT_EVIDENCE_SCHEMA_SEMVER = "0.1.0" as const;
+
 export interface AgentCertEvidence {
   id: string;
   kind: string;
@@ -29,8 +32,8 @@ export interface AgentCertResult {
 
 export interface AgentCertBundle {
   schemaName: "agentcert.evidence_bundle";
-  schemaVersion: "1";
-  schemaSemver: "1.0.0";
+  schemaVersion: typeof AGENTCERT_EVIDENCE_SCHEMA_VERSION;
+  schemaSemver: typeof AGENTCERT_EVIDENCE_SCHEMA_SEMVER;
   kind: "agentcert.evidence_bundle";
   runId: string;
   generatedAt: string;
