@@ -7,6 +7,7 @@ import type {
   ApiKeyRecord,
   ApprovalRecord,
   EvidenceRecord,
+  EvidenceStorageUsage,
   FailureReviewRecord,
   IncidentRecord,
   Membership,
@@ -21,6 +22,18 @@ export interface BootstrapResult {
   organization: Organization;
   project: Project;
   membership: Membership;
+}
+
+export class EvidenceQuotaExceededError extends Error {
+  constructor(
+    readonly scope: "run" | "project",
+    readonly limitBytes: number,
+    readonly usedBytes: number,
+    readonly requestedBytes: number,
+  ) {
+    super(`${scope} evidence storage quota of ${limitBytes} bytes would be exceeded.`);
+    this.name = "EvidenceQuotaExceededError";
+  }
 }
 
 export interface ControlPlaneStore {
@@ -43,10 +56,14 @@ export interface ControlPlaneStore {
   listActions(projectId: string, limit?: number): Promise<ActionRecord[]>;
   insertApproval(approval: ApprovalRecord): Promise<ApprovalRecord>;
   insertEvidence(evidence: EvidenceRecord): Promise<EvidenceRecord>;
+  insertEvidenceWithinQuota(evidence: EvidenceRecord, projectLimitBytes: number, runLimitBytes: number): Promise<EvidenceRecord>;
   findEvidenceByDigest(projectId: string, runId: string | undefined, actionId: string | undefined, kind: string, sha256: string): Promise<EvidenceRecord | undefined>;
   getEvidence(projectId: string, evidenceId: string): Promise<EvidenceRecord | undefined>;
   listEvidence(projectId: string, limit?: number): Promise<EvidenceRecord[]>;
   listEvidenceForRun(projectId: string, runId: string): Promise<EvidenceRecord[]>;
+  evidenceUsage(projectId: string, runId?: string): Promise<EvidenceStorageUsage>;
+  listEvidenceCreatedBefore(before: string, limit?: number): Promise<EvidenceRecord[]>;
+  deleteEvidence(projectId: string, evidenceId: string): Promise<boolean>;
   insertIncident(incident: IncidentRecord): Promise<IncidentRecord>;
   listIncidents(projectId: string, limit?: number): Promise<IncidentRecord[]>;
   listIncidentsForRun(projectId: string, runId: string): Promise<IncidentRecord[]>;
@@ -208,6 +225,23 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
     return evidence;
   }
 
+  async insertEvidenceWithinQuota(evidence: EvidenceRecord, projectLimitBytes: number, runLimitBytes: number): Promise<EvidenceRecord> {
+    const existing = await this.findEvidenceByDigest(evidence.projectId, evidence.runId, evidence.actionId, evidence.kind, evidence.sha256);
+    if (existing && (evidence.runId || evidence.actionId)) return existing;
+    const projectUsage = await this.evidenceUsage(evidence.projectId);
+    if (projectUsage.bytes + evidence.sizeBytes > projectLimitBytes) {
+      throw new EvidenceQuotaExceededError("project", projectLimitBytes, projectUsage.bytes, evidence.sizeBytes);
+    }
+    if (evidence.runId) {
+      const runUsage = await this.evidenceUsage(evidence.projectId, evidence.runId);
+      if (runUsage.bytes + evidence.sizeBytes > runLimitBytes) {
+        throw new EvidenceQuotaExceededError("run", runLimitBytes, runUsage.bytes, evidence.sizeBytes);
+      }
+    }
+    this.evidence.set(evidence.id, evidence);
+    return evidence;
+  }
+
   async getRunByExternalId(projectId: string, externalId: string): Promise<RunRecord | undefined> {
     return [...this.runs.values()].find((item) => item.projectId === projectId && item.externalId === externalId);
   }
@@ -231,6 +265,24 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
       [...this.evidence.values()].filter((item) => item.projectId === projectId && item.runId === runId),
       "createdAt",
     );
+  }
+
+  async evidenceUsage(projectId: string, runId?: string): Promise<EvidenceStorageUsage> {
+    const evidence = [...this.evidence.values()].filter((item) => item.projectId === projectId && (!runId || item.runId === runId));
+    return { count: evidence.length, bytes: evidence.reduce((total, item) => total + item.sizeBytes, 0) };
+  }
+
+  async listEvidenceCreatedBefore(before: string, limit = 500): Promise<EvidenceRecord[]> {
+    const cutoff = Date.parse(before);
+    return [...this.evidence.values()]
+      .filter((item) => Date.parse(item.createdAt) < cutoff)
+      .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+      .slice(0, limit);
+  }
+
+  async deleteEvidence(projectId: string, evidenceId: string): Promise<boolean> {
+    const evidence = this.evidence.get(evidenceId);
+    return evidence?.projectId === projectId ? this.evidence.delete(evidenceId) : false;
   }
 
   async insertIncident(incident: IncidentRecord): Promise<IncidentRecord> {
@@ -302,7 +354,7 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
   }
 
   async migrate(): Promise<void> {
-    for (const name of ["001_initial.sql", "002_failure_reviews.sql"]) {
+    for (const name of ["001_initial.sql", "002_failure_reviews.sql", "003_evidence_retention.sql"]) {
       const migration = await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8");
       await this.pool.query(migration);
     }
@@ -523,6 +575,54 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     );
   }
 
+  async insertEvidenceWithinQuota(evidence: EvidenceRecord, projectLimitBytes: number, runLimitBytes: number): Promise<EvidenceRecord> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [evidence.projectId]);
+      const existing = await client.query(
+        `SELECT * FROM agentcert_evidence WHERE project_id=$1 AND run_id IS NOT DISTINCT FROM $2
+         AND action_id IS NOT DISTINCT FROM $3 AND kind=$4 AND sha256=$5 ORDER BY created_at LIMIT 1`,
+        [evidence.projectId, evidence.runId ?? null, evidence.actionId ?? null, evidence.kind, evidence.sha256],
+      );
+      if (existing.rows[0] && (evidence.runId || evidence.actionId)) {
+        await client.query("COMMIT");
+        return evidenceFromRow(existing.rows[0]);
+      }
+      const projectUsage = await client.query(
+        "SELECT COALESCE(SUM(size_bytes),0) AS bytes FROM agentcert_evidence WHERE project_id=$1",
+        [evidence.projectId],
+      );
+      const projectBytes = Number(projectUsage.rows[0]?.bytes ?? 0);
+      if (projectBytes + evidence.sizeBytes > projectLimitBytes) {
+        throw new EvidenceQuotaExceededError("project", projectLimitBytes, projectBytes, evidence.sizeBytes);
+      }
+      if (evidence.runId) {
+        const runUsage = await client.query(
+          "SELECT COALESCE(SUM(size_bytes),0) AS bytes FROM agentcert_evidence WHERE project_id=$1 AND run_id=$2",
+          [evidence.projectId, evidence.runId],
+        );
+        const runBytes = Number(runUsage.rows[0]?.bytes ?? 0);
+        if (runBytes + evidence.sizeBytes > runLimitBytes) {
+          throw new EvidenceQuotaExceededError("run", runLimitBytes, runBytes, evidence.sizeBytes);
+        }
+      }
+      const inserted = await client.query(
+        `INSERT INTO agentcert_evidence (id,project_id,run_id,action_id,kind,schema_version,object_key,file_name,content_type,sha256,size_bytes,metadata,created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+        [evidence.id, evidence.projectId, evidence.runId ?? null, evidence.actionId ?? null, evidence.kind, evidence.schemaVersion,
+         evidence.objectKey, evidence.fileName, evidence.contentType, evidence.sha256, evidence.sizeBytes, JSON.stringify(evidence.metadata), evidence.createdAt],
+      );
+      await client.query("COMMIT");
+      return evidenceFromRow(inserted.rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async getRunByExternalId(projectId: string, externalId: string): Promise<RunRecord | undefined> {
     return one(this.pool.query("SELECT * FROM agentcert_runs WHERE project_id=$1 AND external_id=$2", [projectId, externalId]), runFromRow);
   }
@@ -551,6 +651,31 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
       this.pool.query("SELECT * FROM agentcert_evidence WHERE project_id=$1 AND run_id=$2 ORDER BY created_at DESC", [projectId, runId]),
       evidenceFromRow,
     );
+  }
+
+  async evidenceUsage(projectId: string, runId?: string): Promise<EvidenceStorageUsage> {
+    const result = runId
+      ? await this.pool.query(
+        "SELECT COUNT(*) AS count,COALESCE(SUM(size_bytes),0) AS bytes FROM agentcert_evidence WHERE project_id=$1 AND run_id=$2",
+        [projectId, runId],
+      )
+      : await this.pool.query(
+        "SELECT COUNT(*) AS count,COALESCE(SUM(size_bytes),0) AS bytes FROM agentcert_evidence WHERE project_id=$1",
+        [projectId],
+      );
+    return { count: Number(result.rows[0]?.count ?? 0), bytes: Number(result.rows[0]?.bytes ?? 0) };
+  }
+
+  async listEvidenceCreatedBefore(before: string, limit = 500): Promise<EvidenceRecord[]> {
+    return many(
+      this.pool.query("SELECT * FROM agentcert_evidence WHERE created_at < $1 ORDER BY created_at ASC LIMIT $2", [before, limit]),
+      evidenceFromRow,
+    );
+  }
+
+  async deleteEvidence(projectId: string, evidenceId: string): Promise<boolean> {
+    const result = await this.pool.query("DELETE FROM agentcert_evidence WHERE project_id=$1 AND id=$2", [projectId, evidenceId]);
+    return (result.rowCount ?? 0) > 0;
   }
 
   async insertIncident(incident: IncidentRecord): Promise<IncidentRecord> {

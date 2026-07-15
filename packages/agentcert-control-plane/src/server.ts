@@ -154,7 +154,7 @@ async function handleRequest(
       response.writeHead(200, {
         "content-type": evidence.contentType,
         "content-length": String(artifact.bytes.length),
-        "content-disposition": `inline; filename="${evidence.fileName.replace(/"/g, "")}"`,
+        "content-disposition": `${evidence.contentType.startsWith("image/") ? "inline" : "attachment"}; filename="${evidence.fileName.replace(/"/g, "")}"`,
         "cache-control": "private, no-store",
       });
       response.end(artifact.bytes);

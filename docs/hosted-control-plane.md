@@ -31,7 +31,15 @@ Postgres or S3-compatible provider can replace Supabase later.
 - Development authentication refuses to listen on non-loopback interfaces and
   cannot run with `NODE_ENV=production`.
 - Evidence downloads are authenticated and proxied by the control plane.
-- Artifact uploads are bounded by `AGENTCERT_MAX_ARTIFACT_BYTES`.
+- Individual HTTP uploads are bounded by `AGENTCERT_MAX_ARTIFACT_BYTES`.
+- Stored evidence is additionally bounded per run and project. Quota checks
+  are serialized in Postgres, so concurrent uploads cannot race past the cap.
+- The server validates extension, MIME type, evidence kind, and file signature
+  for PNG/JPEG/WebP, JSON/JSONL, HTML, PDF, and ZIP. Direct executable file
+  signatures are rejected even when the file is renamed.
+- Run analysis reports evidence as `complete`, `partial`, or `rejected`; this
+  status is computed from server upload state and companion-artifact events,
+  not accepted as a client assertion.
 - Every application table has Postgres row-level security enabled with no
   client policy. Supabase Data API clients cannot bypass the control plane.
 - API responses include `x-request-id`; Render receives structured JSON access
@@ -70,6 +78,11 @@ SUPABASE_SECRET_KEY=sb_secret_...
 AGENTCERT_STORAGE_BUCKET=agentcert-evidence
 AGENTCERT_DASHBOARD_DIR=/app/public-demo/agentcert-monitor
 AGENTCERT_MAX_ARTIFACT_BYTES=20971520
+AGENTCERT_PROJECT_STORAGE_BYTES=1073741824
+AGENTCERT_RUN_STORAGE_BYTES=104857600
+AGENTCERT_EVIDENCE_RETENTION_DAYS=90
+AGENTCERT_EVIDENCE_CLEANUP_INTERVAL_MS=86400000
+AGENTCERT_EVIDENCE_CLEANUP_BATCH=500
 ```
 
 Never expose `DATABASE_URL` or `SUPABASE_SECRET_KEY` to the browser,
@@ -82,8 +95,9 @@ GitHub Pages, source control, or a client-side build variable.
 1. Sign in at `https://supabase.com/dashboard` and choose **New project**.
 2. Select the region closest to the Render region you will use.
 3. Save the generated database password in a password manager.
-4. Open **SQL Editor**, paste
-   `packages/agentcert-control-plane/migrations/001_initial.sql`, and run it.
+4. Open **SQL Editor** and run every numbered file in
+   `packages/agentcert-control-plane/migrations/` in order. Existing deployments
+   can run only newly added files; all migrations are idempotent.
 5. Click **Connect**, choose **Session pooler**, and copy the port `5432`
    connection string. Use this value as `DATABASE_URL`; session mode is the
    appropriate choice for a persistent Render service on an IPv4 network.
@@ -193,6 +207,37 @@ directory), rejects path and symlink escapes, and enforces fixed limits of 25
 files, 10 MiB per file, and 50 MiB per push. The run timeline records uploaded
 and skipped counts plus bounded skip reasons. `--no-artifacts` preserves the
 bundle-only behavior for restricted environments.
+
+## Evidence Storage Governance
+
+The production defaults are 1 GiB stored evidence per project, 100 MiB per
+run, and 90-day retention. A quota violation returns `413`; an unsupported,
+mislabeled, malformed, or executable artifact returns `415`. A rejected upload
+does not leave object metadata behind, and run analysis exposes the rejection
+reason rather than presenting existing artifacts as complete evidence.
+
+The accepted server formats are PNG, JPEG, WebP, JSON, JSONL, HTML, PDF, and
+ZIP. ZIP is accepted for browser traces and portable evidence archives, but
+this release validates only its container signature; it does not inspect or
+execute archive members. Non-image downloads, including HTML and ZIP, are
+served as attachments.
+
+The server runs bounded cleanup shortly after startup and then on the configured
+interval. Cleanup deletes the private storage object through the provider API
+before deleting its Postgres metadata. If object deletion fails, metadata is
+retained so the record can be retried and audited. Operators can run the same
+bounded task once during maintenance:
+
+```bash
+node packages/agentcert-control-plane/dist/cli.js cleanup-evidence
+```
+
+Storage quota, object count, and retention are visible on the project overview.
+Each run shows evidence bytes, the earliest expiry date, and one of:
+
+- `complete`: the bundle and every reported companion upload are present;
+- `partial`: a bundle or referenced companion artifact is missing or skipped;
+- `rejected`: the most recent upload attempt violated storage policy.
 
 ## Open Registration
 

@@ -5,6 +5,7 @@ import { Authenticator } from "./auth.js";
 import { startControlPlaneServer } from "./server.js";
 import { AgentCertControlPlane } from "./service.js";
 import { InMemoryControlPlaneStore, PostgresControlPlaneStore } from "./store.js";
+import type { EvidenceGovernancePolicy } from "./evidence-governance.js";
 import type { PublicConfig } from "./types.js";
 
 const host = process.env.HOST ?? "127.0.0.1";
@@ -33,7 +34,12 @@ const artifacts = supabaseUrl && supabaseSecretKey
   : devMode
     ? new LocalArtifactStore(resolve(".agentcert/control-plane/artifacts"))
     : new MemoryArtifactStore();
-const service = new AgentCertControlPlane(store, artifacts);
+const evidencePolicy: EvidenceGovernancePolicy = {
+  projectLimitBytes: integerEnv("AGENTCERT_PROJECT_STORAGE_BYTES", 1024 * 1024 * 1024),
+  runLimitBytes: integerEnv("AGENTCERT_RUN_STORAGE_BYTES", 100 * 1024 * 1024),
+  retentionDays: integerEnv("AGENTCERT_EVIDENCE_RETENTION_DAYS", 90),
+};
+const service = new AgentCertControlPlane(store, artifacts, evidencePolicy);
 const authenticator = new Authenticator({ store, supabaseUrl, supabasePublishableKey, devMode });
 const publicConfig: PublicConfig = {
   kind: "agentcert.control_plane_config",
@@ -47,15 +53,44 @@ const publicConfig: PublicConfig = {
   },
 };
 
-await startControlPlaneServer({
-  service,
-  authenticator,
-  publicConfig,
-  host,
-  port,
-  dashboardDir: process.env.AGENTCERT_DASHBOARD_DIR ?? resolve("public-demo/agentcert-monitor"),
-  maxArtifactBytes: integerEnv("AGENTCERT_MAX_ARTIFACT_BYTES", 20 * 1024 * 1024),
-});
+if (process.argv[2] === "cleanup-evidence") {
+  const result = await service.cleanupExpiredEvidence(new Date(), integerEnv("AGENTCERT_EVIDENCE_CLEANUP_BATCH", 500));
+  process.stdout.write(`${JSON.stringify({ event: "evidence_retention_cleanup", ...result })}\n`);
+  await store.close();
+} else {
+  await startControlPlaneServer({
+    service,
+    authenticator,
+    publicConfig,
+    host,
+    port,
+    dashboardDir: process.env.AGENTCERT_DASHBOARD_DIR ?? resolve("public-demo/agentcert-monitor"),
+    maxArtifactBytes: integerEnv("AGENTCERT_MAX_ARTIFACT_BYTES", 20 * 1024 * 1024),
+  });
+  scheduleEvidenceCleanup(
+    service,
+    integerEnv("AGENTCERT_EVIDENCE_CLEANUP_INTERVAL_MS", 24 * 60 * 60 * 1000),
+    integerEnv("AGENTCERT_EVIDENCE_CLEANUP_BATCH", 500),
+  );
+}
+
+function scheduleEvidenceCleanup(service: AgentCertControlPlane, intervalMs: number, batchSize: number): void {
+  let running = false;
+  const run = async () => {
+    if (running) return;
+    running = true;
+    try {
+      const result = await service.cleanupExpiredEvidence(new Date(), batchSize);
+      process.stdout.write(`${JSON.stringify({ event: "evidence_retention_cleanup", ...result })}\n`);
+    } catch (error) {
+      process.stderr.write(`${JSON.stringify({ event: "evidence_retention_cleanup_failed", message: error instanceof Error ? error.message : String(error) })}\n`);
+    } finally {
+      running = false;
+    }
+  };
+  setTimeout(() => void run(), 1_000).unref();
+  setInterval(() => void run(), intervalMs).unref();
+}
 
 function integerEnv(name: string, fallback: number): number {
   const raw = process.env[name];

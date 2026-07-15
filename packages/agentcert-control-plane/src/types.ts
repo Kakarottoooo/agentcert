@@ -5,6 +5,7 @@ export type ActionDecision = "ALLOW" | "DENY" | "REQUIRE_APPROVAL";
 export type ActionStatus = "ALLOWED" | "DENIED" | "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "VERIFIED" | "VERIFICATION_FAILED";
 export type IncidentSeverity = "low" | "medium" | "high" | "critical";
 export type FailureReviewStatus = "confirmed" | "corrected";
+export type EvidenceCompletenessStatus = "complete" | "partial" | "rejected";
 export type FailureType =
   | "prompt_injection"
   | "wrong_click"
@@ -126,6 +127,22 @@ export interface EvidenceRecord {
   sizeBytes: number;
   metadata: Record<string, unknown>;
   createdAt: string;
+}
+
+export interface EvidenceStorageUsage {
+  count: number;
+  bytes: number;
+}
+
+export interface EvidenceCompleteness {
+  status: EvidenceCompletenessStatus;
+  reasons: string[];
+  evidenceCount: number;
+  bytesUsed: number;
+  runLimitBytes: number;
+  remainingBytes: number;
+  retentionDays: number;
+  expiresAt?: string;
 }
 
 export interface IncidentRecord {

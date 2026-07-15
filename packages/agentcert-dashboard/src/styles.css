@@ -1597,6 +1597,7 @@ button {
 .hosted-status.verified,
 .hosted-status.allowed,
 .hosted-status.approved,
+.hosted-status.complete,
 .hosted-status.low {
   color: var(--teal);
   background: var(--teal-soft);
@@ -1615,6 +1616,7 @@ button {
 .hosted-status.pending-approval,
 .hosted-status.needs-evidence,
 .hosted-status.manual-review,
+.hosted-status.partial,
 .hosted-status.medium {
   color: var(--amber);
   background: var(--amber-soft);
@@ -2101,10 +2103,24 @@ button {
   line-height: 1.5;
 }
 
+.hosted-run-summary .evidence-completeness-reason {
+  margin-top: 7px;
+  color: var(--red);
+  font-weight: 700;
+}
+
+.hosted-run-statuses {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .hosted-run-summary dl {
   display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   margin: 4px 0 0;
   border-top: 1px solid var(--border);
 }

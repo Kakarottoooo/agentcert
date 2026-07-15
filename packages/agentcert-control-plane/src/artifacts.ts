@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 
 export interface StoredArtifact {
@@ -10,6 +10,7 @@ export interface StoredArtifact {
 export interface ArtifactStore {
   put(objectKey: string, bytes: Buffer, contentType: string): Promise<void>;
   get(objectKey: string): Promise<StoredArtifact | undefined>;
+  delete(objectKey: string): Promise<void>;
 }
 
 export class MemoryArtifactStore implements ArtifactStore {
@@ -21,6 +22,10 @@ export class MemoryArtifactStore implements ArtifactStore {
 
   async get(objectKey: string): Promise<StoredArtifact | undefined> {
     return this.artifacts.get(objectKey);
+  }
+
+  async delete(objectKey: string): Promise<void> {
+    this.artifacts.delete(objectKey);
   }
 }
 
@@ -40,6 +45,10 @@ export class LocalArtifactStore implements ArtifactStore {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw error;
     }
+  }
+
+  async delete(objectKey: string): Promise<void> {
+    await rm(safeLocalPath(this.root, objectKey), { force: true });
   }
 }
 
@@ -77,6 +86,17 @@ export class SupabaseArtifactStore implements ArtifactStore {
       bytes: Buffer.from(await response.arrayBuffer()),
       contentType: response.headers.get("content-type") ?? "application/octet-stream",
     };
+  }
+
+  async delete(objectKey: string): Promise<void> {
+    const response = await this.request(`${this.supabaseUrl.replace(/\/$/, "")}/storage/v1/object/${encodeURIComponent(this.bucket)}`, {
+      method: "DELETE",
+      headers: { ...this.serviceHeaders(), "content-type": "application/json" },
+      body: JSON.stringify({ prefixes: [objectKey] }),
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Object storage delete failed (${response.status}): ${await response.text()}`);
+    }
   }
 
   private objectUrl(objectKey: string): string {
