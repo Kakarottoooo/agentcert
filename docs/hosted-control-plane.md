@@ -19,8 +19,8 @@ Postgres or S3-compatible provider can replace Supabase later.
 
 ## Security Boundaries
 
-- Supabase service-role credentials are server-only.
-- Browser sessions use the public anon key and a short-lived user access token.
+- Supabase secret credentials are server-only.
+- Browser sessions use the publishable key and a short-lived user access token.
 - Agent/CI API keys are scoped to one project and stored only as SHA-256 hashes.
 - API key metadata can be listed and active keys can be revoked by owners or
   admins; internal key hashes are never returned by the API.
@@ -65,14 +65,14 @@ PORT=10000
 AGENTCERT_PUBLIC_URL=https://app.your-domain.com
 DATABASE_URL=postgresql://...
 SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_ANON_KEY=...
-SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+SUPABASE_SECRET_KEY=sb_secret_...
 AGENTCERT_STORAGE_BUCKET=agentcert-evidence
 AGENTCERT_DASHBOARD_DIR=/app/public-demo/agentcert-monitor
 AGENTCERT_MAX_ARTIFACT_BYTES=20971520
 ```
 
-Never expose `DATABASE_URL` or `SUPABASE_SERVICE_ROLE_KEY` to the browser,
+Never expose `DATABASE_URL` or `SUPABASE_SECRET_KEY` to the browser,
 GitHub Pages, source control, or a client-side build variable.
 
 ## Deployment Walkthrough
@@ -111,18 +111,20 @@ GitHub Pages, source control, or a client-side build variable.
 4. Set the bucket file-size limit to at least `20 MB`, or lower
    `AGENTCERT_MAX_ARTIFACT_BYTES` to match.
 5. Do not add public read policies. The AgentCert server writes with the
-   service-role key and proxies authenticated downloads.
+   secret key and proxies authenticated downloads.
 
 ### 4. Copy Supabase Credentials
 
-From **Project Settings -> API**, record:
+From **Project Settings -> API Keys**, record:
 
 - Project URL -> `SUPABASE_URL`
-- anon/public key -> `SUPABASE_ANON_KEY`
-- service-role key -> `SUPABASE_SERVICE_ROLE_KEY`
+- publishable key (`sb_publishable_...`) -> `SUPABASE_PUBLISHABLE_KEY`
+- secret key (`sb_secret_...`) -> `SUPABASE_SECRET_KEY`
 
-The anon key is intentionally returned by `/v1/config` for browser auth. The
-service-role key is secret and must exist only in Render.
+The publishable key is intentionally returned by `/v1/config` for browser auth.
+The secret key must exist only in Render. Existing deployments may continue to
+use `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` as compatibility
+fallbacks, but new deployments should use the current key types above.
 
 ### 5. Deploy on Render
 
@@ -132,7 +134,7 @@ service-role key is secret and must exist only in Render.
    `render.yaml` and `Dockerfile.control-plane`.
 4. Enter all `sync: false` values when prompted:
    `AGENTCERT_PUBLIC_URL`, `DATABASE_URL`, `SUPABASE_URL`,
-   `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`.
+   `SUPABASE_PUBLISHABLE_KEY`, and `SUPABASE_SECRET_KEY`.
 5. Set `AGENTCERT_PUBLIC_URL` to the initial `https://...onrender.com` URL.
 6. Deploy and wait for `/health` to return `{ "ok": true }`.
 7. Open the service URL, create an account, confirm the email, and verify that

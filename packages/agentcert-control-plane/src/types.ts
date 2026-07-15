@@ -158,7 +158,7 @@ export interface PublicConfig {
   auth: {
     provider: "supabase" | "development";
     supabaseUrl?: string;
-    supabaseAnonKey?: string;
+    supabasePublishableKey?: string;
     registrationOpen: boolean;
   };
 }

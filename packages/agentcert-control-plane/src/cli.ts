@@ -22,19 +22,19 @@ const store = databaseUrl ? new PostgresControlPlaneStore(databaseUrl) : new InM
 await store.migrate();
 
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (production && (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey)) {
-  throw new Error("Production requires SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY.");
+const supabasePublishableKey = process.env.SUPABASE_PUBLISHABLE_KEY ?? process.env.SUPABASE_ANON_KEY;
+const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (production && (!supabaseUrl || !supabasePublishableKey || !supabaseSecretKey)) {
+  throw new Error("Production requires SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, and SUPABASE_SECRET_KEY (legacy key variable names are also accepted).");
 }
 
-const artifacts = supabaseUrl && supabaseServiceRoleKey
-  ? new SupabaseArtifactStore(supabaseUrl, supabaseServiceRoleKey, process.env.AGENTCERT_STORAGE_BUCKET ?? "agentcert-evidence")
+const artifacts = supabaseUrl && supabaseSecretKey
+  ? new SupabaseArtifactStore(supabaseUrl, supabaseSecretKey, process.env.AGENTCERT_STORAGE_BUCKET ?? "agentcert-evidence")
   : devMode
     ? new LocalArtifactStore(resolve(".agentcert/control-plane/artifacts"))
     : new MemoryArtifactStore();
 const service = new AgentCertControlPlane(store, artifacts);
-const authenticator = new Authenticator({ store, supabaseUrl, supabaseAnonKey, devMode });
+const authenticator = new Authenticator({ store, supabaseUrl, supabasePublishableKey, devMode });
 const publicConfig: PublicConfig = {
   kind: "agentcert.control_plane_config",
   hosted: true,
@@ -42,7 +42,7 @@ const publicConfig: PublicConfig = {
   auth: {
     provider: devMode ? "development" : "supabase",
     supabaseUrl: devMode ? undefined : supabaseUrl,
-    supabaseAnonKey: devMode ? undefined : supabaseAnonKey,
+    supabasePublishableKey: devMode ? undefined : supabasePublishableKey,
     registrationOpen: true,
   },
 };

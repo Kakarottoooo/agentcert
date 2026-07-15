@@ -46,16 +46,16 @@ export class LocalArtifactStore implements ArtifactStore {
 export class SupabaseArtifactStore implements ArtifactStore {
   constructor(
     private readonly supabaseUrl: string,
-    private readonly serviceRoleKey: string,
+    private readonly secretKey: string,
     private readonly bucket: string,
+    private readonly request: typeof fetch = fetch,
   ) {}
 
   async put(objectKey: string, bytes: Buffer, contentType: string): Promise<void> {
-    const response = await fetch(this.objectUrl(objectKey), {
+    const response = await this.request(this.objectUrl(objectKey), {
       method: "POST",
       headers: {
-        apikey: this.serviceRoleKey,
-        authorization: `Bearer ${this.serviceRoleKey}`,
+        ...this.serviceHeaders(),
         "content-type": contentType,
         "x-upsert": "true",
       },
@@ -67,8 +67,8 @@ export class SupabaseArtifactStore implements ArtifactStore {
   }
 
   async get(objectKey: string): Promise<StoredArtifact | undefined> {
-    const response = await fetch(this.objectUrl(objectKey), {
-      headers: { apikey: this.serviceRoleKey, authorization: `Bearer ${this.serviceRoleKey}` },
+    const response = await this.request(this.objectUrl(objectKey), {
+      headers: this.serviceHeaders(),
     });
     if (response.status === 404) return undefined;
     if (!response.ok) throw new Error(`Object storage read failed (${response.status}).`);
@@ -82,6 +82,14 @@ export class SupabaseArtifactStore implements ArtifactStore {
   private objectUrl(objectKey: string): string {
     const segments = objectKey.split("/").map(encodeURIComponent).join("/");
     return `${this.supabaseUrl.replace(/\/$/, "")}/storage/v1/object/${encodeURIComponent(this.bucket)}/${segments}`;
+  }
+
+  private serviceHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { apikey: this.secretKey };
+    if (!this.secretKey.startsWith("sb_secret_")) {
+      headers.authorization = `Bearer ${this.secretKey}`;
+    }
+    return headers;
   }
 }
 
