@@ -4,9 +4,9 @@ Open `index.html` in a browser or use the hosted GitHub Pages page.
 
 This lab compares browser agents against the same deterministic Tripwire fault
 suite. The checked-in public snapshot includes deterministic Playwright/CDP
-agents plus a public Playwright ARIA baseline. The `browser-use` public-agent
-adapter is wired but marked as missing until a user runs it locally with their
-own model key.
+agents, a public Playwright ARIA baseline, browser-use, and Stagehand evidence.
+Re-running a model-backed adapter requires the caller's own model key; keys are
+never stored in the repository.
 
 Included evidence:
 

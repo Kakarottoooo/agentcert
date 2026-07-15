@@ -1,0 +1,280 @@
+openapi: 3.1.0
+info:
+  title: AgentCert Control Plane API
+  version: 1.0.0
+  description: Project-scoped ingestion, runtime action decisions, verification, and evidence storage.
+servers:
+  - url: https://agentcert.example.com
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      security: []
+      summary: Check service health
+      responses:
+        "200": {description: Healthy control plane}
+  /v1/config:
+    get:
+      security: []
+      summary: Read public authentication configuration
+      responses:
+        "200": { description: Public control-plane configuration }
+  /v1/onboarding/bootstrap:
+    post:
+      summary: Create the signed-in user's first organization and project
+      responses:
+        "200": { description: Existing or newly created workspace }
+  /v1/projects:
+    get:
+      summary: List projects visible to the signed-in user
+      responses:
+        "200": { description: Project list }
+  /v1/projects/{projectId}/overview:
+    get:
+      summary: Read operational counts and recent activity
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses:
+        "200": { description: Project overview }
+  /v1/projects/{projectId}/agents:
+    get:
+      summary: List registered agents
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses: {"200": {description: Agent list}}
+    post:
+      summary: Register or update an agent identity and permissions as a human owner or admin
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/AgentInput"}
+      responses: {"201": {description: Registered agent}}
+  /v1/projects/{projectId}/runs:
+    get:
+      summary: List assurance runs
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses: {"200": {description: Run list}}
+    post:
+      summary: Start an assurance run
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/RunInput"}
+      responses: {"201": {description: Started run}}
+  /v1/projects/{projectId}/runs/{runId}/events:
+    post:
+      summary: Append one to 500 ordered events
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {$ref: "#/components/parameters/RunId"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/EventBatch"}
+      responses: {"202": {description: Accepted events}}
+  /v1/projects/{projectId}/runs/{runId}/complete:
+    post:
+      summary: Complete a run and open an incident when it failed
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {$ref: "#/components/parameters/RunId"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/RunCompletion"}
+      responses: {"200": {description: Completed run}}
+  /v1/projects/{projectId}/actions:
+    get:
+      summary: List runtime actions
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses: {"200": {description: Action list}}
+    post:
+      summary: Assess a proposed action against permissions and policy
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ActionInput"}
+      responses: {"201": {description: ALLOW, DENY, or REQUIRE_APPROVAL decision}}
+  /v1/projects/{projectId}/actions/{actionId}:
+    get:
+      summary: Read current action decision and verification state
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {$ref: "#/components/parameters/ActionId"}
+      responses: {"200": {description: Action state}}
+  /v1/projects/{projectId}/actions/{actionId}/approve:
+    post:
+      summary: Approve a pending action with a human owner, admin, or reviewer session
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {$ref: "#/components/parameters/ActionId"}
+      requestBody:
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ReviewInput"}
+      responses: {"200": {description: Approved action}, "403": {description: API keys cannot approve actions}}
+  /v1/projects/{projectId}/actions/{actionId}/reject:
+    post:
+      summary: Reject a pending action with a human owner, admin, or reviewer session
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {$ref: "#/components/parameters/ActionId"}
+      requestBody:
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ReviewInput"}
+      responses: {"200": {description: Rejected action}}
+  /v1/projects/{projectId}/actions/{actionId}/verify:
+    post:
+      summary: Compare observed state with expected state and open an incident on mismatch
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {$ref: "#/components/parameters/ActionId"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/VerificationInput"}
+      responses: {"200": {description: Verification result}}
+  /v1/projects/{projectId}/incidents:
+    get:
+      summary: List failed runs and runtime verification incidents
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses: {"200": {description: Incident list}}
+  /v1/projects/{projectId}/evidence:
+    get:
+      summary: List project evidence metadata
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses: {"200": {description: Evidence list}}
+    post:
+      summary: Upload a bounded evidence artifact
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: query, name: fileName, required: true, schema: {type: string}}
+        - {in: query, name: kind, schema: {type: string}}
+        - {in: query, name: runId, schema: {type: string, format: uuid}}
+        - {in: query, name: actionId, schema: {type: string, format: uuid}}
+      requestBody:
+        required: true
+        content:
+          application/octet-stream: {schema: {type: string, contentEncoding: binary}}
+      responses: {"201": {description: Evidence metadata with SHA-256 digest}}
+  /v1/projects/{projectId}/evidence/{evidenceId}/content:
+    get:
+      summary: Download private evidence through the authenticated control plane
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {$ref: "#/components/parameters/EvidenceId"}
+      responses: {"200": {description: Original evidence bytes}}
+  /v1/projects/{projectId}/api-keys:
+    get:
+      summary: List project API key metadata without secret hashes
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses: {"200": {description: API key metadata}}
+    post:
+      summary: Create a project-scoped agent credential; the secret is returned once
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      requestBody:
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ApiKeyInput"}
+      responses: {"201": {description: API key and one-time secret}}
+  /v1/projects/{projectId}/api-keys/{apiKeyId}:
+    delete:
+      summary: Revoke a project API key
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {$ref: "#/components/parameters/ApiKeyId"}
+      responses: {"200": {description: Revoked API key metadata}}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Supabase user access token or project-scoped ac_live API key.
+  parameters:
+    ProjectId: {in: path, name: projectId, required: true, schema: {type: string, format: uuid}}
+    RunId: {in: path, name: runId, required: true, schema: {type: string, format: uuid}}
+    ActionId: {in: path, name: actionId, required: true, schema: {type: string, format: uuid}}
+    EvidenceId: {in: path, name: evidenceId, required: true, schema: {type: string, format: uuid}}
+    ApiKeyId: {in: path, name: apiKeyId, required: true, schema: {type: string, format: uuid}}
+  schemas:
+    AgentInput:
+      type: object
+      required: [externalId, name]
+      properties:
+        externalId: {type: string}
+        name: {type: string}
+        version: {type: string}
+        framework: {type: string}
+        allowedPermissions: {type: array, items: {type: string}}
+    RunInput:
+      type: object
+      required: [externalId, kind]
+      properties:
+        externalId: {type: string}
+        agentId: {type: string, format: uuid}
+        kind: {enum: [mcpbench, tripwire, release_gate, runtime, custom]}
+        schemaVersion: {type: string}
+        metadata: {type: object, additionalProperties: true}
+    EventBatch:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            type: object
+            required: [sequence, type]
+            properties:
+              sequence: {type: integer, minimum: 0}
+              type: {type: string}
+              actor: {type: string}
+              occurredAt: {type: string, format: date-time}
+              payload: {type: object, additionalProperties: true}
+    RunCompletion:
+      type: object
+      required: [status]
+      properties:
+        status: {enum: [passed, failed, needs_evidence, manual_review]}
+        score: {type: number}
+        summary: {type: string}
+        firstDivergence: {type: string}
+        metadata: {type: object, additionalProperties: true}
+    ReviewInput:
+      type: object
+      properties:
+        comment: {type: string}
+    VerificationInput:
+      type: object
+      required: [observedState]
+      properties:
+        observedState: {type: object, additionalProperties: true}
+    ApiKeyInput:
+      type: object
+      properties:
+        name: {type: string}
+    ActionInput:
+      type: object
+      required: [externalId, principal, actionType, targetSystem, requestedPermissions]
+      properties:
+        externalId: {type: string}
+        agentId: {type: string, format: uuid}
+        principal: {type: object, additionalProperties: true}
+        actionType: {enum: [SUBMIT, PAY, SEND, UPDATE]}
+        targetSystem: {type: string}
+        requestedPermissions: {type: array, items: {type: string}}
+        amount: {type: number, minimum: 0}
+        currency: {type: string}
+        externalRecipient: {type: boolean}
+        sensitive: {type: boolean}
+        expectedState: {type: object, additionalProperties: true}

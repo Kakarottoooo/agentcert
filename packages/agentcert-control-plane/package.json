@@ -1,0 +1,28 @@
+{
+  "name": "@agentcert/control-plane",
+  "version": "0.1.0",
+  "description": "Hosted AgentCert control plane for agent runs, runtime actions, evidence, and incidents.",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "test": "vitest run tests",
+    "start": "node dist/cli.js",
+    "dev": "npm run build && node dist/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/pg": "^8.15.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.13"
+  }
+}

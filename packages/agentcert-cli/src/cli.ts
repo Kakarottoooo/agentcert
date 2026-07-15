@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { validateEvidenceArtifacts } from "./artifact-validation.js";
 import { renderAgentCertBadge } from "./badge.js";
 import { buildEvidenceBundle } from "./bundle.js";
@@ -12,6 +12,7 @@ import {
   writeReviewedFailureDataset,
 } from "./corpus.js";
 import { openCorpusStore, parseCorpusStoreKind, type CorpusStoreOptions } from "./corpus-store.js";
+import { pushEvidenceToControlPlane } from "./control-plane.js";
 import {
   applyFailureReviews,
   appendFailureReview,
@@ -295,7 +296,28 @@ Next:
     overrides,
   });
   process.stdout.write(renderRunSummary(outcome));
+  if (readBoolFlag("--push")) {
+    await pushHostedEvidence(
+      outcome.bundle,
+      Buffer.from(`${JSON.stringify(outcome.bundle, null, 2)}\n`),
+      "agentcert-evidence.json",
+    );
+  }
   process.exitCode = outcome.exitCode;
+} else if (command === "push") {
+  const evidencePath = resolve(readFlag("--evidence") ?? ".agentcert/latest/agentcert-evidence.json");
+  const evidenceBytes = await readFile(evidencePath);
+  let bundle: AgentCertBundle;
+  try {
+    bundle = JSON.parse(evidenceBytes.toString("utf8")) as AgentCertBundle;
+  } catch {
+    throw new Error(`Evidence file is not valid JSON: ${evidencePath}`);
+  }
+  const validation = validateAgentCertSchema("evidence-bundle", bundle);
+  if (!validation.valid) {
+    throw new Error(`Evidence bundle is invalid:\n${validation.errors.map((error) => `- ${error}`).join("\n")}`);
+  }
+  await pushHostedEvidence(bundle, evidenceBytes, basename(evidencePath));
 } else if (command === "release-gate") {
   const overrides = readRunOverrides();
   const profileName = readFlag("--profile");
@@ -482,6 +504,8 @@ Next:
   agentcert monitor build --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/latest/monitor.json --subject my-agent
   agentcert monitor build --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --out .agentcert/latest/monitor.json --subject my-agent
   agentcert run --profile public-demo
+  agentcert push --evidence .agentcert/latest/agentcert-evidence.json --server https://agentcert.example.com --project <project-id>
+  agentcert run --tripwire .tripwire/latest/tripwire-result.json --push
   agentcert run --mcpbench .mcpbench/latest/results.json --tripwire .tripwire/latest/tripwire-result.json --onegent .onegent/procurement/audit-packet.json --out .agentcert/latest --corpus .agentcert/corpus/corpus.jsonl --monitor-out .agentcert/latest/monitor.json --reviewed-dataset-out .agentcert/latest/reviewed-failure-dataset.jsonl
   agentcert release-gate --config agentcert.config.json --strict
   agentcert release-gate --evidence .agentcert/latest/agentcert-evidence.json --baseline .agentcert/baselines/main.json
@@ -503,6 +527,27 @@ async function loadConfig(path?: string): Promise<AgentCertConfig | undefined> {
     return undefined;
   }
   return (await readJson(path)) as AgentCertConfig;
+}
+
+async function pushHostedEvidence(bundle: AgentCertBundle, bytes: Uint8Array, fileName: string): Promise<void> {
+  const baseUrl = readFlag("--server") ?? process.env.AGENTCERT_BASE_URL;
+  const projectId = readFlag("--project") ?? process.env.AGENTCERT_PROJECT_ID;
+  const apiKey = readFlag("--api-key") ?? process.env.AGENTCERT_API_KEY;
+  if (!baseUrl || !projectId || !apiKey) {
+    throw new Error(
+      "Hosted push requires AGENTCERT_BASE_URL, AGENTCERT_PROJECT_ID, and AGENTCERT_API_KEY (or --server, --project, and --api-key).",
+    );
+  }
+  const result = await pushEvidenceToControlPlane({
+    baseUrl,
+    projectId,
+    apiKey,
+    bundle,
+    evidenceBytes: bytes,
+    fileName,
+    externalId: readFlag("--external-id"),
+  });
+  process.stdout.write(`Hosted run: ${result.runId}\nHosted evidence: ${result.evidenceId}\n`);
 }
 
 async function readJson(path: string): Promise<unknown> {
@@ -712,6 +757,12 @@ function errorHint(message: string, code: string | undefined): string | undefine
   }
   if (message.includes("already exists")) {
     return "Hint: re-run with `--force` to overwrite starter files, or choose a different `--out` path.";
+  }
+  if (message.includes("Hosted push requires")) {
+    return "Hint: create a project API key in AgentCert Integrations, then set AGENTCERT_BASE_URL, AGENTCERT_PROJECT_ID, and AGENTCERT_API_KEY.";
+  }
+  if (message.includes("Authentication required") || message.includes("API key")) {
+    return "Hint: check AGENTCERT_API_KEY and confirm the key belongs to AGENTCERT_PROJECT_ID.";
   }
   return undefined;
 }

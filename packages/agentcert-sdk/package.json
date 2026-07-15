@@ -1,0 +1,33 @@
+{
+  "name": "@agentcert/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript client for the AgentCert hosted control plane.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kakarottoooo/agentcert.git",
+    "directory": "packages/agentcert-sdk"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md", "package.json"],
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "test": "vitest run tests",
+    "prepack": "npm run build"
+  },
+  "engines": { "node": ">=20" },
+  "publishConfig": { "access": "public" },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.13"
+  }
+}

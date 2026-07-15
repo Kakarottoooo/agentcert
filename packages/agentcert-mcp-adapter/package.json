@@ -1,0 +1,33 @@
+{
+  "name": "@agentcert/mcp-adapter",
+  "version": "0.1.0",
+  "description": "MCP tools for AgentCert run evidence and runtime action decisions.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kakarottoooo/agentcert.git",
+    "directory": "packages/agentcert-mcp-adapter"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": { "agentcert-mcp": "./dist/cli.js" },
+  "files": ["dist", "README.md", "package.json"],
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "test": "vitest run tests",
+    "prepack": "npm run build"
+  },
+  "engines": { "node": ">=20" },
+  "publishConfig": { "access": "public" },
+  "dependencies": {
+    "@agentcert/sdk": "^0.1.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.13"
+  }
+}
