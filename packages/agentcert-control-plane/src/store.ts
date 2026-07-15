@@ -7,6 +7,7 @@ import type {
   ApiKeyRecord,
   ApprovalRecord,
   EvidenceRecord,
+  FailureReviewRecord,
   IncidentRecord,
   Membership,
   Organization,
@@ -45,8 +46,12 @@ export interface ControlPlaneStore {
   findEvidenceByDigest(projectId: string, runId: string | undefined, actionId: string | undefined, kind: string, sha256: string): Promise<EvidenceRecord | undefined>;
   getEvidence(projectId: string, evidenceId: string): Promise<EvidenceRecord | undefined>;
   listEvidence(projectId: string, limit?: number): Promise<EvidenceRecord[]>;
+  listEvidenceForRun(projectId: string, runId: string): Promise<EvidenceRecord[]>;
   insertIncident(incident: IncidentRecord): Promise<IncidentRecord>;
   listIncidents(projectId: string, limit?: number): Promise<IncidentRecord[]>;
+  listIncidentsForRun(projectId: string, runId: string): Promise<IncidentRecord[]>;
+  upsertFailureReview(review: FailureReviewRecord): Promise<FailureReviewRecord>;
+  listFailureReviews(projectId: string, runId: string): Promise<FailureReviewRecord[]>;
   insertApiKey(apiKey: ApiKeyRecord): Promise<ApiKeyRecord>;
   findApiKeyByHash(secretHash: string): Promise<ApiKeyRecord | undefined>;
   touchApiKey(apiKeyId: string, usedAt: string): Promise<void>;
@@ -66,6 +71,7 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   private approvals = new Map<string, ApprovalRecord>();
   private evidence = new Map<string, EvidenceRecord>();
   private incidents = new Map<string, IncidentRecord>();
+  private failureReviews = new Map<string, FailureReviewRecord>();
   private apiKeys = new Map<string, ApiKeyRecord>();
 
   async migrate(): Promise<void> {}
@@ -220,6 +226,13 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
     return newest([...this.evidence.values()].filter((item) => item.projectId === projectId), "createdAt").slice(0, limit);
   }
 
+  async listEvidenceForRun(projectId: string, runId: string): Promise<EvidenceRecord[]> {
+    return newest(
+      [...this.evidence.values()].filter((item) => item.projectId === projectId && item.runId === runId),
+      "createdAt",
+    );
+  }
+
   async insertIncident(incident: IncidentRecord): Promise<IncidentRecord> {
     this.incidents.set(incident.id, incident);
     return incident;
@@ -227,6 +240,29 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
 
   async listIncidents(projectId: string, limit = 100): Promise<IncidentRecord[]> {
     return newest([...this.incidents.values()].filter((item) => item.projectId === projectId), "createdAt").slice(0, limit);
+  }
+
+  async listIncidentsForRun(projectId: string, runId: string): Promise<IncidentRecord[]> {
+    return newest(
+      [...this.incidents.values()].filter((item) => item.projectId === projectId && item.runId === runId),
+      "createdAt",
+    );
+  }
+
+  async upsertFailureReview(review: FailureReviewRecord): Promise<FailureReviewRecord> {
+    const existing = [...this.failureReviews.values()].find(
+      (item) => item.projectId === review.projectId && item.runId === review.runId && item.patternKey === review.patternKey,
+    );
+    const next = existing ? { ...review, id: existing.id, createdAt: existing.createdAt } : review;
+    this.failureReviews.set(next.id, next);
+    return next;
+  }
+
+  async listFailureReviews(projectId: string, runId: string): Promise<FailureReviewRecord[]> {
+    return newest(
+      [...this.failureReviews.values()].filter((item) => item.projectId === projectId && item.runId === runId),
+      "updatedAt",
+    );
   }
 
   async insertApiKey(apiKey: ApiKeyRecord): Promise<ApiKeyRecord> {
@@ -266,8 +302,10 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
   }
 
   async migrate(): Promise<void> {
-    const migration = await readFile(new URL("../migrations/001_initial.sql", import.meta.url), "utf8");
-    await this.pool.query(migration);
+    for (const name of ["001_initial.sql", "002_failure_reviews.sql"]) {
+      const migration = await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8");
+      await this.pool.query(migration);
+    }
   }
 
   async bootstrapUser(userId: string, email?: string): Promise<BootstrapResult> {
@@ -508,6 +546,13 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     return many(this.pool.query("SELECT * FROM agentcert_evidence WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2", [projectId, limit]), evidenceFromRow);
   }
 
+  async listEvidenceForRun(projectId: string, runId: string): Promise<EvidenceRecord[]> {
+    return many(
+      this.pool.query("SELECT * FROM agentcert_evidence WHERE project_id=$1 AND run_id=$2 ORDER BY created_at DESC", [projectId, runId]),
+      evidenceFromRow,
+    );
+  }
+
   async insertIncident(incident: IncidentRecord): Promise<IncidentRecord> {
     await this.pool.query(
       `INSERT INTO agentcert_incidents (id,project_id,agent_id,run_id,action_id,severity,type,status,summary,first_divergence,created_at,resolved_at)
@@ -520,6 +565,36 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
 
   async listIncidents(projectId: string, limit = 100): Promise<IncidentRecord[]> {
     return many(this.pool.query("SELECT * FROM agentcert_incidents WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2", [projectId, limit]), incidentFromRow);
+  }
+
+  async listIncidentsForRun(projectId: string, runId: string): Promise<IncidentRecord[]> {
+    return many(
+      this.pool.query("SELECT * FROM agentcert_incidents WHERE project_id=$1 AND run_id=$2 ORDER BY created_at DESC", [projectId, runId]),
+      incidentFromRow,
+    );
+  }
+
+  async upsertFailureReview(review: FailureReviewRecord): Promise<FailureReviewRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_failure_reviews
+       (id,project_id,run_id,pattern_key,suggested_type,type,status,reviewer_id,reviewer,note,confidence,evidence_context,taxonomy_rationale,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       ON CONFLICT (run_id,pattern_key) DO UPDATE SET suggested_type=excluded.suggested_type,type=excluded.type,
+       status=excluded.status,reviewer_id=excluded.reviewer_id,reviewer=excluded.reviewer,note=excluded.note,
+       confidence=excluded.confidence,evidence_context=excluded.evidence_context,taxonomy_rationale=excluded.taxonomy_rationale,
+       updated_at=excluded.updated_at RETURNING *`,
+      [review.id, review.projectId, review.runId, review.patternKey, review.suggestedType ?? null, review.type, review.status,
+       review.reviewerId, review.reviewer, review.note ?? null, review.confidence ?? null, JSON.stringify(review.evidenceContext),
+       JSON.stringify(review.taxonomyRationale), review.createdAt, review.updatedAt],
+    );
+    return failureReviewFromRow(result.rows[0]);
+  }
+
+  async listFailureReviews(projectId: string, runId: string): Promise<FailureReviewRecord[]> {
+    return many(
+      this.pool.query("SELECT * FROM agentcert_failure_reviews WHERE project_id=$1 AND run_id=$2 ORDER BY updated_at DESC", [projectId, runId]),
+      failureReviewFromRow,
+    );
   }
 
   async insertApiKey(apiKey: ApiKeyRecord): Promise<ApiKeyRecord> {
@@ -594,6 +669,29 @@ function incidentFromRow(row: Record<string, unknown>): IncidentRecord {
 function apiKeyFromRow(row: Record<string, unknown>): ApiKeyRecord {
   return { id: text(row.id), projectId: text(row.project_id), name: text(row.name), prefix: text(row.prefix), secretHash: text(row.secret_hash), createdBy: text(row.created_by),
     createdAt: iso(row.created_at), lastUsedAt: optionalIso(row.last_used_at), revokedAt: optionalIso(row.revoked_at) };
+}
+function failureReviewFromRow(row: Record<string, unknown>): FailureReviewRecord {
+  const context = object(row.evidence_context);
+  const rationale = object(row.taxonomy_rationale);
+  return {
+    id: text(row.id), projectId: text(row.project_id), runId: text(row.run_id), patternKey: text(row.pattern_key),
+    suggestedType: optionalText(row.suggested_type), type: text(row.type) as FailureReviewRecord["type"],
+    status: text(row.status) as FailureReviewRecord["status"], reviewerId: text(row.reviewer_id), reviewer: text(row.reviewer),
+    note: optionalText(row.note), confidence: optionalNumber(row.confidence),
+    evidenceContext: {
+      firstDivergenceSnippet: optionalText(context.firstDivergenceSnippet),
+      screenshotPointer: optionalText(context.screenshotPointer),
+      tracePointer: optionalText(context.tracePointer),
+      stepIndex: optionalNumber(context.stepIndex),
+    },
+    taxonomyRationale: {
+      primaryReason: text(rationale.primaryReason),
+      supportingSignals: stringArray(rationale.supportingSignals),
+      contradictingSignals: stringArray(rationale.contradictingSignals),
+      classifierLimitation: optionalText(rationale.classifierLimitation),
+    },
+    createdAt: iso(row.created_at), updatedAt: iso(row.updated_at),
+  };
 }
 function bootstrapFromRow(row: Record<string, unknown>): BootstrapResult {
   const organization: Organization = { id: text(row.id), name: text(row.name), slug: text(row.slug), createdAt: iso(row.created_at) };

@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  loadHostedRunAnalysis,
   readHostedAuthCallbackError,
   resendSignUpConfirmation,
+  reviewHostedFailure,
   type HostedConfig,
 } from "../src/hosted-api";
 
@@ -65,5 +67,43 @@ describe("hosted signup recovery", () => {
     });
 
     expect(readHostedAuthCallbackError()).toBeUndefined();
+  });
+});
+
+describe("hosted run analysis", () => {
+  it("loads the unified analysis endpoint with the human session", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      run: { id: "run-1" }, events: [], evidence: [], incidents: [], reviews: [],
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await loadHostedRunAnalysis({ accessToken: "user-token" }, "project-1", "run-1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/v1/projects/project-1/runs/run-1/analysis",
+      expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer user-token" }) }),
+    );
+  });
+
+  it("submits structured human taxonomy review fields", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "review-1" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const input = {
+      patternKey: "finding-1",
+      type: "ui_drift",
+      status: "confirmed",
+      confidence: 0.9,
+      taxonomyRationale: { primaryReason: "The DOM changed before the click." },
+    };
+
+    await reviewHostedFailure({ accessToken: "user-token" }, "project-1", "run-1", input);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/v1/projects/project-1/runs/run-1/failure-reviews",
+      expect.objectContaining({ method: "POST", body: JSON.stringify(input) }),
+    );
   });
 });

@@ -84,7 +84,10 @@ Default outputs:
 The optional hosted control plane turns the checked-in monitor into an
 authenticated operations console with open registration, project-scoped agent
 credentials, live run/event ingestion, runtime approval queues, observed-state
-verification, incident records, and private evidence storage.
+verification, incident records, private evidence storage, and a unified run
+evidence workspace. The hosted **Runs** view parses validated evidence bundles,
+shows behavior timelines and first divergence, previews uploaded screenshots,
+and persists human-confirmed or corrected failure taxonomy labels.
 
 Machine integrations use REST, TypeScript, Python, or MCP. Agents never need to
 scrape the human dashboard, and project API keys cannot approve their own

@@ -1,5 +1,11 @@
 # AgentCert Dashboard
 
+The same React build has two data adapters. In hosted control-plane mode, the
+authenticated **Runs** workspace is canonical: it combines run state, ordered
+events, evidence bundles, incidents, private artifacts, and persisted human
+failure reviews. The static corpus adapter remains for the deterministic public
+demo and does not own hosted review state.
+
 AgentCert Dashboard is the monitor UI for accumulated AgentCert corpus data.
 
 Data flow:

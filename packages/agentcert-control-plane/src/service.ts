@@ -11,6 +11,8 @@ import type {
   AuthContext,
   EventRecord,
   EvidenceRecord,
+  FailureReviewRecord,
+  FailureType,
   IncidentRecord,
   RunKind,
   RunRecord,
@@ -156,6 +158,60 @@ export class AgentCertControlPlane {
     const run = await this.store.getRun(projectId, runId);
     if (!run) throw new ControlPlaneError("Run was not found.", 404);
     return { run, events: await this.store.listEvents(projectId, runId) };
+  }
+
+  async runAnalysis(auth: AuthContext, projectId: string, runId: string) {
+    await this.authorizeProject(auth, projectId);
+    const run = await this.store.getRun(projectId, runId);
+    if (!run) throw new ControlPlaneError("Run was not found.", 404);
+    const [events, evidence, incidents, reviews] = await Promise.all([
+      this.store.listEvents(projectId, runId),
+      this.store.listEvidenceForRun(projectId, runId),
+      this.store.listIncidentsForRun(projectId, runId),
+      this.store.listFailureReviews(projectId, runId),
+    ]);
+    return { run, events, evidence, incidents, reviews };
+  }
+
+  async reviewFailure(auth: AuthContext, projectId: string, runId: string, input: unknown): Promise<FailureReviewRecord> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin", "reviewer"]);
+    requireUser(auth);
+    if (!(await this.store.getRun(projectId, runId))) throw new ControlPlaneError("Run was not found.", 404);
+    const body = record(input);
+    const evidenceContext = record(body.evidenceContext);
+    const taxonomyRationale = record(body.taxonomyRationale);
+    const confidence = optionalNumber(body, "confidence");
+    if (confidence !== undefined && (confidence < 0 || confidence > 1)) {
+      throw new ControlPlaneError("confidence must be between 0 and 1.");
+    }
+    const now = new Date().toISOString();
+    return this.store.upsertFailureReview({
+      id: randomUUID(),
+      projectId,
+      runId,
+      patternKey: requiredString(body, "patternKey"),
+      suggestedType: optionalString(body, "suggestedType"),
+      type: failureType(body.type),
+      status: failureReviewStatus(body.status),
+      reviewerId: auth.userId,
+      reviewer: auth.email ?? auth.userId,
+      note: optionalString(body, "note"),
+      confidence,
+      evidenceContext: {
+        firstDivergenceSnippet: optionalString(evidenceContext, "firstDivergenceSnippet"),
+        screenshotPointer: optionalString(evidenceContext, "screenshotPointer"),
+        tracePointer: optionalString(evidenceContext, "tracePointer"),
+        stepIndex: optionalNonNegativeInteger(evidenceContext.stepIndex),
+      },
+      taxonomyRationale: {
+        primaryReason: requiredString(taxonomyRationale, "primaryReason"),
+        supportingSignals: stringList(taxonomyRationale.supportingSignals),
+        contradictingSignals: stringList(taxonomyRationale.contradictingSignals),
+        classifierLimitation: optionalString(taxonomyRationale, "classifierLimitation"),
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
   }
 
   async proposeAction(auth: AuthContext, projectId: string, input: unknown): Promise<ActionRecord> {
@@ -369,6 +425,16 @@ function optionalString(value: Record<string, unknown>, key: string): string | u
 function optionalNumber(value: Record<string, unknown>, key: string): number | undefined { return typeof value[key] === "number" && Number.isFinite(value[key]) ? value[key] : undefined; }
 function stringList(value: unknown): string[] { return Array.isArray(value) ? [...new Set(value.filter((item): item is string => typeof item === "string" && item.length > 0))] : []; }
 function integer(value: unknown, fallback: number): number { return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : fallback; }
+function optionalNonNegativeInteger(value: unknown): number | undefined { return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined; }
 function runKind(value: unknown): RunKind { const allowed = new Set<RunKind>(["mcpbench", "tripwire", "release_gate", "runtime", "custom"]); if (typeof value === "string" && allowed.has(value as RunKind)) return value as RunKind; throw new ControlPlaneError("kind must be mcpbench, tripwire, release_gate, runtime, or custom."); }
 function runStatus(value: unknown): RunStatus { const allowed = new Set<RunStatus>(["passed", "failed", "needs_evidence", "manual_review"]); if (typeof value === "string" && allowed.has(value as RunStatus)) return value as RunStatus; throw new ControlPlaneError("status must be passed, failed, needs_evidence, or manual_review."); }
+function failureReviewStatus(value: unknown): FailureReviewRecord["status"] { if (value === "confirmed" || value === "corrected") return value; throw new ControlPlaneError("status must be confirmed or corrected."); }
+function failureType(value: unknown): FailureType {
+  const allowed = new Set<FailureType>([
+    "prompt_injection", "wrong_click", "timeout", "verification_gap", "silent_partial_success", "network_failure",
+    "ui_drift", "policy_or_approval", "agent_connection", "console_error", "assertion_failure", "unknown_failure",
+  ]);
+  if (typeof value === "string" && allowed.has(value as FailureType)) return value as FailureType;
+  throw new ControlPlaneError("type must be a supported AgentCert failure taxonomy label.");
+}
 function actionTypeValue(value: unknown): ActionRecord["actionType"] { if (value === "SUBMIT" || value === "PAY" || value === "SEND" || value === "UPDATE") return value; throw new ControlPlaneError("actionType must be SUBMIT, PAY, SEND, or UPDATE."); }

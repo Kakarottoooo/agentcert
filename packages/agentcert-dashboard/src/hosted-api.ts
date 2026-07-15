@@ -39,12 +39,27 @@ export interface HostedAgent {
 
 export interface HostedRun {
   id: string;
+  projectId: string;
+  agentId?: string;
   externalId: string;
   kind: string;
   status: string;
   score?: number;
+  schemaVersion: string;
   startedAt: string;
   completedAt?: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface HostedEvent {
+  id: string;
+  projectId: string;
+  runId: string;
+  sequence: number;
+  type: string;
+  actor: string;
+  occurredAt: string;
+  payload: Record<string, unknown>;
 }
 
 export interface HostedAction {
@@ -65,6 +80,8 @@ export interface HostedAction {
 
 export interface HostedIncident {
   id: string;
+  projectId: string;
+  runId?: string;
   severity: string;
   type: string;
   status: string;
@@ -75,13 +92,52 @@ export interface HostedIncident {
 
 export interface HostedEvidence {
   id: string;
+  projectId: string;
+  runId?: string;
+  actionId?: string;
   kind: string;
   schemaVersion: string;
   fileName: string;
   contentType: string;
   sha256: string;
   sizeBytes: number;
+  metadata: Record<string, unknown>;
   createdAt: string;
+}
+
+export interface HostedFailureReview {
+  id: string;
+  projectId: string;
+  runId: string;
+  patternKey: string;
+  suggestedType?: string;
+  type: string;
+  status: "confirmed" | "corrected";
+  reviewer: string;
+  note?: string;
+  confidence?: number;
+  evidenceContext: {
+    firstDivergenceSnippet?: string;
+    screenshotPointer?: string;
+    tracePointer?: string;
+    stepIndex?: number;
+  };
+  taxonomyRationale: {
+    primaryReason: string;
+    supportingSignals: string[];
+    contradictingSignals: string[];
+    classifierLimitation?: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HostedRunAnalysis {
+  run: HostedRun;
+  events: HostedEvent[];
+  evidence: HostedEvidence[];
+  incidents: HostedIncident[];
+  reviews: HostedFailureReview[];
 }
 
 export interface HostedApiKey {
@@ -230,6 +286,22 @@ export async function loadHostedRuns(session: HostedSession, projectId: string):
   return (await apiRequest<{ runs: HostedRun[] }>(session, path(projectId, "runs"))).runs;
 }
 
+export async function loadHostedRunAnalysis(session: HostedSession, projectId: string, runId: string): Promise<HostedRunAnalysis> {
+  return apiRequest(session, path(projectId, `runs/${encodeURIComponent(runId)}/analysis`));
+}
+
+export async function reviewHostedFailure(
+  session: HostedSession,
+  projectId: string,
+  runId: string,
+  input: Record<string, unknown>,
+): Promise<HostedFailureReview> {
+  return apiRequest(session, path(projectId, `runs/${encodeURIComponent(runId)}/failure-reviews`), {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function loadHostedActions(session: HostedSession, projectId: string): Promise<HostedAction[]> {
   return (await apiRequest<{ actions: HostedAction[] }>(session, path(projectId, "actions"))).actions;
 }
@@ -262,7 +334,28 @@ export function evidenceContentUrl(projectId: string, evidenceId: string): strin
   return path(projectId, `evidence/${encodeURIComponent(evidenceId)}/content`);
 }
 
+export async function loadHostedEvidenceDocument(session: HostedSession, projectId: string, evidenceId: string): Promise<unknown> {
+  return apiRequest(session, evidenceContentUrl(projectId, evidenceId));
+}
+
+export async function loadHostedEvidenceBlob(session: HostedSession, projectId: string, evidenceId: string): Promise<Blob> {
+  const response = await authenticatedFetch(session, evidenceContentUrl(projectId, evidenceId));
+  if (!response.ok) {
+    const value = await response.json().catch(() => ({})) as { error?: string };
+    throw new Error(value.error ?? `Evidence download failed (${response.status}).`);
+  }
+  return response.blob();
+}
+
 async function apiRequest<T>(session: HostedSession, url: string, init: RequestInit = {}): Promise<T> {
+  const response = await authenticatedFetch(session, url, init);
+  const value = await response.json().catch(() => ({}));
+  if (response.status === 401) saveHostedSession(undefined);
+  if (!response.ok) throw new Error(value.error ?? `AgentCert API request failed (${response.status}).`);
+  return value as T;
+}
+
+async function authenticatedFetch(session: HostedSession, url: string, init: RequestInit = {}): Promise<Response> {
   let currentSession = session;
   let response = await fetch(url, {
     ...init,
@@ -279,10 +372,7 @@ async function apiRequest<T>(session: HostedSession, url: string, init: RequestI
       });
     }
   }
-  const value = await response.json().catch(() => ({}));
-  if (response.status === 401) saveHostedSession(undefined);
-  if (!response.ok) throw new Error(value.error ?? `AgentCert API request failed (${response.status}).`);
-  return value as T;
+  return response;
 }
 
 async function refreshSession(config: HostedConfig, refreshToken: string): Promise<HostedSession> {

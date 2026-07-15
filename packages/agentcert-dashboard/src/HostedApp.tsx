@@ -30,6 +30,7 @@ import {
   type HostedRun,
   type HostedSession,
 } from "./hosted-api";
+import HostedRunsView from "./HostedRunsView";
 
 type HostedView = "overview" | "agents" | "runs" | "gates" | "actions" | "incidents" | "evidence" | "integrations";
 
@@ -43,6 +44,7 @@ interface ConsoleData {
 }
 
 export default function HostedApp({ config }: { config: HostedConfig }) {
+  useEffect(() => { document.title = "AgentCert Control Plane"; }, []);
   const [session, setSession] = useState(() => readHostedSession(config));
   if (!session) return <AuthScreen config={config} onAuthenticated={setSession} />;
   return <HostedConsole config={config} session={session} onSignOut={() => { void signOut(config, session).finally(() => setSession(undefined)); }} />;
@@ -172,7 +174,7 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
 function HostedViewContent({ view, data, project, session, refresh, onNavigate }: { view: HostedView; data: ConsoleData; project: HostedProject; session: HostedSession; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
   if (view === "overview") return <HostedOverviewView data={data} project={project} onNavigate={onNavigate} />;
   if (view === "agents") return <AgentsView agents={data.agents} project={project} session={session} refresh={refresh} />;
-  if (view === "runs") return <RunsTable runs={data.runs} />;
+  if (view === "runs") return <HostedRunsView runs={data.runs} project={project} session={session} />;
   if (view === "gates") return <RunsTable runs={data.runs.filter((run) => run.kind === "release_gate")} empty="No release-gate runs have been ingested." />;
   if (view === "actions") return <ActionsView actions={data.actions} project={project} session={session} refresh={refresh} />;
   if (view === "incidents") return <IncidentsView incidents={data.incidents} />;
