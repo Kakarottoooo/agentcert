@@ -24,6 +24,7 @@ import type {
   ApiKeyRecord,
   ApprovalRecord,
   AuthContext,
+  ApiKeyScope,
   EventRecord,
   EvidenceRecord,
   FailureReviewRecord,
@@ -34,7 +35,19 @@ import type {
   RunRecord,
   RunStatus,
   PublicApiKeyRecord,
+  PublicWebhookRecord,
+  FailureQualityMetrics,
+  WebhookRecord,
 } from "./types.js";
+import { EnvelopeValidationError, isSpanId, isTraceId, parseUniversalEnvelope, type UniversalEnvelope } from "./protocol.js";
+import { EvidenceSigner, type EvidenceAttestationPayload } from "./signing.js";
+import {
+  DEFAULT_API_KEY_SCOPES,
+  WebhookSecretVault,
+  deliverWebhook,
+  parseApiKeyScopes,
+  type WebhookEvent,
+} from "./security.js";
 
 const POLICY_VERSION = "agentcert.default.v1";
 
@@ -52,6 +65,9 @@ export class AgentCertControlPlane {
     readonly artifacts: ArtifactStore,
     readonly evidencePolicy: EvidenceGovernancePolicy = DEFAULT_EVIDENCE_GOVERNANCE_POLICY,
     platformAdminEmails: Iterable<string> = [],
+    readonly evidenceSigner?: EvidenceSigner,
+    readonly webhookVault?: WebhookSecretVault,
+    readonly webhookFetch: typeof fetch = fetch,
   ) {
     this.platformAdminEmails = new Set([...platformAdminEmails].map((email) => email.trim().toLowerCase()).filter(Boolean));
   }
@@ -66,10 +82,13 @@ export class AgentCertControlPlane {
     return this.store.listProjectsForUser(auth.userId);
   }
 
-  async authorizeProject(auth: AuthContext, projectId: string, roles?: string[]): Promise<void> {
+  async authorizeProject(auth: AuthContext, projectId: string, roles?: string[], scope?: ApiKeyScope): Promise<void> {
     if (auth.kind === "api_key") {
       if (auth.projectId !== projectId) throw new ControlPlaneError("API key is not scoped to this project.", 403);
       if (roles) throw new ControlPlaneError("This operation requires a human account.", 403);
+      if (scope && !(auth.scopes ?? DEFAULT_API_KEY_SCOPES).includes(scope)) {
+        throw new ControlPlaneError(`API key requires the ${scope} scope.`, 403);
+      }
       return;
     }
     requireUser(auth);
@@ -96,18 +115,21 @@ export class AgentCertControlPlane {
   }
 
   async listAgents(auth: AuthContext, projectId: string): Promise<AgentRecord[]> {
-    await this.authorizeProject(auth, projectId);
+    await this.authorizeProject(auth, projectId, undefined, "agents:read");
     return this.store.listAgents(projectId);
   }
 
   async startRun(auth: AuthContext, projectId: string, input: unknown): Promise<RunRecord> {
-    await this.authorizeProject(auth, projectId);
+    await this.authorizeProject(auth, projectId, undefined, "runs:write");
     const body = record(input);
     const externalId = requiredString(body, "externalId");
     const existing = await this.store.getRunByExternalId(projectId, externalId);
     if (existing) return existing;
     const agentId = optionalString(body, "agentId");
     if (agentId && !(await this.store.getAgent(projectId, agentId))) throw new ControlPlaneError("Agent was not found.", 404);
+    const traceId = optionalString(body, "traceId")?.toLowerCase();
+    const rootSpanId = optionalString(body, "rootSpanId")?.toLowerCase();
+    validateTraceIds(traceId, rootSpanId);
     const run: RunRecord = {
       id: randomUUID(),
       projectId,
@@ -118,18 +140,24 @@ export class AgentCertControlPlane {
       schemaVersion: optionalString(body, "schemaVersion") ?? "agentcert.run.v1",
       startedAt: optionalString(body, "startedAt") ?? new Date().toISOString(),
       metadata: record(body.metadata),
+      traceId,
+      rootSpanId,
     };
     return this.store.upsertRun(run);
   }
 
   async appendEvents(auth: AuthContext, projectId: string, runId: string, input: unknown): Promise<EventRecord[]> {
-    await this.authorizeProject(auth, projectId);
+    await this.authorizeProject(auth, projectId, undefined, "events:write");
     if (!(await this.store.getRun(projectId, runId))) throw new ControlPlaneError("Run was not found.", 404);
     const body = record(input);
     const rawEvents = Array.isArray(body.events) ? body.events : [];
     if (rawEvents.length === 0 || rawEvents.length > 500) throw new ControlPlaneError("events must contain 1 to 500 records.");
     const events = rawEvents.map((value, index): EventRecord => {
       const event = record(value);
+      const traceId = optionalString(event, "traceId")?.toLowerCase();
+      const spanId = optionalString(event, "spanId")?.toLowerCase();
+      const parentSpanId = optionalString(event, "parentSpanId")?.toLowerCase();
+      validateTraceIds(traceId, spanId, parentSpanId);
       return {
         id: randomUUID(),
         projectId,
@@ -139,13 +167,71 @@ export class AgentCertControlPlane {
         actor: optionalString(event, "actor") ?? "agent",
         occurredAt: optionalString(event, "occurredAt") ?? new Date().toISOString(),
         payload: record(event.payload),
+        traceId,
+        spanId,
+        parentSpanId,
       };
     });
     return this.store.appendEvents(events);
   }
 
+  capabilities(auth: AuthContext) {
+    requireUser(auth);
+    return {
+      platformAdmin: Boolean(auth.email && this.platformAdminEmails.has(auth.email.toLowerCase())),
+      evidenceSigning: Boolean(this.evidenceSigner),
+      signedWebhooks: Boolean(this.webhookVault),
+    };
+  }
+
+  async ingestEnvelope(auth: AuthContext, projectId: string, input: unknown): Promise<{ envelope: UniversalEnvelope; run: RunRecord; event?: EventRecord; action?: ActionRecord }> {
+    let envelope: UniversalEnvelope;
+    try {
+      envelope = parseUniversalEnvelope(input);
+    } catch (error) {
+      if (error instanceof EnvelopeValidationError) throw new ControlPlaneError(error.message, 422);
+      throw error;
+    }
+    const run = await this.startRun(auth, projectId, {
+      externalId: envelope.run.externalId,
+      kind: envelope.run.kind ?? (envelope.kind === "action" ? "runtime" : "custom"),
+      schemaVersion: envelope.schemaVersion,
+      startedAt: envelope.occurredAt,
+      traceId: envelope.trace.traceId,
+      rootSpanId: envelope.trace.parentSpanId ?? envelope.trace.spanId,
+      metadata: {
+        sourceAgentId: envelope.source.agentId,
+        sourceAgentVersion: envelope.source.agentVersion,
+        framework: envelope.source.framework,
+        adapter: envelope.source.adapter,
+      },
+    });
+    if (envelope.kind === "event" && envelope.event) {
+      const [event] = await this.appendEvents(auth, projectId, run.id, { events: [{
+        sequence: envelope.event.sequence,
+        type: envelope.event.type,
+        actor: envelope.event.actor ?? "agent",
+        occurredAt: envelope.occurredAt,
+        payload: { ...envelope.event.attributes, envelopeId: envelope.envelopeId, envelopeSchemaVersion: envelope.schemaVersion },
+        traceId: envelope.trace.traceId,
+        spanId: envelope.trace.spanId,
+        parentSpanId: envelope.trace.parentSpanId,
+      }] });
+      return { envelope, run, event };
+    }
+    const action = await this.proposeAction(auth, projectId, {
+      ...envelope.action,
+      traceId: envelope.trace.traceId,
+      spanId: envelope.trace.spanId,
+      parentSpanId: envelope.trace.parentSpanId,
+      envelopeId: envelope.envelopeId,
+      runExternalId: envelope.run.externalId,
+    });
+    return { envelope, run, action };
+  }
+
   async completeRun(auth: AuthContext, projectId: string, runId: string, input: unknown): Promise<RunRecord> {
-    await this.authorizeProject(auth, projectId);
+    await this.authorizeProject(auth, projectId, undefined, "runs:write");
     const current = await this.store.getRun(projectId, runId);
     if (!current) throw new ControlPlaneError("Run was not found.", 404);
     const body = record(input);
@@ -167,23 +253,24 @@ export class AgentCertControlPlane {
         summary: optionalString(body, "summary") ?? `${current.kind} run failed.`, firstDivergence: optionalString(body, "firstDivergence"), createdAt: new Date().toISOString(),
       });
     }
+    await this.emitWebhook(projectId, "run.completed", next.id, next);
     return next;
   }
 
   async listRuns(auth: AuthContext, projectId: string): Promise<RunRecord[]> {
-    await this.authorizeProject(auth, projectId);
+    await this.authorizeProject(auth, projectId, undefined, "runs:read");
     return this.store.listRuns(projectId);
   }
 
   async runDetail(auth: AuthContext, projectId: string, runId: string) {
-    await this.authorizeProject(auth, projectId);
+    await this.authorizeProject(auth, projectId, undefined, "runs:read");
     const run = await this.store.getRun(projectId, runId);
     if (!run) throw new ControlPlaneError("Run was not found.", 404);
     return { run, events: await this.store.listEvents(projectId, runId) };
   }
 
   async runAnalysis(auth: AuthContext, projectId: string, runId: string) {
-    await this.authorizeProject(auth, projectId);
+    await this.authorizeProject(auth, projectId, undefined, "runs:read");
     const run = await this.store.getRun(projectId, runId);
     if (!run) throw new ControlPlaneError("Run was not found.", 404);
     const [events, evidence, incidents, reviews, legalHold] = await Promise.all([
@@ -245,7 +332,7 @@ export class AgentCertControlPlane {
   }
 
   async proposeAction(auth: AuthContext, projectId: string, input: unknown): Promise<ActionRecord> {
-    await this.authorizeProject(auth, projectId);
+    await this.authorizeProject(auth, projectId, undefined, "actions:write");
     const body = record(input);
     const agentId = optionalString(body, "agentId");
     const agent = agentId ? await this.store.getAgent(projectId, agentId) : undefined;
@@ -254,6 +341,10 @@ export class AgentCertControlPlane {
     const requestedPermissions = stringList(body.requestedPermissions);
     const amount = optionalNumber(body, "amount");
     const assessment = assessAction(actionType, amount, body, requestedPermissions, agent?.allowedPermissions ?? []);
+    const traceId = optionalString(body, "traceId")?.toLowerCase();
+    const spanId = optionalString(body, "spanId")?.toLowerCase();
+    const parentSpanId = optionalString(body, "parentSpanId")?.toLowerCase();
+    validateTraceIds(traceId, spanId, parentSpanId);
     const now = new Date().toISOString();
     return this.store.insertAction({
       id: randomUUID(), projectId, agentId, externalId: requiredString(body, "externalId"), principal: record(body.principal), actionType,
@@ -261,6 +352,7 @@ export class AgentCertControlPlane {
       riskLevel: assessment.riskLevel, riskScore: assessment.riskScore, decision: assessment.decision,
       status: assessment.decision === "ALLOW" ? "ALLOWED" : assessment.decision === "DENY" ? "DENIED" : "PENDING_APPROVAL",
       policyVersion: POLICY_VERSION, reasons: assessment.reasons, expectedState: optionalRecord(body.expectedState), createdAt: now, updatedAt: now,
+      traceId, spanId, parentSpanId,
     });
   }
 
@@ -276,11 +368,13 @@ export class AgentCertControlPlane {
       id: randomUUID(), projectId, actionId, reviewerId: auth.userId, decision, comment: optionalString(body, "comment"), createdAt: new Date().toISOString(),
     };
     await this.store.insertApproval(approval);
-    return this.store.updateAction({ ...action, decision: approved ? "ALLOW" : "DENY", status: decision, reasons: [...action.reasons, `Human reviewer ${decision.toLowerCase()} the action.`], updatedAt: approval.createdAt });
+    const next = await this.store.updateAction({ ...action, decision: approved ? "ALLOW" : "DENY", status: decision, reasons: [...action.reasons, `Human reviewer ${decision.toLowerCase()} the action.`], updatedAt: approval.createdAt });
+    await this.emitWebhook(projectId, approved ? "action.approved" : "action.rejected", next.id, next);
+    return next;
   }
 
   async verifyAction(auth: AuthContext, projectId: string, actionId: string, input: unknown): Promise<ActionRecord> {
-    await this.authorizeProject(auth, projectId);
+    await this.authorizeProject(auth, projectId, undefined, "actions:write");
     const action = await this.store.getAction(projectId, actionId);
     if (!action) throw new ControlPlaneError("Action was not found.", 404);
     if (!new Set(["ALLOWED", "APPROVED"]).has(action.status)) throw new ControlPlaneError(`Action cannot be verified from status ${action.status}.`, 409);
@@ -297,23 +391,24 @@ export class AgentCertControlPlane {
         summary: "Runtime action outcome did not match the expected state.", firstDivergence: firstMismatch(action.expectedState ?? {}, observedState), createdAt: next.updatedAt,
       });
     }
+    await this.emitWebhook(projectId, "action.verified", next.id, next);
     return next;
   }
 
   async listActions(auth: AuthContext, projectId: string): Promise<ActionRecord[]> {
-    await this.authorizeProject(auth, projectId);
+    await this.authorizeProject(auth, projectId, undefined, "actions:read");
     return this.store.listActions(projectId);
   }
 
   async getAction(auth: AuthContext, projectId: string, actionId: string): Promise<ActionRecord> {
-    await this.authorizeProject(auth, projectId);
+    await this.authorizeProject(auth, projectId, undefined, "actions:read");
     const action = await this.store.getAction(projectId, actionId);
     if (!action) throw new ControlPlaneError("Action was not found.", 404);
     return action;
   }
 
   async listIncidents(auth: AuthContext, projectId: string): Promise<IncidentRecord[]> {
-    await this.authorizeProject(auth, projectId);
+    await this.authorizeProject(auth, projectId, undefined, "runs:read");
     return this.store.listIncidents(projectId);
   }
 
@@ -331,7 +426,7 @@ export class AgentCertControlPlane {
       sourcePath?: string;
     },
   ): Promise<EvidenceRecord> {
-    await this.authorizeProject(auth, projectId);
+    await this.authorizeProject(auth, projectId, undefined, "evidence:write");
     let sourcePath = input.sourcePath?.trim();
     if (sourcePath && sourcePath.length > 1024) throw new ControlPlaneError("sourcePath must be at most 1024 characters.");
     const run = input.runId ? await this.store.getRun(projectId, input.runId) : undefined;
@@ -381,6 +476,10 @@ export class AgentCertControlPlane {
     const scope = input.runId ? `runs/${input.runId}` : input.actionId ? `actions/${input.actionId}` : `uploads/${id}`;
     const objectKey = `${projectId}/evidence/${scope}/${sha256}/${id}-${safeName}`;
     const createdAt = new Date().toISOString();
+    const attestationPayload: EvidenceAttestationPayload = {
+      evidenceId: id, projectId, runId: input.runId, actionId: input.actionId, kind: input.kind,
+      schemaVersion: input.schemaVersion, sha256, sizeBytes: bytes.length, createdAt,
+    };
     const evidence: EvidenceRecord = {
       id, projectId, runId: input.runId, actionId: input.actionId, kind: input.kind, schemaVersion: input.schemaVersion,
       objectKey, fileName: safeName, contentType: validated.contentType, sha256,
@@ -391,6 +490,11 @@ export class AgentCertControlPlane {
         retentionExpiresAt: new Date(Date.parse(createdAt) + this.evidencePolicy.retentionDays * 86_400_000).toISOString(),
         ...(validated.artifactReferenceCount === undefined ? {} : { artifactReferenceCount: validated.artifactReferenceCount }),
         ...(validated.artifactManifest === undefined ? {} : { artifactManifest: validated.artifactManifest }),
+        failurePatternCount: inferFailurePatternCount(bytes, validated.contentType),
+        ...(this.evidenceSigner ? {
+          serverAttestation: this.evidenceSigner.attest(attestationPayload),
+          attestationPayload,
+        } : {}),
       },
       createdAt,
     };
@@ -402,6 +506,7 @@ export class AgentCertControlPlane {
         this.evidencePolicy.runLimitBytes,
       );
       if (run) await this.markRunEvidenceUpload(run, "accepted");
+      await this.emitWebhook(projectId, "evidence.accepted", stored.id, stored);
       return stored;
     } catch (error) {
       await this.artifacts.delete(objectKey).catch(() => undefined);
@@ -415,12 +520,12 @@ export class AgentCertControlPlane {
   }
 
   async listEvidence(auth: AuthContext, projectId: string): Promise<EvidenceRecord[]> {
-    await this.authorizeProject(auth, projectId);
+    await this.authorizeProject(auth, projectId, undefined, "evidence:read");
     return this.store.listEvidence(projectId);
   }
 
   async readEvidence(auth: AuthContext, projectId: string, evidenceId: string) {
-    await this.authorizeProject(auth, projectId);
+    await this.authorizeProject(auth, projectId, undefined, "evidence:read");
     const evidence = await this.store.getEvidence(projectId, evidenceId);
     if (!evidence) throw new ControlPlaneError("Evidence was not found.", 404);
     const artifact = await this.artifacts.get(evidence.objectKey);
@@ -435,6 +540,7 @@ export class AgentCertControlPlane {
     let deleted = 0;
     let bytesDeleted = 0;
     for (const evidence of expired) {
+      const occurredAt = new Date().toISOString();
       try {
         const result = await this.store.deleteEvidenceUnlessHeld(
           evidence.projectId,
@@ -445,8 +551,19 @@ export class AgentCertControlPlane {
           deleted += 1;
           bytesDeleted += evidence.sizeBytes;
         }
+        await this.store.insertEvidenceDeletion({
+          id: randomUUID(), projectId: evidence.projectId, evidenceId: evidence.id, runId: evidence.runId, actionId: evidence.actionId,
+          objectKey: evidence.objectKey, fileName: evidence.fileName, kind: evidence.kind, sha256: evidence.sha256,
+          sizeBytes: evidence.sizeBytes, outcome: result, reason: `Expired after ${this.evidencePolicy.retentionDays}-day retention window.`, occurredAt,
+        });
       } catch (error) {
-        failures.push({ evidenceId: evidence.id, message: error instanceof Error ? error.message : String(error) });
+        const message = error instanceof Error ? error.message : String(error);
+        failures.push({ evidenceId: evidence.id, message });
+        await this.store.insertEvidenceDeletion({
+          id: randomUUID(), projectId: evidence.projectId, evidenceId: evidence.id, runId: evidence.runId, actionId: evidence.actionId,
+          objectKey: evidence.objectKey, fileName: evidence.fileName, kind: evidence.kind, sha256: evidence.sha256,
+          sizeBytes: evidence.sizeBytes, outcome: "failed", reason: `Expired after ${this.evidencePolicy.retentionDays}-day retention window.`, error: message, occurredAt,
+        }).catch(() => undefined);
       }
     }
     return { cutoff, scanned: expired.length, deleted, bytesDeleted, failed: failures.length, failures: failures.slice(0, 20) };
@@ -483,6 +600,42 @@ export class AgentCertControlPlane {
   async listPendingLegalHoldRequests(auth: AuthContext): Promise<LegalHoldRequestRecord[]> {
     this.requirePlatformAdmin(auth);
     return this.store.listPendingLegalHoldRequests();
+  }
+
+  async listAdminLegalHoldRequests(auth: AuthContext, status?: LegalHoldRequestRecord["status"]): Promise<LegalHoldRequestRecord[]> {
+    this.requirePlatformAdmin(auth);
+    return this.store.listLegalHoldRequestsForAdmin(status);
+  }
+
+  async legalHoldReport(auth: AuthContext, projectId: string) {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    return this.buildRetentionReport(projectId);
+  }
+
+  async adminLegalHoldReport(auth: AuthContext, requestId: string) {
+    this.requirePlatformAdmin(auth);
+    const request = await this.store.getLegalHoldRequest(requestId);
+    if (!request) throw new ControlPlaneError("Legal hold request was not found.", 404);
+    return this.buildRetentionReport(request.projectId);
+  }
+
+  private async buildRetentionReport(projectId: string) {
+    const [requests, deletions, usage, evidence] = await Promise.all([
+      this.store.listLegalHoldRequests(projectId, 200),
+      this.store.listEvidenceDeletions(projectId, 1_000),
+      this.store.evidenceUsage(projectId),
+      this.store.listEvidence(projectId, 1_000),
+    ]);
+    return {
+      schemaVersion: "agentcert.retention_report.v0.1",
+      projectId,
+      generatedAt: new Date().toISOString(),
+      policy: { retentionDays: this.evidencePolicy.retentionDays, projectLimitBytes: this.evidencePolicy.projectLimitBytes },
+      usage,
+      activeEvidence: evidence.map((item) => ({ id: item.id, kind: item.kind, sha256: item.sha256, sizeBytes: item.sizeBytes, createdAt: item.createdAt })),
+      legalHolds: requests,
+      deletionJournal: deletions,
+    };
   }
 
   async reviewLegalHold(
@@ -534,9 +687,12 @@ export class AgentCertControlPlane {
     requireUser(auth);
     const body = record(input);
     const secret = `ac_live_${randomBytes(24).toString("base64url")}`;
+    let scopes: ApiKeyScope[];
+    try { scopes = parseApiKeyScopes(body.scopes); }
+    catch (error) { throw new ControlPlaneError(error instanceof Error ? error.message : String(error)); }
     const apiKey: ApiKeyRecord = {
       id: randomUUID(), projectId, name: optionalString(body, "name") ?? "Agent integration", prefix: secret.slice(0, 16),
-      secretHash: hashSecret(secret), createdBy: auth.userId, createdAt: new Date().toISOString(),
+      secretHash: hashSecret(secret), createdBy: auth.userId, createdAt: new Date().toISOString(), scopes,
     };
     await this.store.insertApiKey(apiKey);
     return { apiKey: publicApiKey(apiKey), secret };
@@ -555,12 +711,17 @@ export class AgentCertControlPlane {
   }
 
   async overview(auth: AuthContext, projectId: string) {
-    await this.authorizeProject(auth, projectId);
-    const [agents, runs, actions, incidents, evidence, storageUsage, legalHolds] = await Promise.all([
+    await this.authorizeProject(auth, projectId, undefined, "runs:read");
+    const [agents, runs, actions, incidents, evidence, storageUsage, legalHolds, reviews, deletions, qualityRuns, qualityEvidence] = await Promise.all([
       this.store.listAgents(projectId), this.store.listRuns(projectId, 20), this.store.listActions(projectId, 20),
       this.store.listIncidents(projectId, 20), this.store.listEvidence(projectId, 20), this.store.evidenceUsage(projectId),
       this.store.listLegalHoldRequests(projectId, 1),
+      this.store.listFailureReviewsForProject(projectId),
+      this.store.listEvidenceDeletions(projectId, 100),
+      this.store.listRuns(projectId, 10_000),
+      this.store.listEvidence(projectId, 10_000),
     ]);
+    const quality = failureQualityMetrics(qualityRuns, reviews, qualityEvidence);
     return {
       projectId,
       storage: {
@@ -570,6 +731,7 @@ export class AgentCertControlPlane {
         retentionDays: this.evidencePolicy.retentionDays,
         acceptedFormats: [...ACCEPTED_EVIDENCE_FORMATS],
         legalHold: legalHolds[0] ?? null,
+        deletionCount: deletions.length,
       },
       summary: {
         agents: agents.length,
@@ -578,11 +740,58 @@ export class AgentCertControlPlane {
         pendingApprovals: actions.filter((item) => item.status === "PENDING_APPROVAL").length,
         openIncidents: incidents.filter((item) => item.status === "open").length,
         evidence: evidence.length,
+        taxonomyQuality: quality,
       },
       recentRuns: runs.slice(0, 8),
       recentActions: actions.slice(0, 8),
       openIncidents: incidents.filter((item) => item.status === "open").slice(0, 8),
     };
+  }
+
+  signingKey() {
+    if (!this.evidenceSigner) throw new ControlPlaneError("Server evidence signing is not configured.", 503);
+    return { schemaVersion: "agentcert.signing_key.v0.1", keyId: this.evidenceSigner.keyId, algorithm: "Ed25519", publicKeyPem: this.evidenceSigner.publicKeyPem };
+  }
+
+  async createWebhook(auth: AuthContext, projectId: string, input: unknown): Promise<{ webhook: PublicWebhookRecord; secret: string }> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    requireUser(auth);
+    if (!this.webhookVault) throw new ControlPlaneError("Webhook signing is not configured.", 503);
+    const body = record(input);
+    const url = webhookUrl(requiredString(body, "url"));
+    const eventTypes = stringList(body.eventTypes);
+    if (eventTypes.length === 0 || eventTypes.length > 20) throw new ControlPlaneError("eventTypes must contain 1 to 20 event names.");
+    const secret = `whsec_${randomBytes(24).toString("base64url")}`;
+    const webhook: WebhookRecord = {
+      id: randomUUID(), projectId, url: url.toString(), eventTypes, secretCiphertext: this.webhookVault.encrypt(secret),
+      createdBy: auth.userId, createdAt: new Date().toISOString(),
+    };
+    await this.store.insertWebhook(webhook);
+    return { webhook: publicWebhook(webhook), secret };
+  }
+
+  async listWebhooks(auth: AuthContext, projectId: string) {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    const [webhooks, deliveries] = await Promise.all([this.store.listWebhooks(projectId), this.store.listWebhookDeliveries(projectId)]);
+    return { webhooks: webhooks.map(publicWebhook), deliveries };
+  }
+
+  async revokeWebhook(auth: AuthContext, projectId: string, webhookId: string): Promise<PublicWebhookRecord> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    const webhook = await this.store.revokeWebhook(projectId, webhookId, new Date().toISOString());
+    if (!webhook) throw new ControlPlaneError("Webhook was not found.", 404);
+    return publicWebhook(webhook);
+  }
+
+  private async emitWebhook(projectId: string, type: string, id: string, data: unknown): Promise<void> {
+    if (!this.webhookVault) return;
+    const webhooks = (await this.store.listWebhooks(projectId)).filter((item) => !item.revokedAt && (item.eventTypes.includes(type) || item.eventTypes.includes("*")));
+    if (webhooks.length === 0) return;
+    const event: WebhookEvent = { id, type, projectId, occurredAt: new Date().toISOString(), data };
+    await Promise.all(webhooks.map(async (webhook) => {
+      const delivery = await deliverWebhook(webhook, event, this.webhookVault!, this.webhookFetch);
+      await this.store.insertWebhookDelivery(delivery);
+    }));
   }
 
   private async markRunEvidenceUpload(run: RunRecord, result: "accepted" | "rejected", reason?: string): Promise<void> {
@@ -633,6 +842,75 @@ function assessAction(
 function publicApiKey(apiKey: ApiKeyRecord): PublicApiKeyRecord {
   const { secretHash: _secretHash, ...publicRecord } = apiKey;
   return publicRecord;
+}
+
+function publicWebhook(webhook: WebhookRecord): PublicWebhookRecord {
+  const { secretCiphertext: _secretCiphertext, ...publicRecord } = webhook;
+  return publicRecord;
+}
+
+function failureQualityMetrics(runs: RunRecord[], reviews: FailureReviewRecord[], evidence: EvidenceRecord[]): FailureQualityMetrics {
+  const failedRuns = runs.filter((run) => run.status === "failed").length;
+  const declaredFailures = evidence.reduce((total, item) => total + (typeof item.metadata.failurePatternCount === "number" ? item.metadata.failurePatternCount : 0), 0);
+  const reviewedFailures = reviews.length;
+  const confirmedFailures = reviews.filter((review) => review.status === "confirmed").length;
+  const correctedFailures = reviews.filter((review) => review.status === "corrected").length;
+  const ratio = (numerator: number, denominator: number) => denominator === 0 ? 0 : numerator / denominator;
+  return {
+    schemaVersion: "agentcert.failure_quality_metrics.v0.1",
+    totalFailures: Math.max(declaredFailures, failedRuns, reviewedFailures),
+    reviewedFailures,
+    confirmedFailures,
+    correctedFailures,
+    reviewCoverage: ratio(reviewedFailures, Math.max(declaredFailures, failedRuns, reviewedFailures)),
+    autoLabelPrecision: ratio(confirmedFailures, reviewedFailures),
+    correctionRate: ratio(correctedFailures, reviewedFailures),
+    calculatedAt: new Date().toISOString(),
+  };
+}
+
+function inferFailurePatternCount(bytes: Buffer, contentType: string): number {
+  if (contentType !== "application/json") return 0;
+  try {
+    const value = JSON.parse(bytes.toString("utf8")) as Record<string, unknown>;
+    const results = Array.isArray(value.results) ? value.results : [];
+    const findings = Array.isArray(value.findings) ? value.findings : [];
+    return results.filter((item) => {
+      if (!item || typeof item !== "object") return false;
+      const record = item as Record<string, unknown>;
+      return record.status === "failed" || record.passed === false || record.success === false;
+    }).length + findings.length;
+  } catch {
+    return 0;
+  }
+}
+
+function validateTraceIds(traceId?: string, spanId?: string, parentSpanId?: string): void {
+  if (traceId && !isTraceId(traceId)) throw new ControlPlaneError("traceId must be 32 lowercase hex characters and cannot be all zeroes.");
+  if (spanId && !isSpanId(spanId)) throw new ControlPlaneError("spanId must be 16 lowercase hex characters and cannot be all zeroes.");
+  if (parentSpanId && !isSpanId(parentSpanId)) throw new ControlPlaneError("parentSpanId must be 16 lowercase hex characters and cannot be all zeroes.");
+}
+
+function webhookUrl(value: string): URL {
+  let url: URL;
+  try { url = new URL(value); }
+  catch { throw new ControlPlaneError("Webhook URL must be a valid absolute URL."); }
+  if (url.protocol !== "https:") throw new ControlPlaneError("Webhook URL must use HTTPS.");
+  if (url.username || url.password) throw new ControlPlaneError("Webhook URL cannot contain credentials.");
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".localhost") || isPrivateAddress(host)) {
+    throw new ControlPlaneError("Webhook URL cannot target loopback, link-local, or private networks.");
+  }
+  return url;
+}
+
+function isPrivateAddress(host: string): boolean {
+  if (host === "::1" || host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:")) return true;
+  const octets = host.split(".").map(Number);
+  if (octets.length !== 4 || octets.some((value) => !Number.isInteger(value) || value < 0 || value > 255)) return false;
+  return octets[0] === 0 || octets[0] === 10 || octets[0] === 127 ||
+    (octets[0] === 169 && octets[1] === 254) || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+    (octets[0] === 192 && octets[1] === 168);
 }
 
 function matchesExpected(expected: Record<string, unknown>, observed: Record<string, unknown>): boolean {

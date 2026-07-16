@@ -7,6 +7,16 @@ export type IncidentSeverity = "low" | "medium" | "high" | "critical";
 export type FailureReviewStatus = "confirmed" | "corrected";
 export type EvidenceCompletenessStatus = "complete" | "partial" | "rejected";
 export type LegalHoldStatus = "requested" | "approved" | "rejected" | "released";
+export type ApiKeyScope =
+  | "agents:read"
+  | "runs:read"
+  | "runs:write"
+  | "events:write"
+  | "actions:read"
+  | "actions:write"
+  | "evidence:read"
+  | "evidence:write";
+export type DeletionOutcome = "deleted" | "held" | "missing" | "failed";
 export type FailureType =
   | "prompt_injection"
   | "wrong_click"
@@ -67,6 +77,8 @@ export interface RunRecord {
   startedAt: string;
   completedAt?: string;
   metadata: Record<string, unknown>;
+  traceId?: string;
+  rootSpanId?: string;
 }
 
 export interface EventRecord {
@@ -78,6 +90,9 @@ export interface EventRecord {
   actor: string;
   occurredAt: string;
   payload: Record<string, unknown>;
+  traceId?: string;
+  spanId?: string;
+  parentSpanId?: string;
 }
 
 export interface ActionRecord {
@@ -102,6 +117,9 @@ export interface ActionRecord {
   verificationSuccess?: boolean;
   createdAt: string;
   updatedAt: string;
+  traceId?: string;
+  spanId?: string;
+  parentSpanId?: string;
 }
 
 export interface ApprovalRecord {
@@ -239,6 +257,7 @@ export interface ApiKeyRecord {
   secretHash: string;
   createdBy: string;
   createdAt: string;
+  scopes: ApiKeyScope[];
   lastUsedAt?: string;
   revokedAt?: string;
 }
@@ -251,6 +270,72 @@ export interface AuthContext {
   email?: string;
   projectId?: string;
   apiKeyId?: string;
+  scopes?: ApiKeyScope[];
+}
+
+export interface EvidenceDeletionRecord {
+  id: string;
+  projectId: string;
+  evidenceId: string;
+  runId?: string;
+  actionId?: string;
+  objectKey: string;
+  fileName: string;
+  kind: string;
+  sha256: string;
+  sizeBytes: number;
+  outcome: DeletionOutcome;
+  reason: string;
+  error?: string;
+  occurredAt: string;
+}
+
+export interface IdempotencyRecord {
+  projectId: string;
+  key: string;
+  operation: string;
+  requestHash: string;
+  responseStatus: number;
+  responseBody: unknown;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface WebhookRecord {
+  id: string;
+  projectId: string;
+  url: string;
+  eventTypes: string[];
+  secretCiphertext: string;
+  createdBy: string;
+  createdAt: string;
+  revokedAt?: string;
+}
+
+export interface PublicWebhookRecord extends Omit<WebhookRecord, "secretCiphertext"> {}
+
+export interface WebhookDeliveryRecord {
+  id: string;
+  projectId: string;
+  webhookId: string;
+  eventId: string;
+  eventType: string;
+  status: "delivered" | "failed";
+  responseStatus?: number;
+  error?: string;
+  attemptedAt: string;
+}
+
+export interface FailureQualityMetrics {
+  schemaVersion: "agentcert.failure_quality_metrics.v0.1";
+  totalFailures: number;
+  reviewedFailures: number;
+  confirmedFailures: number;
+  correctedFailures: number;
+  reviewCoverage: number;
+  autoLabelPrecision: number;
+  correctionRate: number;
+  calculatedAt: string;
 }
 
 export interface PublicConfig {

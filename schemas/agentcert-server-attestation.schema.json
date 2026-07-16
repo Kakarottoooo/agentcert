@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.dev/schemas/agentcert-server-attestation.schema.json",
+  "title": "AgentCert Server Evidence Attestation v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "algorithm", "keyId", "signedAt", "payloadSha256", "signature"],
+  "properties": {
+    "schemaVersion": { "const": "agentcert.server_attestation.v0.1" },
+    "algorithm": { "const": "Ed25519" },
+    "keyId": { "type": "string", "minLength": 1 },
+    "signedAt": { "type": "string", "format": "date-time" },
+    "payloadSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "signature": { "type": "string", "minLength": 1 }
+  }
+}

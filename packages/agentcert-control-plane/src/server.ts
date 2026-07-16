@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { Authenticator } from "./auth.js";
 import { AgentCertControlPlane, ControlPlaneError } from "./service.js";
 import type { PublicConfig } from "./types.js";
+import { FixedWindowRateLimiter, rateLimitIdentity, requestHash, setRateLimitHeaders } from "./security.js";
 
 export interface ControlPlaneServerOptions {
   service: AgentCertControlPlane;
@@ -14,6 +15,7 @@ export interface ControlPlaneServerOptions {
   port: number;
   dashboardDir: string;
   maxArtifactBytes: number;
+  rateLimiter?: FixedWindowRateLimiter;
 }
 
 export async function startControlPlaneServer(options: ControlPlaneServerOptions): Promise<void> {
@@ -71,6 +73,10 @@ async function handleRequest(
     sendJson(response, 200, options.publicConfig);
     return;
   }
+  if (request.method === "GET" && url.pathname === "/v1/signing-keys/current") {
+    sendJson(response, 200, options.service.signingKey());
+    return;
+  }
   if (!url.pathname.startsWith("/v1/")) {
     await serveStatic(response, staticRoot, url.pathname);
     return;
@@ -78,6 +84,11 @@ async function handleRequest(
 
   const auth = await options.authenticator.authenticate(request.headers.authorization);
   if (!auth) throw new ControlPlaneError("Authentication required.", 401);
+  if (options.rateLimiter) {
+    const limit = options.rateLimiter.consume(rateLimitIdentity(request, auth.apiKeyId ?? auth.userId));
+    setRateLimitHeaders(response, limit);
+    if (!limit.allowed) throw new ControlPlaneError("Rate limit exceeded. Retry after the interval in the Retry-After header.", 429);
+  }
   const segments = url.pathname.split("/").filter(Boolean);
 
   if (request.method === "POST" && url.pathname === "/v1/onboarding/bootstrap") {
@@ -88,12 +99,20 @@ async function handleRequest(
     sendJson(response, 200, { projects: await options.service.projects(auth) });
     return;
   }
+  if (request.method === "GET" && url.pathname === "/v1/me/capabilities") {
+    sendJson(response, 200, options.service.capabilities(auth));
+    return;
+  }
 
   if (segments[1] === "admin" && segments[2] === "legal-hold-requests") {
     const requestId = segments[3];
     const decision = segments[4];
-    if (request.method === "GET" && !requestId) {
-      sendJson(response, 200, { requests: await options.service.listPendingLegalHoldRequests(auth) });
+    if (request.method === "GET" && requestId && decision === "report") {
+      sendJson(response, 200, await options.service.adminLegalHoldReport(auth, requestId));
+    } else if (request.method === "GET" && !requestId) {
+      const status = url.searchParams.get("status") ?? undefined;
+      if (status && !new Set(["requested", "approved", "rejected", "released"]).has(status)) throw new ControlPlaneError("Invalid legal hold status.");
+      sendJson(response, 200, { requests: await options.service.listAdminLegalHoldRequests(auth, status as "requested" | "approved" | "rejected" | "released" | undefined) });
     } else if (request.method === "POST" && requestId && (decision === "approve" || decision === "reject" || decision === "release")) {
       sendJson(response, 200, await options.service.reviewLegalHold(auth, requestId, decision, await readJson(request)));
     } else {
@@ -108,6 +127,11 @@ async function handleRequest(
   const entityId = segments[4];
   const child = segments[5];
 
+  if (collection === "envelopes" && request.method === "POST" && !entityId) {
+    await sendIdempotentJson(request, response, options.service, projectId, "envelopes.create", 202,
+      (body) => options.service.ingestEnvelope(auth, projectId, body));
+    return;
+  }
   if (collection === "overview" && request.method === "GET") {
     sendJson(response, 200, await options.service.overview(auth, projectId));
     return;
@@ -120,22 +144,27 @@ async function handleRequest(
   }
   if (collection === "runs") {
     if (request.method === "GET" && !entityId) sendJson(response, 200, { runs: await options.service.listRuns(auth, projectId) });
-    else if (request.method === "POST" && !entityId) sendJson(response, 201, await options.service.startRun(auth, projectId, await readJson(request)));
+    else if (request.method === "POST" && !entityId) await sendIdempotentJson(request, response, options.service, projectId, "runs.create", 201,
+      (body) => options.service.startRun(auth, projectId, body));
     else if (request.method === "GET" && entityId && !child) sendJson(response, 200, await options.service.runDetail(auth, projectId, entityId));
     else if (request.method === "GET" && entityId && child === "analysis") sendJson(response, 200, await options.service.runAnalysis(auth, projectId, entityId));
     else if (request.method === "POST" && entityId && child === "failure-reviews") sendJson(response, 200, await options.service.reviewFailure(auth, projectId, entityId, await readJson(request)));
-    else if (request.method === "POST" && entityId && child === "events") sendJson(response, 202, { events: await options.service.appendEvents(auth, projectId, entityId, await readJson(request)) });
-    else if (request.method === "POST" && entityId && child === "complete") sendJson(response, 200, await options.service.completeRun(auth, projectId, entityId, await readJson(request)));
+    else if (request.method === "POST" && entityId && child === "events") await sendIdempotentJson(request, response, options.service, projectId, `runs.${entityId}.events`, 202,
+      async (body) => ({ events: await options.service.appendEvents(auth, projectId, entityId, body) }));
+    else if (request.method === "POST" && entityId && child === "complete") await sendIdempotentJson(request, response, options.service, projectId, `runs.${entityId}.complete`, 200,
+      (body) => options.service.completeRun(auth, projectId, entityId, body));
     else throw new ControlPlaneError("Run route was not found.", 404);
     return;
   }
   if (collection === "actions") {
     if (request.method === "GET" && !entityId) sendJson(response, 200, { actions: await options.service.listActions(auth, projectId) });
     else if (request.method === "GET" && entityId && !child) sendJson(response, 200, await options.service.getAction(auth, projectId, entityId));
-    else if (request.method === "POST" && !entityId) sendJson(response, 201, await options.service.proposeAction(auth, projectId, await readJson(request)));
+    else if (request.method === "POST" && !entityId) await sendIdempotentJson(request, response, options.service, projectId, "actions.create", 201,
+      (body) => options.service.proposeAction(auth, projectId, body));
     else if (request.method === "POST" && entityId && child === "approve") sendJson(response, 200, await options.service.reviewAction(auth, projectId, entityId, true, await readJson(request)));
     else if (request.method === "POST" && entityId && child === "reject") sendJson(response, 200, await options.service.reviewAction(auth, projectId, entityId, false, await readJson(request)));
-    else if (request.method === "POST" && entityId && child === "verify") sendJson(response, 200, await options.service.verifyAction(auth, projectId, entityId, await readJson(request)));
+    else if (request.method === "POST" && entityId && child === "verify") await sendIdempotentJson(request, response, options.service, projectId, `actions.${entityId}.verify`, 200,
+      (body) => options.service.verifyAction(auth, projectId, entityId, body));
     else throw new ControlPlaneError("Action route was not found.", 404);
     return;
   }
@@ -185,6 +214,10 @@ async function handleRequest(
     }
     return;
   }
+  if (collection === "retention-report" && request.method === "GET") {
+    sendJson(response, 200, await options.service.legalHoldReport(auth, projectId));
+    return;
+  }
   if (collection === "api-keys") {
     if (request.method === "GET" && !entityId) sendJson(response, 200, { apiKeys: await options.service.listApiKeys(auth, projectId) });
     else if (request.method === "POST" && !entityId) sendJson(response, 201, await options.service.createApiKey(auth, projectId, await readJson(request)));
@@ -192,7 +225,48 @@ async function handleRequest(
     else throw new ControlPlaneError("API key route was not found.", 404);
     return;
   }
+  if (collection === "webhooks") {
+    if (request.method === "GET" && !entityId) sendJson(response, 200, await options.service.listWebhooks(auth, projectId));
+    else if (request.method === "POST" && !entityId) sendJson(response, 201, await options.service.createWebhook(auth, projectId, await readJson(request)));
+    else if (request.method === "DELETE" && entityId) sendJson(response, 200, await options.service.revokeWebhook(auth, projectId, entityId));
+    else throw new ControlPlaneError("Webhook route was not found.", 404);
+    return;
+  }
   throw new ControlPlaneError("Control plane route was not found.", 404);
+}
+
+async function sendIdempotentJson(
+  request: IncomingMessage,
+  response: ServerResponse,
+  service: AgentCertControlPlane,
+  projectId: string,
+  operation: string,
+  status: number,
+  execute: (body: unknown) => Promise<unknown>,
+): Promise<void> {
+  const body = await readJson(request);
+  const key = request.headers["idempotency-key"]?.toString().trim();
+  if (!key) {
+    sendJson(response, status, await execute(body));
+    return;
+  }
+  if (key.length > 200 || !/^[A-Za-z0-9._:-]+$/.test(key)) throw new ControlPlaneError("Idempotency-Key must be 1 to 200 URL-safe characters.");
+  const hash = requestHash(operation, body);
+  const existing = await service.store.getIdempotency(projectId, key, operation);
+  if (existing) {
+    if (existing.requestHash !== hash) throw new ControlPlaneError("Idempotency-Key was already used with a different request body.", 409);
+    response.setHeader("idempotency-replayed", "true");
+    sendJson(response, existing.responseStatus, existing.responseBody);
+    return;
+  }
+  const result = await execute(body);
+  const now = new Date();
+  const stored = await service.store.saveIdempotency({
+    projectId, key, operation, requestHash: hash, responseStatus: status, responseBody: result,
+    createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+  });
+  if (stored.requestHash !== hash) throw new ControlPlaneError("Idempotency-Key was already used with a different request body.", 409);
+  sendJson(response, stored.responseStatus, stored.responseBody);
 }
 
 async function readJson(request: IncomingMessage): Promise<unknown> {

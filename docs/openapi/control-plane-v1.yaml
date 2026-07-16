@@ -20,6 +20,17 @@ paths:
       summary: Read public authentication configuration
       responses:
         "200": { description: Public control-plane configuration }
+  /v1/signing-keys/current:
+    get:
+      security: []
+      summary: Read the current Ed25519 evidence verification key
+      responses:
+        "200": {description: Current public signing key and key ID}
+        "503": {description: Server evidence signing is not configured}
+  /v1/me/capabilities:
+    get:
+      summary: Read signed-in operator capabilities
+      responses: {"200": {description: Platform admin and cryptographic feature flags}}
   /v1/onboarding/bootstrap:
     post:
       summary: Create the signed-in user's first organization and project
@@ -36,6 +47,21 @@ paths:
       parameters: [{$ref: "#/components/parameters/ProjectId"}]
       responses:
         "200": { description: Project overview }
+  /v1/projects/{projectId}/envelopes:
+    post:
+      summary: Ingest a framework-neutral event or action envelope
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {$ref: "#/components/parameters/IdempotencyKey"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "../../schemas/agentcert-universal-envelope.schema.json"}
+      responses:
+        "202": {description: Envelope mapped into a run event or policy-evaluated action}
+        "409": {description: Idempotency key reused with a different body}
+        "422": {description: Envelope validation failed}
   /v1/projects/{projectId}/agents:
     get:
       summary: List registered agents
@@ -228,6 +254,37 @@ paths:
         - {$ref: "#/components/parameters/ProjectId"}
         - {$ref: "#/components/parameters/ApiKeyId"}
       responses: {"200": {description: Revoked API key metadata}}
+  /v1/projects/{projectId}/webhooks:
+    get:
+      summary: List webhook registrations and recent delivery outcomes
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses: {"200": {description: Webhooks and deliveries}}
+    post:
+      summary: Register an HTTPS HMAC-signed webhook
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, eventTypes]
+              properties:
+                url: {type: string, format: uri}
+                eventTypes: {type: array, minItems: 1, maxItems: 20, items: {type: string}}
+      responses: {"201": {description: Webhook metadata and one-time signing secret}}
+  /v1/projects/{projectId}/webhooks/{webhookId}:
+    delete:
+      summary: Revoke a webhook
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: path, name: webhookId, required: true, schema: {type: string, format: uuid}}
+      responses: {"200": {description: Revoked webhook}}
+  /v1/projects/{projectId}/retention-report:
+    get:
+      summary: Export evidence retention, legal hold, and deletion-journal state
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses: {"200": {description: Retention report v0.1}}
   /v1/projects/{projectId}/legal-holds:
     get:
       summary: List legal hold applications and decisions for a project
@@ -269,6 +326,12 @@ paths:
         "200": {description: Updated legal hold decision}
         "403": {description: Platform administrator access required}
         "409": {description: Invalid state transition or requester attempted self-approval}
+  /v1/admin/legal-hold-requests/{requestId}/report:
+    get:
+      summary: Export the subject project's retention report (platform administrators only)
+      parameters:
+        - {in: path, name: requestId, required: true, schema: {type: string, format: uuid}}
+      responses: {"200": {description: Retention report v0.1}, "403": {description: Platform administrator access required}}
 components:
   securitySchemes:
     bearerAuth:
@@ -281,6 +344,7 @@ components:
     ActionId: {in: path, name: actionId, required: true, schema: {type: string, format: uuid}}
     EvidenceId: {in: path, name: evidenceId, required: true, schema: {type: string, format: uuid}}
     ApiKeyId: {in: path, name: apiKeyId, required: true, schema: {type: string, format: uuid}}
+    IdempotencyKey: {in: header, name: Idempotency-Key, required: false, schema: {type: string, minLength: 1, maxLength: 200}}
   schemas:
     AgentInput:
       type: object
@@ -299,6 +363,8 @@ components:
         agentId: {type: string, format: uuid}
         kind: {enum: [mcpbench, tripwire, release_gate, runtime, custom]}
         schemaVersion: {type: string}
+        traceId: {type: string, pattern: "^(?!0{32}$)[0-9a-f]{32}$"}
+        rootSpanId: {type: string, pattern: "^(?!0{16}$)[0-9a-f]{16}$"}
         metadata: {type: object, additionalProperties: true}
     EventBatch:
       type: object
@@ -317,6 +383,9 @@ components:
               actor: {type: string}
               occurredAt: {type: string, format: date-time}
               payload: {type: object, additionalProperties: true}
+              traceId: {type: string, pattern: "^(?!0{32}$)[0-9a-f]{32}$"}
+              spanId: {type: string, pattern: "^(?!0{16}$)[0-9a-f]{16}$"}
+              parentSpanId: {type: string, pattern: "^(?!0{16}$)[0-9a-f]{16}$"}
     RunCompletion:
       type: object
       required: [status]
@@ -365,6 +434,11 @@ components:
       type: object
       properties:
         name: {type: string}
+        scopes:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: {enum: [agents:read, runs:read, runs:write, events:write, actions:read, actions:write, evidence:read, evidence:write]}
     ActionInput:
       type: object
       required: [externalId, principal, actionType, targetSystem, requestedPermissions]

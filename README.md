@@ -100,6 +100,14 @@ Machine integrations use REST, TypeScript, Python, or MCP. Agents never need to
 scrape the human dashboard, and project API keys cannot approve their own
 high-risk actions.
 
+The framework-neutral `agentcert.envelope.v0.1` contract now accepts observed
+events and proposed actions with W3C/OpenTelemetry-compatible trace IDs.
+Reference adapters cover LangGraph event streams, OpenAI Agents SDK tracing,
+and browser-use step hooks. Hosted ingestion adds scoped API keys, rate limits,
+24-hour idempotency records, signed webhooks, server-signed Ed25519 evidence,
+legal-hold review/export, an immutable deletion journal, and continuous failure
+taxonomy coverage/precision/correction metrics.
+
 ```text
 packages/agentcert-control-plane  # Node API + Postgres + private artifacts
 packages/agentcert-sdk            # TypeScript client
@@ -109,6 +117,8 @@ packages/agentcert-mcp-adapter    # MCP stdio tools
 
 Production deployment: [docs/hosted-control-plane.md](docs/hosted-control-plane.md).
 API contract: [docs/openapi/control-plane-v1.yaml](docs/openapi/control-plane-v1.yaml).
+Envelope contract and adapters: [docs/universal-envelope.md](docs/universal-envelope.md).
+Evidence verification chain: [docs/evidence-trust-chain.md](docs/evidence-trust-chain.md).
 Public control plane: [agentcert-control-plane.onrender.com](https://agentcert-control-plane.onrender.com/).
 
 Once a project API key is created in **Integrations**, connect the CLI once and

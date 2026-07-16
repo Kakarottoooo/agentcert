@@ -29,3 +29,8 @@ The SDK submits intent and evidence. It never executes payments, sends email,
 mutates external systems, approves actions, or changes agent permissions.
 Owners and admins register agent identities and grant permissions in the human
 console before giving a project API key to an agent or CI job.
+
+The SDK also exports `createEventEnvelope()` and `sendEnvelope()` for
+framework-neutral event ingestion. `verifyServerAttestation()` verifies the
+canonical Ed25519 metadata chain returned on hosted evidence records against
+the public key from `GET /v1/signing-keys/current`.

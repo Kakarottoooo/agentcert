@@ -7,17 +7,29 @@ import type {
   ApiKeyRecord,
   ApprovalRecord,
   EvidenceRecord,
+  EvidenceDeletionRecord,
   EvidenceStorageUsage,
   FailureReviewRecord,
   IncidentRecord,
   LegalHoldRequestRecord,
+  IdempotencyRecord,
   Membership,
   Organization,
   Project,
   RunRecord,
   EventRecord,
   MemberRole,
+  WebhookDeliveryRecord,
+  WebhookRecord,
 } from "./types.js";
+
+export const CONTROL_PLANE_MIGRATIONS = [
+  "001_initial.sql",
+  "002_failure_reviews.sql",
+  "003_evidence_retention.sql",
+  "004_legal_holds.sql",
+  "005_universal_assurance.sql",
+] as const;
 
 export interface BootstrapResult {
   organization: Organization;
@@ -70,12 +82,23 @@ export interface ControlPlaneStore {
   getLegalHoldRequest(requestId: string): Promise<LegalHoldRequestRecord | undefined>;
   listLegalHoldRequests(projectId: string, limit?: number): Promise<LegalHoldRequestRecord[]>;
   listPendingLegalHoldRequests(limit?: number): Promise<LegalHoldRequestRecord[]>;
+  listLegalHoldRequestsForAdmin(status?: LegalHoldRequestRecord["status"], limit?: number): Promise<LegalHoldRequestRecord[]>;
   getApprovedLegalHold(projectId: string): Promise<LegalHoldRequestRecord | undefined>;
   insertIncident(incident: IncidentRecord): Promise<IncidentRecord>;
   listIncidents(projectId: string, limit?: number): Promise<IncidentRecord[]>;
   listIncidentsForRun(projectId: string, runId: string): Promise<IncidentRecord[]>;
   upsertFailureReview(review: FailureReviewRecord): Promise<FailureReviewRecord>;
   listFailureReviews(projectId: string, runId: string): Promise<FailureReviewRecord[]>;
+  listFailureReviewsForProject(projectId: string, limit?: number): Promise<FailureReviewRecord[]>;
+  insertEvidenceDeletion(record: EvidenceDeletionRecord): Promise<EvidenceDeletionRecord>;
+  listEvidenceDeletions(projectId: string, limit?: number): Promise<EvidenceDeletionRecord[]>;
+  getIdempotency(projectId: string, key: string, operation: string): Promise<IdempotencyRecord | undefined>;
+  saveIdempotency(record: IdempotencyRecord): Promise<IdempotencyRecord>;
+  insertWebhook(webhook: WebhookRecord): Promise<WebhookRecord>;
+  listWebhooks(projectId: string): Promise<WebhookRecord[]>;
+  revokeWebhook(projectId: string, webhookId: string, revokedAt: string): Promise<WebhookRecord | undefined>;
+  insertWebhookDelivery(delivery: WebhookDeliveryRecord): Promise<WebhookDeliveryRecord>;
+  listWebhookDeliveries(projectId: string, limit?: number): Promise<WebhookDeliveryRecord[]>;
   insertApiKey(apiKey: ApiKeyRecord): Promise<ApiKeyRecord>;
   findApiKeyByHash(secretHash: string): Promise<ApiKeyRecord | undefined>;
   touchApiKey(apiKeyId: string, usedAt: string): Promise<void>;
@@ -98,6 +121,10 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   private failureReviews = new Map<string, FailureReviewRecord>();
   private apiKeys = new Map<string, ApiKeyRecord>();
   private legalHoldRequests = new Map<string, LegalHoldRequestRecord>();
+  private evidenceDeletions = new Map<string, EvidenceDeletionRecord>();
+  private idempotency = new Map<string, IdempotencyRecord>();
+  private webhooks = new Map<string, WebhookRecord>();
+  private webhookDeliveries = new Map<string, WebhookDeliveryRecord>();
   private retentionLocks = new Map<string, Promise<void>>();
 
   async migrate(): Promise<void> {}
@@ -394,6 +421,55 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
     );
   }
 
+  async listLegalHoldRequestsForAdmin(status?: LegalHoldRequestRecord["status"], limit = 200): Promise<LegalHoldRequestRecord[]> {
+    return newest([...this.legalHoldRequests.values()].filter((item) => !status || item.status === status), "requestedAt").slice(0, limit);
+  }
+
+  async listFailureReviewsForProject(projectId: string, limit = 10_000): Promise<FailureReviewRecord[]> {
+    return newest([...this.failureReviews.values()].filter((item) => item.projectId === projectId), "updatedAt").slice(0, limit);
+  }
+
+  async insertEvidenceDeletion(record: EvidenceDeletionRecord): Promise<EvidenceDeletionRecord> {
+    this.evidenceDeletions.set(record.id, record);
+    return record;
+  }
+
+  async listEvidenceDeletions(projectId: string, limit = 500): Promise<EvidenceDeletionRecord[]> {
+    return newest([...this.evidenceDeletions.values()].filter((item) => item.projectId === projectId), "occurredAt").slice(0, limit);
+  }
+
+  async getIdempotency(projectId: string, key: string, operation: string): Promise<IdempotencyRecord | undefined> {
+    const record = this.idempotency.get(`${projectId}:${operation}:${key}`);
+    if (record && Date.parse(record.expiresAt) > Date.now()) return record;
+    return undefined;
+  }
+
+  async saveIdempotency(record: IdempotencyRecord): Promise<IdempotencyRecord> {
+    const mapKey = `${record.projectId}:${record.operation}:${record.key}`;
+    const existing = this.idempotency.get(mapKey);
+    if (existing) return existing;
+    this.idempotency.set(mapKey, record);
+    return record;
+  }
+
+  async insertWebhook(webhook: WebhookRecord): Promise<WebhookRecord> { this.webhooks.set(webhook.id, webhook); return webhook; }
+  async listWebhooks(projectId: string): Promise<WebhookRecord[]> {
+    return newest([...this.webhooks.values()].filter((item) => item.projectId === projectId), "createdAt");
+  }
+  async revokeWebhook(projectId: string, webhookId: string, revokedAt: string): Promise<WebhookRecord | undefined> {
+    const webhook = this.webhooks.get(webhookId);
+    if (!webhook || webhook.projectId !== projectId) return undefined;
+    const next = { ...webhook, revokedAt: webhook.revokedAt ?? revokedAt };
+    this.webhooks.set(webhookId, next);
+    return next;
+  }
+  async insertWebhookDelivery(delivery: WebhookDeliveryRecord): Promise<WebhookDeliveryRecord> {
+    this.webhookDeliveries.set(delivery.id, delivery); return delivery;
+  }
+  async listWebhookDeliveries(projectId: string, limit = 100): Promise<WebhookDeliveryRecord[]> {
+    return newest([...this.webhookDeliveries.values()].filter((item) => item.projectId === projectId), "attemptedAt").slice(0, limit);
+  }
+
   async insertApiKey(apiKey: ApiKeyRecord): Promise<ApiKeyRecord> {
     this.apiKeys.set(apiKey.id, apiKey);
     return apiKey;
@@ -431,7 +507,7 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
   }
 
   async migrate(): Promise<void> {
-    for (const name of ["001_initial.sql", "002_failure_reviews.sql", "003_evidence_retention.sql", "004_legal_holds.sql"]) {
+    for (const name of CONTROL_PLANE_MIGRATIONS) {
       const migration = await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8");
       await this.pool.query(migration);
     }
@@ -545,11 +621,12 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
 
   async upsertRun(run: RunRecord): Promise<RunRecord> {
     const result = await this.pool.query(
-      `INSERT INTO agentcert_runs (id,project_id,agent_id,external_id,kind,status,score,schema_version,started_at,completed_at,metadata)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      `INSERT INTO agentcert_runs (id,project_id,agent_id,external_id,kind,status,score,schema_version,started_at,completed_at,metadata,trace_id,root_span_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        ON CONFLICT (project_id,external_id) DO UPDATE SET status=excluded.status,score=excluded.score,
-       completed_at=excluded.completed_at,metadata=excluded.metadata RETURNING *`,
-      [run.id, run.projectId, run.agentId ?? null, run.externalId, run.kind, run.status, run.score ?? null, run.schemaVersion, run.startedAt, run.completedAt ?? null, JSON.stringify(run.metadata)],
+       completed_at=excluded.completed_at,metadata=excluded.metadata,trace_id=COALESCE(agentcert_runs.trace_id,excluded.trace_id),
+       root_span_id=COALESCE(agentcert_runs.root_span_id,excluded.root_span_id) RETURNING *`,
+      [run.id, run.projectId, run.agentId ?? null, run.externalId, run.kind, run.status, run.score ?? null, run.schemaVersion, run.startedAt, run.completedAt ?? null, JSON.stringify(run.metadata), run.traceId ?? null, run.rootSpanId ?? null],
     );
     return runFromRow(result.rows[0]);
   }
@@ -569,10 +646,11 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
       await client.query("BEGIN");
       for (const event of events) {
         await client.query(
-          `INSERT INTO agentcert_events (id,project_id,run_id,sequence,type,actor,occurred_at,payload)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (run_id,sequence) DO UPDATE SET
-           type=excluded.type,actor=excluded.actor,occurred_at=excluded.occurred_at,payload=excluded.payload`,
-          [event.id, event.projectId, event.runId, event.sequence, event.type, event.actor, event.occurredAt, JSON.stringify(event.payload)],
+          `INSERT INTO agentcert_events (id,project_id,run_id,sequence,type,actor,occurred_at,payload,trace_id,span_id,parent_span_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (run_id,sequence) DO UPDATE SET
+           type=excluded.type,actor=excluded.actor,occurred_at=excluded.occurred_at,payload=excluded.payload,
+           trace_id=excluded.trace_id,span_id=excluded.span_id,parent_span_id=excluded.parent_span_id`,
+          [event.id, event.projectId, event.runId, event.sequence, event.type, event.actor, event.occurredAt, JSON.stringify(event.payload), event.traceId ?? null, event.spanId ?? null, event.parentSpanId ?? null],
         );
       }
       await client.query("COMMIT");
@@ -612,12 +690,12 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     }
     await this.pool.query(
       `INSERT INTO agentcert_actions (id,project_id,agent_id,external_id,principal,action_type,target_system,requested_permissions,
-       amount,currency,risk_level,risk_score,decision,status,policy_version,reasons,expected_state,observed_state,verification_success,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
+       amount,currency,risk_level,risk_score,decision,status,policy_version,reasons,expected_state,observed_state,verification_success,created_at,updated_at,trace_id,span_id,parent_span_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
       [action.id, action.projectId, action.agentId ?? null, action.externalId, JSON.stringify(action.principal), action.actionType, action.targetSystem,
        JSON.stringify(action.requestedPermissions), action.amount ?? null, action.currency ?? null, action.riskLevel, action.riskScore, action.decision,
        action.status, action.policyVersion, JSON.stringify(action.reasons), jsonOrNull(action.expectedState), jsonOrNull(action.observedState),
-       action.verificationSuccess ?? null, action.createdAt, action.updatedAt],
+       action.verificationSuccess ?? null, action.createdAt, action.updatedAt, action.traceId ?? null, action.spanId ?? null, action.parentSpanId ?? null],
     );
   }
 
@@ -893,11 +971,96 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     );
   }
 
+  async listLegalHoldRequestsForAdmin(status?: LegalHoldRequestRecord["status"], limit = 200): Promise<LegalHoldRequestRecord[]> {
+    return status
+      ? many(this.pool.query("SELECT * FROM agentcert_legal_hold_requests WHERE status=$1 ORDER BY requested_at DESC LIMIT $2", [status, limit]), legalHoldFromRow)
+      : many(this.pool.query("SELECT * FROM agentcert_legal_hold_requests ORDER BY requested_at DESC LIMIT $1", [limit]), legalHoldFromRow);
+  }
+
+  async listFailureReviewsForProject(projectId: string, limit = 10_000): Promise<FailureReviewRecord[]> {
+    return many(
+      this.pool.query("SELECT * FROM agentcert_failure_reviews WHERE project_id=$1 ORDER BY updated_at DESC LIMIT $2", [projectId, limit]),
+      failureReviewFromRow,
+    );
+  }
+
+  async insertEvidenceDeletion(record: EvidenceDeletionRecord): Promise<EvidenceDeletionRecord> {
+    await this.pool.query(
+      `INSERT INTO agentcert_evidence_deletions
+       (id,project_id,evidence_id,run_id,action_id,object_key,file_name,kind,sha256,size_bytes,outcome,reason,error,occurred_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+      [record.id, record.projectId, record.evidenceId, record.runId ?? null, record.actionId ?? null, record.objectKey,
+       record.fileName, record.kind, record.sha256, record.sizeBytes, record.outcome, record.reason, record.error ?? null, record.occurredAt],
+    );
+    return record;
+  }
+
+  async listEvidenceDeletions(projectId: string, limit = 500): Promise<EvidenceDeletionRecord[]> {
+    return many(
+      this.pool.query("SELECT * FROM agentcert_evidence_deletions WHERE project_id=$1 ORDER BY occurred_at DESC LIMIT $2", [projectId, limit]),
+      evidenceDeletionFromRow,
+    );
+  }
+
+  async getIdempotency(projectId: string, key: string, operation: string): Promise<IdempotencyRecord | undefined> {
+    return one(
+      this.pool.query("SELECT * FROM agentcert_idempotency WHERE project_id=$1 AND key=$2 AND operation=$3 AND expires_at>now()", [projectId, key, operation]),
+      idempotencyFromRow,
+    );
+  }
+
+  async saveIdempotency(record: IdempotencyRecord): Promise<IdempotencyRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_idempotency (project_id,key,operation,request_hash,response_status,response_body,created_at,expires_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (project_id,key,operation) DO UPDATE SET key=excluded.key RETURNING *`,
+      [record.projectId, record.key, record.operation, record.requestHash, record.responseStatus, JSON.stringify(record.responseBody), record.createdAt, record.expiresAt],
+    );
+    return idempotencyFromRow(result.rows[0]);
+  }
+
+  async insertWebhook(webhook: WebhookRecord): Promise<WebhookRecord> {
+    await this.pool.query(
+      `INSERT INTO agentcert_webhooks (id,project_id,url,event_types,secret_ciphertext,created_by,created_at,revoked_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [webhook.id, webhook.projectId, webhook.url, JSON.stringify(webhook.eventTypes), webhook.secretCiphertext, webhook.createdBy, webhook.createdAt, null],
+    );
+    return webhook;
+  }
+
+  async listWebhooks(projectId: string): Promise<WebhookRecord[]> {
+    return many(this.pool.query("SELECT * FROM agentcert_webhooks WHERE project_id=$1 ORDER BY created_at DESC", [projectId]), webhookFromRow);
+  }
+
+  async revokeWebhook(projectId: string, webhookId: string, revokedAt: string): Promise<WebhookRecord | undefined> {
+    return one(this.pool.query(
+      "UPDATE agentcert_webhooks SET revoked_at=COALESCE(revoked_at,$3) WHERE project_id=$1 AND id=$2 RETURNING *",
+      [projectId, webhookId, revokedAt],
+    ), webhookFromRow);
+  }
+
+  async insertWebhookDelivery(delivery: WebhookDeliveryRecord): Promise<WebhookDeliveryRecord> {
+    await this.pool.query(
+      `INSERT INTO agentcert_webhook_deliveries
+       (id,project_id,webhook_id,event_id,event_type,status,response_status,error,attempted_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [delivery.id, delivery.projectId, delivery.webhookId, delivery.eventId, delivery.eventType, delivery.status,
+       delivery.responseStatus ?? null, delivery.error ?? null, delivery.attemptedAt],
+    );
+    return delivery;
+  }
+
+  async listWebhookDeliveries(projectId: string, limit = 100): Promise<WebhookDeliveryRecord[]> {
+    return many(this.pool.query(
+      "SELECT * FROM agentcert_webhook_deliveries WHERE project_id=$1 ORDER BY attempted_at DESC LIMIT $2",
+      [projectId, limit],
+    ), webhookDeliveryFromRow);
+  }
+
   async insertApiKey(apiKey: ApiKeyRecord): Promise<ApiKeyRecord> {
     await this.pool.query(
-      `INSERT INTO agentcert_api_keys (id,project_id,name,prefix,secret_hash,created_by,created_at,last_used_at,revoked_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [apiKey.id, apiKey.projectId, apiKey.name, apiKey.prefix, apiKey.secretHash, apiKey.createdBy, apiKey.createdAt, null, null],
+      `INSERT INTO agentcert_api_keys (id,project_id,name,prefix,secret_hash,created_by,created_at,last_used_at,revoked_at,scopes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [apiKey.id, apiKey.projectId, apiKey.name, apiKey.prefix, apiKey.secretHash, apiKey.createdBy, apiKey.createdAt, null, null, JSON.stringify(apiKey.scopes)],
     );
     return apiKey;
   }
@@ -939,10 +1102,11 @@ function agentFromRow(row: Record<string, unknown>): AgentRecord {
 function runFromRow(row: Record<string, unknown>): RunRecord {
   return { id: text(row.id), projectId: text(row.project_id), agentId: optionalText(row.agent_id), externalId: text(row.external_id), kind: text(row.kind) as RunRecord["kind"],
     status: text(row.status) as RunRecord["status"], score: optionalNumber(row.score), schemaVersion: text(row.schema_version), startedAt: iso(row.started_at),
-    completedAt: optionalIso(row.completed_at), metadata: object(row.metadata) };
+    completedAt: optionalIso(row.completed_at), metadata: object(row.metadata), traceId: optionalText(row.trace_id), rootSpanId: optionalText(row.root_span_id) };
 }
 function eventFromRow(row: Record<string, unknown>): EventRecord {
-  return { id: text(row.id), projectId: text(row.project_id), runId: text(row.run_id), sequence: number(row.sequence), type: text(row.type), actor: text(row.actor), occurredAt: iso(row.occurred_at), payload: object(row.payload) };
+  return { id: text(row.id), projectId: text(row.project_id), runId: text(row.run_id), sequence: number(row.sequence), type: text(row.type), actor: text(row.actor), occurredAt: iso(row.occurred_at), payload: object(row.payload),
+    traceId: optionalText(row.trace_id), spanId: optionalText(row.span_id), parentSpanId: optionalText(row.parent_span_id) };
 }
 function actionFromRow(row: Record<string, unknown>): ActionRecord {
   return { id: text(row.id), projectId: text(row.project_id), agentId: optionalText(row.agent_id), externalId: text(row.external_id), principal: object(row.principal),
@@ -950,7 +1114,8 @@ function actionFromRow(row: Record<string, unknown>): ActionRecord {
     amount: optionalNumber(row.amount), currency: optionalText(row.currency), riskLevel: text(row.risk_level) as ActionRecord["riskLevel"], riskScore: number(row.risk_score),
     decision: text(row.decision) as ActionRecord["decision"], status: text(row.status) as ActionRecord["status"], policyVersion: text(row.policy_version),
     reasons: stringArray(row.reasons), expectedState: optionalObject(row.expected_state), observedState: optionalObject(row.observed_state),
-    verificationSuccess: optionalBoolean(row.verification_success), createdAt: iso(row.created_at), updatedAt: iso(row.updated_at) };
+    verificationSuccess: optionalBoolean(row.verification_success), createdAt: iso(row.created_at), updatedAt: iso(row.updated_at),
+    traceId: optionalText(row.trace_id), spanId: optionalText(row.span_id), parentSpanId: optionalText(row.parent_span_id) };
 }
 function evidenceFromRow(row: Record<string, unknown>): EvidenceRecord {
   return { id: text(row.id), projectId: text(row.project_id), runId: optionalText(row.run_id), actionId: optionalText(row.action_id), kind: text(row.kind),
@@ -984,7 +1149,38 @@ function incidentFromRow(row: Record<string, unknown>): IncidentRecord {
 }
 function apiKeyFromRow(row: Record<string, unknown>): ApiKeyRecord {
   return { id: text(row.id), projectId: text(row.project_id), name: text(row.name), prefix: text(row.prefix), secretHash: text(row.secret_hash), createdBy: text(row.created_by),
-    createdAt: iso(row.created_at), lastUsedAt: optionalIso(row.last_used_at), revokedAt: optionalIso(row.revoked_at) };
+    createdAt: iso(row.created_at), scopes: stringArray(row.scopes) as ApiKeyRecord["scopes"], lastUsedAt: optionalIso(row.last_used_at), revokedAt: optionalIso(row.revoked_at) };
+}
+
+function evidenceDeletionFromRow(row: Record<string, unknown>): EvidenceDeletionRecord {
+  return {
+    id: text(row.id), projectId: text(row.project_id), evidenceId: text(row.evidence_id), runId: optionalText(row.run_id),
+    actionId: optionalText(row.action_id), objectKey: text(row.object_key), fileName: text(row.file_name), kind: text(row.kind),
+    sha256: text(row.sha256), sizeBytes: number(row.size_bytes), outcome: text(row.outcome) as EvidenceDeletionRecord["outcome"],
+    reason: text(row.reason), error: optionalText(row.error), occurredAt: iso(row.occurred_at),
+  };
+}
+
+function idempotencyFromRow(row: Record<string, unknown>): IdempotencyRecord {
+  return {
+    projectId: text(row.project_id), key: text(row.key), operation: text(row.operation), requestHash: text(row.request_hash),
+    responseStatus: number(row.response_status), responseBody: row.response_body, createdAt: iso(row.created_at), expiresAt: iso(row.expires_at),
+  };
+}
+
+function webhookFromRow(row: Record<string, unknown>): WebhookRecord {
+  return {
+    id: text(row.id), projectId: text(row.project_id), url: text(row.url), eventTypes: stringArray(row.event_types),
+    secretCiphertext: text(row.secret_ciphertext), createdBy: text(row.created_by), createdAt: iso(row.created_at), revokedAt: optionalIso(row.revoked_at),
+  };
+}
+
+function webhookDeliveryFromRow(row: Record<string, unknown>): WebhookDeliveryRecord {
+  return {
+    id: text(row.id), projectId: text(row.project_id), webhookId: text(row.webhook_id), eventId: text(row.event_id),
+    eventType: text(row.event_type), status: text(row.status) as WebhookDeliveryRecord["status"], responseStatus: optionalNumber(row.response_status),
+    error: optionalText(row.error), attemptedAt: iso(row.attempted_at),
+  };
 }
 function failureReviewFromRow(row: Record<string, unknown>): FailureReviewRecord {
   const context = object(row.evidence_context);

@@ -29,7 +29,17 @@ services:
         value: 86400000
       - key: AGENTCERT_EVIDENCE_CLEANUP_BATCH
         value: 500
+      - key: AGENTCERT_RATE_LIMIT_REQUESTS
+        value: 300
+      - key: AGENTCERT_RATE_LIMIT_WINDOW_MS
+        value: 60000
       - key: AGENTCERT_PLATFORM_ADMIN_EMAILS
+        sync: false
+      - key: AGENTCERT_EVIDENCE_SIGNING_PRIVATE_KEY
+        sync: false
+      - key: AGENTCERT_EVIDENCE_SIGNING_KEY_ID
+        value: agentcert-prod-v0.1
+      - key: AGENTCERT_WEBHOOK_ENCRYPTION_KEY
         sync: false
       - key: AGENTCERT_PUBLIC_URL
         sync: false
