@@ -1,3 +1,5 @@
+import { isPublicArchiveLocation } from "./surface-routing";
+
 export interface HostedConfig {
   kind: "agentcert.control_plane_config";
   hosted: true;
@@ -402,7 +404,7 @@ const SESSION_KEY = "agentcert.hosted.session.v1";
 let activeConfig: HostedConfig | undefined;
 
 export async function detectHostedConfig(): Promise<HostedConfig | undefined> {
-  if (window.location.protocol === "file:") return undefined;
+  if (isPublicArchiveLocation(window.location)) return undefined;
   const response = await fetch("/v1/config", { cache: "no-store" }).catch(() => undefined);
   if (!response?.ok) return undefined;
   const value = (await response.json()) as HostedConfig;

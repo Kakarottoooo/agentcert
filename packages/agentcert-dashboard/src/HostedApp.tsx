@@ -136,7 +136,7 @@ function AuthScreen({ config, onAuthenticated }: { config: HostedConfig; onAuthe
             </button>
           ) : null}
         </form>
-        <p className="auth-note">Registration is open. Confirmed accounts receive an isolated organization and first project.</p>
+        <p className="auth-note">Registration is open. Confirmed accounts receive an isolated organization and assurance project.</p>
       </section>
     </main>
   );

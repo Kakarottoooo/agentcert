@@ -5,8 +5,8 @@ export interface MonitorLoadResult {
   source: "api" | "static";
 }
 
-export async function loadMonitorSnapshot(): Promise<MonitorLoadResult> {
-  const apiSnapshot = await loadApiMonitorSnapshot();
+export async function loadMonitorSnapshot(preferApi = true): Promise<MonitorLoadResult> {
+  const apiSnapshot = preferApi ? await loadApiMonitorSnapshot() : undefined;
   if (apiSnapshot) {
     return { snapshot: apiSnapshot, source: "api" };
   }
@@ -54,8 +54,11 @@ async function loadApiMonitorSnapshot(): Promise<MonitorSnapshot | undefined> {
   if (!response?.ok) {
     return undefined;
   }
-  const data = (await response.json()) as MonitorSnapshot;
-  return data.kind === "agentcert.monitor_snapshot" ? data : undefined;
+  if (!response.headers.get("content-type")?.includes("application/json")) {
+    return undefined;
+  }
+  const data = await response.json().catch(() => undefined) as MonitorSnapshot | undefined;
+  return data?.kind === "agentcert.monitor_snapshot" ? data : undefined;
 }
 
 export function percent(value: number): string {
