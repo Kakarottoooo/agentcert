@@ -134,7 +134,11 @@ expire after one hour by default and are deleted on expiry or `close()`.
 
 Use `createStripeTestModeReadOnlyAdapter()` for the vendor reference boundary.
 It accepts only a restricted `rk_test_` key and exposes bounded PaymentIntent
-GET operations; it cannot execute a payment mutation.
+GET operations; it cannot execute a payment mutation. The boundary checks the
+exact HTTPS origin, method, and resource route before network access, then
+applies a 5-second timeout and process-local request cap. Use the public
+`npx agentcert sandbox stripe-readonly --payment-intent pi_...` command to
+produce and optionally upload the redacted v0.4 report.
 
 Add `--push` to either sandbox command to create a Hosted Control Plane run and
 upload the report as complete evidence. Configure `AGENTCERT_PROJECT_ID`,

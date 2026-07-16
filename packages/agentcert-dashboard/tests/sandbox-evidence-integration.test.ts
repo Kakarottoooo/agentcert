@@ -24,4 +24,32 @@ describe("hosted sandbox evidence integration", () => {
       results: [{ product: "onegent-runtime", phase: "pre-release", passed: true, score: 100 }],
     });
   });
+
+  it("wraps bounded vendor sandbox evidence as a first-class sandbox evidence kind", () => {
+    const bundle = createSandboxCertificationEvidenceBundle({
+      schemaVersion: "agentcert.sandbox_vendor_egress.v0.4",
+      kind: "agentcert.sandbox_vendor_egress",
+      implementation: "stripe-payment-intent-readonly",
+      vendor: "stripe",
+      environment: "sandbox",
+      generatedAt: "2030-01-01T00:00:00.000Z",
+      verdict: { passed: true, score: 100 },
+      summary: { passed: 5, failed: 0, total: 5 },
+      checks: [],
+      policy: {
+        allowedOrigins: ["https://api.stripe.com"],
+        allowedMethods: ["GET"],
+        allowedResources: ["stripe.payment_intent.retrieve", "stripe.payment_intent.list"],
+        timeoutMs: 5000,
+        maxRequestsPerMinute: 10,
+      },
+      audit: [],
+      disclaimer: "Sandbox only.",
+    });
+
+    expect(bundle.evidence[0]).toMatchObject({
+      kind: "sandbox_vendor_egress",
+      metadata: { reportSchemaVersion: "agentcert.sandbox_vendor_egress.v0.4" },
+    });
+  });
 });

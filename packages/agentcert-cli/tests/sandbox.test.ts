@@ -7,6 +7,7 @@ import {
   initializeSandboxAdapter,
   loadSandboxAdapter,
   pushSandboxCertification,
+  runStripeSandboxReadOnly,
 } from "../src/sandbox.js";
 
 const temporaryDirectories: string[] = [];
@@ -80,6 +81,63 @@ describe("unified sandbox onboarding", () => {
       externalId: "sandbox-smoke-1",
     }));
     await expect(readFile(reportPath, "utf8")).resolves.toContain("external-sandbox");
+  });
+
+  it("runs the Stripe read-only flow from an environment credential and can upload the redacted report", async () => {
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const directory = await temporaryDirectory();
+    const reportPath = join(directory, "stripe-report.json");
+    process.env.STRIPE_RESTRICTED_TEST_KEY = "rk_test_cli_secret_123";
+    process.env.AGENTCERT_BASE_URL = "https://agentcert.example.com";
+    process.env.AGENTCERT_PROJECT_ID = "project-1";
+    process.env.AGENTCERT_API_KEY = "ac_live_test-key";
+    const report = {
+      schemaVersion: "agentcert.sandbox_vendor_egress.v0.4" as const,
+      kind: "agentcert.sandbox_vendor_egress" as const,
+      implementation: "stripe-payment-intent-readonly" as const,
+      vendor: "stripe" as const,
+      environment: "sandbox" as const,
+      generatedAt: "2030-01-01T00:00:00.000Z",
+      verdict: { passed: true, score: 100 },
+      summary: { passed: 5, failed: 0, total: 5 },
+      checks: [{ id: "bounded-read", status: "passed" as const, message: "Bounded read passed." }],
+      policy: { allowedOrigins: ["https://api.stripe.com"] },
+      audit: [{ requestId: "stripe-1", outcome: "allowed" }],
+      observation: { id: "pi_12345678", livemode: false },
+      disclaimer: "Sandbox only.",
+    };
+    const upload = vi.fn().mockResolvedValue({ run: { id: "run-stripe" }, evidence: { id: "evidence-stripe" } });
+    const run = vi.fn().mockResolvedValue(report);
+    const runtime = {
+      runSandboxAdapterConformanceSuite,
+      writeSandboxAdapterConformanceReport: vi.fn(),
+      runStripeSandboxReadOnlyCertification: run,
+      uploadSandboxCertificationReport: upload,
+    };
+
+    const result = await runStripeSandboxReadOnly([
+      "--payment-intent", "pi_12345678",
+      "--out", reportPath,
+      "--push",
+    ], runtime);
+
+    expect(result.exitCode).toBe(0);
+    expect(run).toHaveBeenCalledWith({
+      restrictedApiKey: "rk_test_cli_secret_123",
+      paymentIntentId: "pi_12345678",
+    });
+    expect(upload).toHaveBeenCalledWith(report, expect.objectContaining({ projectId: "project-1" }));
+    const written = await readFile(reportPath, "utf8");
+    expect(written).toContain("agentcert.sandbox_vendor_egress.v0.4");
+    expect(written).not.toContain("rk_test_cli_secret_123");
+  });
+
+  it("refuses Stripe credentials supplied through flags", async () => {
+    process.env.STRIPE_RESTRICTED_TEST_KEY = "rk_test_environment_key_123";
+    await expect(runStripeSandboxReadOnly([
+      "--payment-intent", "pi_12345678",
+      "--stripe-key", "rk_test_flag_key_123",
+    ])).rejects.toThrow("only through STRIPE_RESTRICTED_TEST_KEY");
   });
 });
 

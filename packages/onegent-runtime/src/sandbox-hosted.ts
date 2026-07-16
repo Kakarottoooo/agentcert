@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import type { SandboxAdapterConformanceReport } from "./sandbox-adapter-kit.js";
 import type { SandboxCertificationReport } from "./sandbox-harness.js";
+import type { StripeSandboxReadOnlyReport } from "./stripe-test-readonly.js";
 
 export const SANDBOX_EVIDENCE_BUNDLE_SCHEMA_VERSION = "agentcert.evidence.v0.1" as const;
 
-export type HostedSandboxReport = SandboxCertificationReport | SandboxAdapterConformanceReport;
+export type HostedSandboxReport = SandboxCertificationReport | SandboxAdapterConformanceReport | StripeSandboxReadOnlyReport;
 
 export interface SandboxHostedUploadOptions {
   baseUrl: string;
@@ -54,7 +55,7 @@ export interface SandboxCertificationEvidenceBundle {
     artifacts: Record<string, string>;
     evidence: Array<{
       id: string;
-      kind: "sandbox_adapter_conformance" | "sandbox_certification";
+      kind: "sandbox_adapter_conformance" | "sandbox_certification" | "sandbox_vendor_egress";
       severity: "info" | "high";
       message: string;
       source: "onegent-runtime";
@@ -82,7 +83,11 @@ export function createSandboxCertificationEvidenceBundle(
   const runId = `sandbox-${reportDigest}`;
   const evidence: SandboxCertificationEvidenceBundle["evidence"] = [{
     id: `${report.kind}:${reportDigest.slice(0, 16)}`,
-    kind: report.kind === "agentcert.sandbox_adapter_conformance" ? "sandbox_adapter_conformance" : "sandbox_certification",
+    kind: report.kind === "agentcert.sandbox_adapter_conformance"
+      ? "sandbox_adapter_conformance"
+      : report.kind === "agentcert.sandbox_vendor_egress"
+        ? "sandbox_vendor_egress"
+        : "sandbox_certification",
     severity: report.verdict.passed ? "info" : "high",
     message: `${report.kind} ${report.verdict.passed ? "passed" : "failed"} (${report.verdict.score}/100).`,
     source: "onegent-runtime",

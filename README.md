@@ -172,6 +172,20 @@ non-zero and cannot be mistaken for a pass. This workflow accepts synthetic
 local state and narrowly scoped vendor sandbox/test-mode access only. It does
 not authorize production writes or certify vendor-side controls.
 
+For the first official vendor boundary, AgentCert can retrieve one existing
+Stripe sandbox PaymentIntent through a fixed read-only policy:
+
+```bash
+STRIPE_RESTRICTED_TEST_KEY="rk_test_..." npx agentcert sandbox stripe-readonly --payment-intent pi_... --push
+```
+
+The command permits only Stripe's HTTPS API origin, `GET`, and allowlisted
+PaymentIntent routes. It applies a 5-second timeout and a process-local
+10-request-per-minute cap, then retains only a redacted observation and request
+audit. Credentials, Authorization headers, raw responses, `client_secret`, and
+metadata never enter evidence. See
+[Bounded Vendor Sandbox Egress v0.4](docs/bounded-vendor-sandbox-egress.md).
+
 ## GitHub Action
 
 ```yaml

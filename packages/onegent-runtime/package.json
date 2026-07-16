@@ -11,7 +11,8 @@
       "import": "./dist/index.js"
     },
     "./sandbox-certification.schema.json": "./sandbox-certification.schema.json",
-    "./sandbox-adapter-conformance.schema.json": "./sandbox-adapter-conformance.schema.json"
+    "./sandbox-adapter-conformance.schema.json": "./sandbox-adapter-conformance.schema.json",
+    "./stripe-sandbox-readonly.schema.json": "./stripe-sandbox-readonly.schema.json"
   },
   "bin": {
     "onegent-runtime": "dist/cli.js"
@@ -22,6 +23,7 @@
     "onegent.policy.json",
     "sandbox-certification.schema.json",
     "sandbox-adapter-conformance.schema.json",
+    "stripe-sandbox-readonly.schema.json",
     "package.json"
   ],
   "scripts": {

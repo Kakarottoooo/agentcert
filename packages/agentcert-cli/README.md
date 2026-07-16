@@ -82,6 +82,18 @@ certifications return a non-zero exit status. The generated template is
 synthetic and network-denied; it must not contain production credentials or
 connect to live systems.
 
+Run one bounded read against an existing Stripe sandbox PaymentIntent:
+
+```bash
+STRIPE_RESTRICTED_TEST_KEY="rk_test_..." npx agentcert sandbox stripe-readonly --payment-intent pi_...
+```
+
+Add `--push` to retain the redacted report in AgentCert Hosted. The command
+allows only `https://api.stripe.com`, `GET`, and allowlisted PaymentIntent
+routes, with a 5-second timeout and 10-request-per-minute process-local cap.
+The Stripe key is environment-only and is never written to output or evidence.
+See the [Bounded Vendor Sandbox Egress guide](https://github.com/Kakarottoooo/agentcert/blob/main/docs/bounded-vendor-sandbox-egress.md).
+
 Review/export helpers:
 
 ```bash
