@@ -152,6 +152,26 @@ allowed root, or `--no-artifacts` to upload only the evidence bundle.
 
 External evaluation protocol: [docs/external-pilot.md](docs/external-pilot.md).
 
+## Sandbox Certification
+
+Third-party teams can certify a synthetic or vendor test-mode adapter without
+cloning this repository or installing a second package:
+
+```bash
+npx agentcert sandbox init
+npx agentcert sandbox certify --adapter ./agentcert.sandbox.mjs
+npx agentcert connect --server https://agentcert-control-plane.onrender.com --project your-project-id
+npx agentcert sandbox push --adapter ./agentcert.sandbox.mjs
+```
+
+`sandbox init` writes one dependency-free adapter file. The generated adapter
+passes the same deterministic conformance suite shipped inside the public
+`agentcert` package. `sandbox push` retains both passing and failing reports in
+the Hosted **Sandbox certifications** workspace; a failed report still exits
+non-zero and cannot be mistaken for a pass. This workflow accepts synthetic
+local state and narrowly scoped vendor sandbox/test-mode access only. It does
+not authorize production writes or certify vendor-side controls.
+
 ## GitHub Action
 
 ```yaml

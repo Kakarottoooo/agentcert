@@ -1,0 +1,13 @@
+{
+  "extends": "../onegent-runtime/tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../onegent-runtime/src",
+    "outDir": "dist/vendor/onegent-runtime",
+    "typeRoots": ["./node_modules/@types"]
+  },
+  "include": [
+    "../onegent-runtime/src/sandbox-adapter-kit.ts",
+    "../onegent-runtime/src/sandbox-hosted.ts"
+  ],
+  "exclude": ["../onegent-runtime/tests", "../onegent-runtime/dist"]
+}

@@ -57,6 +57,31 @@ or mismatched artifacts remain observable as `partial` or `rejected`.
 Project API keys can create runs, record events, and upload evidence, but
 cannot approve their own runtime actions.
 
+## Sandbox onboarding
+
+Create and certify a synthetic SandboxSystem adapter with the same public CLI:
+
+```bash
+npx agentcert sandbox init
+npx agentcert sandbox certify --adapter ./agentcert.sandbox.mjs
+```
+
+The first command writes one dependency-free JavaScript file. The second runs
+the bundled deterministic adapter contract and writes
+`.agentcert/sandbox/sandbox-adapter-conformance.json`. No `@agentcert` scoped
+package is required.
+
+After `agentcert connect`, certify and upload in one command:
+
+```bash
+npx agentcert sandbox push --adapter ./agentcert.sandbox.mjs
+```
+
+Passing and failing reports are both retained for review, while failed
+certifications return a non-zero exit status. The generated template is
+synthetic and network-denied; it must not contain production credentials or
+connect to live systems.
+
 Review/export helpers:
 
 ```bash

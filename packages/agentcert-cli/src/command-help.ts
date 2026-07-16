@@ -1,4 +1,5 @@
 export function renderCommandHelp(command: string): string | undefined {
+  if (command === "sandbox") return undefined;
   if (command === "conformance") return `Usage:
   agentcert conformance <evidence.json> --artifact-root <directory> [--implementation <name>] [--out <report.json>]
 

@@ -51,8 +51,10 @@ import {
   type HostedRetentionReport,
 } from "./hosted-api";
 import HostedRunsView from "./HostedRunsView";
+import HostedSandboxView from "./HostedSandboxView";
+import { isSandboxCertificationRun } from "./sandbox-certifications";
 
-type HostedView = "overview" | "agents" | "runs" | "gates" | "actions" | "incidents" | "evidence" | "integrations" | "governance";
+type HostedView = "overview" | "agents" | "runs" | "sandbox" | "gates" | "actions" | "incidents" | "evidence" | "integrations" | "governance";
 
 interface ConsoleData {
   overview: HostedOverview;
@@ -170,6 +172,7 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
 
   const navigation: Array<[HostedView, string, number?]> = [
     ["overview", "Overview"], ["agents", "Agents", data?.agents.length], ["runs", "Runs", data?.runs.length],
+    ["sandbox", "Sandbox certifications", data?.runs.filter(isSandboxCertificationRun).length],
     ["gates", "Release gates", data?.runs.filter((run) => run.kind === "release_gate").length],
     ["actions", "Runtime actions", data?.actions.filter((action) => action.status === "PENDING_APPROVAL").length],
     ["incidents", "Incidents", data?.incidents.filter((incident) => incident.status !== "resolved").length],
@@ -200,6 +203,7 @@ function HostedViewContent({ view, data, project, session, refresh, onNavigate }
   if (view === "overview") return <HostedOverviewView data={data} project={project} onNavigate={onNavigate} />;
   if (view === "agents") return <AgentsView agents={data.agents} project={project} session={session} refresh={refresh} />;
   if (view === "runs") return <HostedRunsView runs={data.runs} project={project} session={session} />;
+  if (view === "sandbox") return <HostedSandboxView runs={data.runs.filter(isSandboxCertificationRun)} project={project} session={session} />;
   if (view === "gates") return <RunsTable runs={data.runs.filter((run) => run.kind === "release_gate")} empty="No release-gate runs have been ingested." />;
   if (view === "actions") return <ActionsView actions={data.actions} project={project} session={session} refresh={refresh} />;
   if (view === "incidents") return <IncidentsView incidents={data.incidents} operations={data.operations} project={project} session={session} refresh={refresh} />;
@@ -435,7 +439,7 @@ function OperationsTrends({ operations }: { operations: HostedOperations }) {
 function SectionTitle({ title, caption }: { title: string; caption: string }) { return <div className="section-title"><h2>{title}</h2><p>{caption}</p></div>; }
 function Status({ value }: { value: string }) { return <span className={`hosted-status ${value.toLowerCase().replace(/_/g, "-")}`}>{value.replace(/_/g, " ")}</span>; }
 function EmptyHosted({ text }: { text: string }) { return <div className="hosted-empty">{text}</div>; }
-function viewTitle(view: HostedView): string { return ({ overview: "Operational overview", agents: "Agent registry", runs: "Assurance runs", gates: "Release gates", actions: "Runtime actions", incidents: "Incident ledger", evidence: "Evidence registry", integrations: "Integrations", governance: "Governance administration" })[view]; }
+function viewTitle(view: HostedView): string { return ({ overview: "Operational overview", agents: "Agent registry", runs: "Assurance runs", sandbox: "Sandbox certifications", gates: "Release gates", actions: "Runtime actions", incidents: "Incident ledger", evidence: "Evidence registry", integrations: "Integrations", governance: "Governance administration" })[view]; }
 function compactTime(value: string): string { return new Intl.DateTimeFormat("en", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
 function compactBytes(value: number): string { return value < 1024 ? `${value} B` : value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / 1024 / 1024).toFixed(1)} MB`; }
 function percent(value: number): string { return `${Math.round(value * 100)}%`; }

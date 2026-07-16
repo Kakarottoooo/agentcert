@@ -2,6 +2,7 @@ export * from "./bundle.js";
 export * from "./corpus.js";
 export * from "./corpus-store.js";
 export * from "./control-plane.js";
+export * from "./sandbox.js";
 export * from "./conformance.js";
 export * from "./credentials.js";
 export * from "./failure-review.js";
