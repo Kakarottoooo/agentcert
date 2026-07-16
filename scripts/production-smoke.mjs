@@ -11,9 +11,23 @@ export async function runProductionSmoke(options = {}) {
   const apiKey = required(env, "AGENTCERT_API_KEY");
   const requireShared = env.AGENTCERT_REQUIRE_SHARED_COORDINATION !== "false";
   const requireWebhookDelivery = env.AGENTCERT_REQUIRE_WEBHOOK_DELIVERY !== "false";
-  const id = `production-smoke-${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 17)}-${randomBytes(3).toString("hex")}`;
+  const startedAt = new Date().toISOString();
+  const id = `production-smoke-${startedAt.replace(/[-:.TZ]/g, "").slice(0, 17)}-${randomBytes(3).toString("hex")}`;
   const auth = { authorization: `Bearer ${apiKey}` };
   const checks = [];
+
+  try {
+    return await executeProductionSmoke({ env, requestFetch, baseUrl, projectId, auth, requireShared, requireWebhookDelivery, id, startedAt, checks, sleep: options.sleep });
+  } catch (error) {
+    await recordSmokeResult(requestFetch, baseUrl, projectId, auth, {
+      externalId: id, source: "production_smoke", status: "failed", startedAt, completedAt: new Date().toISOString(), checks,
+      error: error instanceof Error ? error.message : String(error), ...workflowContext(env),
+    }).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function executeProductionSmoke({ env, requestFetch, baseUrl, projectId, auth, requireShared, requireWebhookDelivery, id, startedAt, checks, sleep }) {
 
   const health = await json(requestFetch, `${baseUrl}/health`);
   check(health.ok === true, "health endpoint did not report ok");
@@ -25,7 +39,7 @@ export async function runProductionSmoke(options = {}) {
     envelopeId: id,
     kind: "event",
     occurredAt: new Date().toISOString(),
-    source: { agentId: "agentcert-production-smoke", agentVersion: "0.2", framework: "github-actions", adapter: "production-smoke" },
+    source: { agentId: "agentcert-production-smoke", agentVersion: "0.3", framework: "github-actions", adapter: "production-smoke" },
     run: { externalId: id, kind: "custom" },
     trace: { traceId: randomBytes(16).toString("hex"), spanId: randomBytes(8).toString("hex"), traceFlags: 1 },
     event: { sequence: 0, type: "production.smoke.started", actor: "ci", attributes: { source: "scheduled" } },
@@ -73,9 +87,16 @@ export async function runProductionSmoke(options = {}) {
     body: JSON.stringify({ status: "passed", score: 100, summary: "Scheduled production acceptance passed." }),
   }, 200);
   const operationsUrl = `${baseUrl}/v1/projects/${encodeURIComponent(projectId)}/operations`;
-  const operations = await waitForWebhookDelivery(requestFetch, operationsUrl, auth, runId, requireWebhookDelivery, options.sleep);
+  await waitForWebhookDelivery(requestFetch, operationsUrl, auth, runId, requireWebhookDelivery, sleep);
+  checks.push("run-completion", ...(requireWebhookDelivery ? ["webhook-delivery"] : []));
+  const completedAt = new Date().toISOString();
+  await recordSmokeResult(requestFetch, baseUrl, projectId, auth, {
+    externalId: id, source: "production_smoke", status: "passed", startedAt, completedAt, checks, ...workflowContext(env),
+  });
+  checks.push("health-history");
+  const operations = await json(requestFetch, operationsUrl, { headers: auth });
   if (requireShared) check(operations.status === "healthy", `Trust Operations reported ${operations.status} instead of healthy`);
-  checks.push("run-completion", ...(requireWebhookDelivery ? ["webhook-delivery"] : []), "trust-operations");
+  checks.push("trust-operations");
 
   return {
     schemaVersion: "agentcert.production_smoke_result.v0.1",
@@ -87,7 +108,22 @@ export async function runProductionSmoke(options = {}) {
     evidenceId: evidence.id,
     signingKeyId: attestation.keyId,
     checks,
-    completedAt: new Date().toISOString(),
+    completedAt,
+  };
+}
+
+async function recordSmokeResult(requestFetch, baseUrl, projectId, auth, result) {
+  return json(requestFetch, `${baseUrl}/v1/projects/${encodeURIComponent(projectId)}/operations/smoke-runs`, {
+    method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify(result),
+  }, 201);
+}
+
+function workflowContext(env) {
+  const workflowRunId = env.GITHUB_RUN_ID?.trim();
+  const repository = env.GITHUB_REPOSITORY?.trim();
+  return {
+    ...(workflowRunId ? { workflowRunId: `${workflowRunId}.${env.GITHUB_RUN_ATTEMPT?.trim() || "1"}` } : {}),
+    ...(workflowRunId && repository ? { workflowRunUrl: `https://github.com/${repository}/actions/runs/${workflowRunId}` } : {}),
   };
 }
 

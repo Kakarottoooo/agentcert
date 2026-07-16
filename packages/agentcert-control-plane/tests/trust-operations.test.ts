@@ -111,6 +111,55 @@ describe("signing key rotation", () => {
   });
 });
 
+describe("Trust Operations v0.3", () => {
+  it("persists smoke health and reports deterministic health and webhook trends", async () => {
+    const store = new InMemoryControlPlaneStore();
+    const privateKey = generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    const service = new AgentCertControlPlane(
+      store, new MemoryArtifactStore(), undefined, [], new EvidenceSigner("key-current", privateKey),
+    );
+    const projectId = (await service.bootstrap(user)).project.id;
+    await service.activateSigningKey(new Date("2026-07-14T00:00:00.000Z"));
+    await service.recordTrustHealthSample(user, projectId, {
+      externalId: "smoke-failed", source: "production_smoke", status: "failed",
+      startedAt: "2026-07-14T08:00:00.000Z", completedAt: "2026-07-14T08:00:05.000Z", checks: ["health"], error: "temporary failure",
+    });
+    await service.recordTrustHealthSample(user, projectId, {
+      externalId: "smoke-passed", source: "production_smoke", status: "passed",
+      startedAt: "2026-07-15T07:59:58.000Z", completedAt: "2026-07-15T08:00:00.000Z", checks: ["health", "signature-chain"],
+    });
+    await store.enqueueWebhookJob({
+      id: "00000000-0000-4000-8000-000000000010", projectId, webhookId: "webhook-1", eventId: "run-1", eventType: "run.completed",
+      payload: {}, status: "delivered", attemptCount: 2, maxAttempts: 5, nextAttemptAt: "2026-07-15T07:00:00.000Z",
+      createdAt: "2026-07-15T07:00:00.000Z", completedAt: "2026-07-15T07:00:02.000Z",
+    });
+
+    const operations = await service.operationsOverview(
+      user, projectId, { backend: "redis", state: "ready", shared: true }, new Date("2026-07-15T08:30:00.000Z"),
+    );
+    expect(operations).toMatchObject({
+      schemaVersion: "agentcert.trust_operations.v0.3", status: "healthy",
+      alerts: {
+        redis: { status: "healthy" }, signing: { status: "healthy" },
+        scheduledSmoke: { status: "healthy" }, webhooks: { status: "healthy" },
+      },
+      smoke: { latest: { externalId: "smoke-passed", status: "passed" } },
+      trends: { summary: { smokeSuccessRate: 0.5, webhookSuccessRate: 1, retryRate: 1, averageLatencyMs: 2000 } },
+    });
+    expect(operations.trends.health.at(-1)).toMatchObject({ date: "2026-07-15", total: 1, passed: 1, successRate: 1 });
+  });
+
+  it("raises actionable alerts for missing coordination, signing, and scheduled smoke", async () => {
+    const service = new AgentCertControlPlane(new InMemoryControlPlaneStore(), new MemoryArtifactStore());
+    const projectId = (await service.bootstrap(user)).project.id;
+    const operations = await service.operationsOverview(user, projectId, undefined, new Date("2026-07-15T08:30:00.000Z"));
+    expect(operations.status).toBe("critical");
+    expect(operations.alerts).toMatchObject({
+      redis: { status: "critical" }, signing: { status: "critical" }, scheduledSmoke: { status: "warning" },
+    });
+  });
+});
+
 describe("Redis coordination primitives", () => {
   it.each(["agentcert-coordination:6379", "https://agentcert-coordination:6379", "redis-cli -u redis://host:6379"])(
     "rejects an invalid REDIS_URL before connecting: %s",

@@ -168,7 +168,11 @@ async function handleRequest(
     sendJson(response, 200, await options.service.overview(auth, projectId));
     return;
   }
-  if (collection === "operations" && request.method === "GET") {
+  if (collection === "operations" && entityId === "smoke-runs" && request.method === "POST") {
+    sendJson(response, 201, await options.service.recordTrustHealthSample(auth, projectId, await readJson(request)));
+    return;
+  }
+  if (collection === "operations" && request.method === "GET" && !entityId) {
     sendJson(response, 200, await options.service.operationsOverview(auth, projectId, options.coordinationHealth?.()));
     return;
   }

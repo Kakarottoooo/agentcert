@@ -30,6 +30,7 @@ test("production smoke verifies the complete hosted trust path", async () => {
     if (url.pathname.endsWith("/evidence/evidence-1/content")) return new Response(evidenceBytes, { status: 200 });
     if (url.pathname === "/v1/signing-keys/key-old") return response({ keyId: "key-old", algorithm: "Ed25519", publicKeyPem, status: "retired" });
     if (url.pathname.endsWith("/runs/run-1/complete")) return response({ id: "run-1", status: "passed" });
+    if (url.pathname.endsWith("/operations/smoke-runs")) return response({ id: "sample-1", status: "passed" }, 201);
     if (url.pathname.endsWith("/operations")) return response({ status: "healthy", webhooks: { recentJobs: [{ eventId: "run-1", eventType: "run.completed", status: "delivered" }] } });
     return response({ error: `unhandled ${url.pathname}` }, 404);
   };
@@ -39,7 +40,26 @@ test("production smoke verifies the complete hosted trust path", async () => {
     fetch: fetchMock,
   });
   assert.equal(result.status, "passed");
-  assert.deepEqual(result.checks, ["health", "idempotency", "evidence-roundtrip", "signature-chain", "run-completion", "webhook-delivery", "trust-operations"]);
+  assert.deepEqual(result.checks, ["health", "idempotency", "evidence-roundtrip", "signature-chain", "run-completion", "webhook-delivery", "health-history", "trust-operations"]);
+});
+
+test("production smoke records a failed health sample without hiding the original error", async () => {
+  let recorded;
+  const fetchMock = async (input, init = {}) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/health") return response({ ok: false });
+    if (url.pathname.endsWith("/operations/smoke-runs")) {
+      recorded = JSON.parse(init.body);
+      return response({ id: "sample-failed" }, 201);
+    }
+    return response({ error: `unhandled ${url.pathname}` }, 404);
+  };
+  await assert.rejects(runProductionSmoke({
+    env: { AGENTCERT_BASE_URL: "https://agentcert.example", AGENTCERT_PROJECT_ID: "project-1", AGENTCERT_API_KEY: "secret" },
+    fetch: fetchMock,
+  }), /health endpoint did not report ok/);
+  assert.equal(recorded.status, "failed");
+  assert.match(recorded.error, /health endpoint did not report ok/);
 });
 
 function response(value, status = 200, headers = {}) { return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json", ...headers } }); }

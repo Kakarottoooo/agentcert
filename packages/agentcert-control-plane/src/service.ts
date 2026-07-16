@@ -38,6 +38,7 @@ import type {
   PublicWebhookRecord,
   FailureQualityMetrics,
   SigningKeyRecord,
+  TrustHealthSampleRecord,
   WebhookJobRecord,
   WebhookRecord,
 } from "./types.js";
@@ -761,22 +762,89 @@ export class AgentCertControlPlane {
     return { schemaVersion: "agentcert.signing_key.v0.1", keyId: this.evidenceSigner.keyId, algorithm: "Ed25519", publicKeyPem: this.evidenceSigner.publicKeyPem };
   }
 
-  async operationsOverview(auth: AuthContext, projectId: string, coordination?: CoordinationHealth) {
+  async recordTrustHealthSample(auth: AuthContext, projectId: string, input: unknown): Promise<TrustHealthSampleRecord> {
+    await this.authorizeProject(auth, projectId, undefined, "runs:write");
+    const body = record(input);
+    const externalId = requiredString(body, "externalId");
+    const source = body.source === "manual" ? "manual" : body.source === "production_smoke" ? "production_smoke" : undefined;
+    if (!source) throw new ControlPlaneError("source must be production_smoke or manual.");
+    const status = body.status === "passed" ? "passed" : body.status === "failed" ? "failed" : undefined;
+    if (!status) throw new ControlPlaneError("status must be passed or failed.");
+    const startedAt = requiredTimestamp(body, "startedAt");
+    const completedAt = requiredTimestamp(body, "completedAt");
+    if (Date.parse(completedAt) < Date.parse(startedAt)) throw new ControlPlaneError("completedAt cannot be before startedAt.");
+    const error = optionalString(body, "error");
+    if (error && error.length > 2_000) throw new ControlPlaneError("error cannot exceed 2000 characters.");
+    const workflowRunUrl = optionalString(body, "workflowRunUrl");
+    if (workflowRunUrl) {
+      let parsed: URL;
+      try { parsed = new URL(workflowRunUrl); }
+      catch { throw new ControlPlaneError("workflowRunUrl must be a valid HTTPS URL."); }
+      if (parsed.protocol !== "https:") throw new ControlPlaneError("workflowRunUrl must be a valid HTTPS URL.");
+    }
+    const now = new Date().toISOString();
+    return this.store.saveTrustHealthSample({
+      id: randomUUID(), projectId, externalId, source, status, startedAt, completedAt,
+      durationMs: Math.max(0, Date.parse(completedAt) - Date.parse(startedAt)), checks: stringList(body.checks), error,
+      workflowRunId: optionalString(body, "workflowRunId"), workflowRunUrl, createdAt: now,
+    });
+  }
+
+  async operationsOverview(auth: AuthContext, projectId: string, coordination?: CoordinationHealth, now = new Date()) {
     await this.authorizeProject(auth, projectId, undefined, "runs:read");
-    const [jobs, jobCounts, deliveries, signingKeys] = await Promise.all([
+    const since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const [jobs, jobCounts, deliveries, signingKeys, smokeSamples, latestSmokeSamples, webhookMetrics] = await Promise.all([
       this.store.listWebhookJobs(projectId, 100),
       this.store.webhookJobCounts(projectId),
       this.store.listWebhookDeliveries(projectId, 100),
       this.store.listSigningKeys(),
+      this.store.listTrustHealthSamples(projectId, since, 100),
+      this.store.listTrustHealthSamples(projectId, "1970-01-01T00:00:00.000Z", 1),
+      this.store.webhookOperationsMetrics(projectId, since),
     ]);
     const activeKey = signingKeys.find((key) => key.status === "active");
-    const healthy = coordination?.state === "ready" && coordination.shared && jobCounts.dead_letter === 0 && Boolean(activeKey);
+    const coordinationState = coordination ?? { backend: "memory" as const, state: "degraded" as const, shared: false };
+    const redisAlert = coordinationState.state === "ready" && coordinationState.shared
+      ? alert("healthy", "Shared Redis coordination is ready.")
+      : alert("critical", "Shared Redis coordination is unavailable; rate limits and idempotency are not cross-instance.");
+    const keyAgeDays = activeKey ? Math.max(0, Math.floor((now.getTime() - Date.parse(activeKey.activatedAt)) / 86_400_000)) : undefined;
+    const signingAlert = !this.evidenceSigner
+      ? alert("critical", "Server evidence signing is not configured in this runtime.")
+      : !activeKey
+        ? alert("critical", "No active server evidence signing key is available.")
+      : keyAgeDays! >= 180
+        ? alert("critical", `Active signing key is ${keyAgeDays} days old and must be rotated.`)
+        : keyAgeDays! >= 90
+          ? alert("warning", `Active signing key is ${keyAgeDays} days old; schedule rotation.`)
+          : alert("healthy", `Active signing key is ${keyAgeDays} days old.`);
+    const latestSmoke = latestSmokeSamples[0];
+    const smokeAgeHours = latestSmoke ? (now.getTime() - Date.parse(latestSmoke.completedAt)) / 3_600_000 : undefined;
+    const smokeAlert = !latestSmoke
+      ? alert("warning", "No production smoke result has been recorded.")
+      : latestSmoke.status === "failed"
+        ? alert("critical", `Latest production smoke failed ${compactAge(smokeAgeHours!)} ago.`)
+        : smokeAgeHours! > 72
+          ? alert("critical", `Latest passing production smoke is stale (${compactAge(smokeAgeHours!)} old).`)
+          : smokeAgeHours! > 36
+            ? alert("warning", `Latest passing production smoke is ${compactAge(smokeAgeHours!)} old.`)
+            : alert("healthy", `Latest production smoke passed ${compactAge(smokeAgeHours!)} ago.`);
+    const webhookAlert = jobCounts.dead_letter > 0
+      ? alert("critical", `${jobCounts.dead_letter} webhook deliveries require dead-letter review.`)
+      : jobCounts.retrying > 0
+        ? alert("warning", `${jobCounts.retrying} webhook deliveries are retrying.`)
+        : alert("healthy", "No webhook deliveries require operator action.");
+    const alertStates = [redisAlert.status, signingAlert.status, smokeAlert.status, webhookAlert.status];
+    const status = alertStates.includes("critical") ? "critical" : alertStates.includes("warning") ? "warning" : "healthy";
+    const smokeBuckets = trustHealthBuckets(smokeSamples, now, 7);
+    const webhookBuckets = fillWebhookBuckets(webhookMetrics.buckets, now, 7);
+    const smokePassed = smokeSamples.filter((sample) => sample.status === "passed").length;
     return {
-      schemaVersion: "agentcert.trust_operations.v0.2",
+      schemaVersion: "agentcert.trust_operations.v0.3",
       projectId,
-      status: healthy ? "healthy" : "degraded",
-      generatedAt: new Date().toISOString(),
-      coordination: coordination ?? { backend: "memory", state: "degraded", shared: false },
+      status,
+      generatedAt: now.toISOString(),
+      coordination: coordinationState,
+      alerts: { redis: redisAlert, signing: signingAlert, scheduledSmoke: smokeAlert, webhooks: webhookAlert },
       webhooks: {
         queue: jobCounts,
         recentJobs: jobs.slice(0, 50),
@@ -788,6 +856,20 @@ export class AgentCertControlPlane {
         activeKey: activeKey ?? null,
         historicalKeys: signingKeys.filter((key) => key.status !== "active").length,
         keys: signingKeys,
+      },
+      smoke: { latest: latestSmoke ?? null, recent: smokeSamples.slice(0, 20) },
+      trends: {
+        windowDays: 7,
+        health: smokeBuckets,
+        webhooks: webhookBuckets,
+        summary: {
+          smokeSuccessRate: smokeSamples.length ? smokePassed / smokeSamples.length : 0,
+          webhookSuccessRate: webhookMetrics.total ? webhookMetrics.delivered / webhookMetrics.total : 0,
+          retryRate: webhookMetrics.total ? webhookMetrics.retried / webhookMetrics.total : 0,
+          deadLetterRate: webhookMetrics.total ? webhookMetrics.deadLetter / webhookMetrics.total : 0,
+          averageLatencyMs: webhookMetrics.averageLatencyMs,
+          p95LatencyMs: webhookMetrics.p95LatencyMs,
+        },
       },
     };
   }
@@ -1040,6 +1122,40 @@ function publicWebhook(webhook: WebhookRecord): PublicWebhookRecord {
   return publicRecord;
 }
 
+type OperationalAlertStatus = "healthy" | "warning" | "critical";
+function alert(status: OperationalAlertStatus, message: string) { return { status, message }; }
+
+function compactAge(hours: number): string {
+  if (hours < 1) return `${Math.max(1, Math.floor(hours * 60))}m`;
+  if (hours < 48) return `${Math.floor(hours)}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+function trustHealthBuckets(samples: TrustHealthSampleRecord[], now: Date, days: number) {
+  const byDate = new Map<string, TrustHealthSampleRecord[]>();
+  for (const sample of samples) {
+    const date = sample.completedAt.slice(0, 10);
+    byDate.set(date, [...(byDate.get(date) ?? []), sample]);
+  }
+  return Array.from({ length: days }, (_, index) => {
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (days - index - 1)))
+      .toISOString().slice(0, 10);
+    const bucket = byDate.get(date) ?? [];
+    const passed = bucket.filter((sample) => sample.status === "passed").length;
+    const failed = bucket.length - passed;
+    return { date, total: bucket.length, passed, failed, successRate: bucket.length ? passed / bucket.length : 0 };
+  });
+}
+
+function fillWebhookBuckets(buckets: Array<{ date: string; total: number; delivered: number; retried: number; deadLetter: number; averageLatencyMs: number; p95LatencyMs: number }>, now: Date, days: number) {
+  const byDate = new Map(buckets.map((bucket) => [bucket.date, bucket]));
+  return Array.from({ length: days }, (_, index) => {
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (days - index - 1)))
+      .toISOString().slice(0, 10);
+    return byDate.get(date) ?? { date, total: 0, delivered: 0, retried: 0, deadLetter: 0, averageLatencyMs: 0, p95LatencyMs: 0 };
+  });
+}
+
 function failureQualityMetrics(runs: RunRecord[], reviews: FailureReviewRecord[], evidence: EvidenceRecord[]): FailureQualityMetrics {
   const failedRuns = runs.filter((run) => run.status === "failed").length;
   const declaredFailures = evidence.reduce((total, item) => total + (typeof item.metadata.failurePatternCount === "number" ? item.metadata.failurePatternCount : 0), 0);
@@ -1126,6 +1242,11 @@ function record(value: unknown): Record<string, unknown> { return value && typeo
 function optionalRecord(value: unknown): Record<string, unknown> | undefined { const result = record(value); return Object.keys(result).length ? result : undefined; }
 function requiredString(value: Record<string, unknown>, key: string): string { const result = optionalString(value, key); if (!result) throw new ControlPlaneError(`${key} is required.`); return result; }
 function optionalString(value: Record<string, unknown>, key: string): string | undefined { return typeof value[key] === "string" && value[key].trim() ? value[key].trim() : undefined; }
+function requiredTimestamp(value: Record<string, unknown>, key: string): string {
+  const result = requiredString(value, key);
+  if (!Number.isFinite(Date.parse(result))) throw new ControlPlaneError(`${key} must be a valid timestamp.`);
+  return new Date(result).toISOString();
+}
 function optionalNumber(value: Record<string, unknown>, key: string): number | undefined { return typeof value[key] === "number" && Number.isFinite(value[key]) ? value[key] : undefined; }
 function databaseErrorCode(error: unknown): string | undefined { return error && typeof error === "object" && "code" in error ? String(error.code) : undefined; }
 function stringList(value: unknown): string[] { return Array.isArray(value) ? [...new Set(value.filter((item): item is string => typeof item === "string" && item.length > 0))] : []; }

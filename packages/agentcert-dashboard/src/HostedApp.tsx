@@ -220,11 +220,12 @@ function HostedOverviewView({ data, project, onNavigate }: { data: ConsoleData; 
       </ol>
     </section>
     <section className="trust-operations-band">
-      <div><span>Production health</span><strong><Status value={data.operations.status} /></strong><em>Checked {compactTime(data.operations.generatedAt)}</em></div>
-      <div><span>Shared coordination</span><strong>{data.operations.coordination.backend}</strong><em>{data.operations.coordination.shared ? "Cross-instance controls ready" : "Single-instance fallback"}</em></div>
-      <div><span>Webhook delivery</span><strong>{data.operations.webhooks.queue.dead_letter} dead letter</strong><em>{data.operations.webhooks.queue.retrying} retrying, {data.operations.webhooks.queue.pending} pending</em></div>
-      <div><span>Evidence signing</span><strong>{data.operations.signing.activeKey?.keyId ?? "Not configured"}</strong><em>{data.operations.signing.historicalKeys} historical keys retained</em></div>
+      <AlertSummary label="Production health" alert={{ status: data.operations.status, message: `Checked ${compactTime(data.operations.generatedAt)}` }} />
+      <AlertSummary label="Shared coordination" alert={data.operations.alerts.redis} />
+      <AlertSummary label="Webhook delivery" alert={data.operations.alerts.webhooks} />
+      <AlertSummary label="Evidence signing" alert={data.operations.alerts.signing} />
     </section>
+    <OperationsTrends operations={data.operations} />
     <section className="control-metrics">
       <ControlMetric label="Registered agents" value={summary.agents} />
       <ControlMetric label="Recent runs" value={summary.runs} detail={`${summary.passingRuns} passing`} />
@@ -341,6 +342,17 @@ function GovernanceView({ project, session }: { project: HostedProject; session:
 function ActionRows({ actions }: { actions: HostedAction[] }) { return <div className="compact-list">{actions.map((action) => <div key={action.id}><strong>{action.externalId}</strong><span>{action.actionType} · {action.riskLevel}</span><Status value={action.status} /></div>)}{actions.length === 0 ? <EmptyHosted text="No actions waiting for approval." /> : null}</div>; }
 function IncidentRows({ incidents }: { incidents: HostedIncident[] }) { return <div className="compact-list">{incidents.map((incident) => <div key={incident.id}><strong>{incident.summary}</strong><span>{incident.type}{incident.firstDivergence ? ` · ${incident.firstDivergence}` : ""}</span><Status value={incident.severity} /></div>)}{incidents.length === 0 ? <EmptyHosted text="No open incidents." /> : null}</div>; }
 function ControlMetric({ label, value, detail, attention }: { label: string; value: number | string; detail?: string; attention?: boolean }) { return <div className={attention ? "attention" : ""}><span>{label}</span><strong>{value}</strong><em>{detail ?? "Current project"}</em></div>; }
+function AlertSummary({ label, alert }: { label: string; alert: { status: string; message: string } }) { return <div><span>{label}</span><strong><Status value={alert.status} /></strong><em>{alert.message}</em></div>; }
+function OperationsTrends({ operations }: { operations: HostedOperations }) {
+  const maxLatency = Math.max(1, ...operations.trends.webhooks.map((item) => item.p95LatencyMs));
+  return <section className="operations-trends">
+    <div className="trend-heading"><div><span className="eyebrow">Last 7 days</span><h2>Trust health history</h2><p>{operations.alerts.scheduledSmoke.message}</p></div><Status value={operations.alerts.scheduledSmoke.status} /></div>
+    <div className="trend-grid">
+      <div className="trend-series"><div className="trend-summary"><strong>{percent(operations.trends.summary.smokeSuccessRate)}</strong><span>production smoke pass rate</span></div><div className="trend-bars" aria-label="Daily production smoke pass rate">{operations.trends.health.map((item) => <div key={item.date} title={`${item.date}: ${item.passed}/${item.total} passed`}><i className={item.failed > 0 ? "failed" : item.total === 0 ? "empty" : "passed"} style={{ height: `${item.total ? Math.max(8, item.successRate * 100) : 4}%` }} /><small>{item.date.slice(5)}</small></div>)}</div></div>
+      <div className="trend-series"><div className="trend-summary webhook"><span><strong>{compactDuration(operations.trends.summary.p95LatencyMs)}</strong><em>p95 latency</em></span><span><strong>{percent(operations.trends.summary.retryRate)}</strong><em>retry rate</em></span><span><strong>{operations.trends.summary.deadLetterRate === 0 ? "0" : percent(operations.trends.summary.deadLetterRate)}</strong><em>DLQ rate</em></span></div><div className="trend-bars latency" aria-label="Daily webhook p95 latency">{operations.trends.webhooks.map((item) => <div key={item.date} title={`${item.date}: p95 ${compactDuration(item.p95LatencyMs)}, ${item.retried} retried, ${item.deadLetter} DLQ`}><i className={item.deadLetter > 0 ? "failed" : item.retried > 0 ? "warning" : "passed"} style={{ height: `${Math.max(4, item.p95LatencyMs / maxLatency * 100)}%` }} /><small>{item.date.slice(5)}</small></div>)}</div></div>
+    </div>
+  </section>;
+}
 function SectionTitle({ title, caption }: { title: string; caption: string }) { return <div className="section-title"><h2>{title}</h2><p>{caption}</p></div>; }
 function Status({ value }: { value: string }) { return <span className={`hosted-status ${value.toLowerCase().replace(/_/g, "-")}`}>{value.replace(/_/g, " ")}</span>; }
 function EmptyHosted({ text }: { text: string }) { return <div className="hosted-empty">{text}</div>; }
@@ -348,4 +360,5 @@ function viewTitle(view: HostedView): string { return ({ overview: "Operational 
 function compactTime(value: string): string { return new Intl.DateTimeFormat("en", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
 function compactBytes(value: number): string { return value < 1024 ? `${value} B` : value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / 1024 / 1024).toFixed(1)} MB`; }
 function percent(value: number): string { return `${Math.round(value * 100)}%`; }
+function compactDuration(value: number): string { return value >= 1_000 ? `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}s` : `${Math.round(value)}ms`; }
 async function downloadEvidence(session: HostedSession, url: string, fileName: string) { const response = await fetch(url, { headers: { authorization: `Bearer ${session.accessToken}` } }); if (!response.ok) throw new Error("Evidence download failed."); const href = URL.createObjectURL(await response.blob()); const link = document.createElement("a"); link.href = href; link.download = fileName; link.click(); URL.revokeObjectURL(href); }

@@ -24,6 +24,10 @@ artifact SHA-256 provenance, and an optional Ed25519 signature. It is assurance
 evidence, not an official certification or a guarantee that an agent cannot
 fail.
 
+Production operators should use the
+[Trust Operations incident runbook](docs/trust-operations-runbook.md) for
+scheduled-smoke, Redis, signing-key, webhook retry, and dead-letter alerts.
+
 ## 5-Minute Quickstart
 
 Start with the no-key minimal browser-agent example when you want a known-good

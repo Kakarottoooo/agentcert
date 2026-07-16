@@ -24,6 +24,8 @@ import type {
   WebhookJobCounts,
   WebhookRecord,
   SigningKeyRecord,
+  TrustHealthSampleRecord,
+  WebhookOperationsMetrics,
 } from "./types.js";
 
 export const CONTROL_PLANE_MIGRATIONS = [
@@ -33,6 +35,7 @@ export const CONTROL_PLANE_MIGRATIONS = [
   "004_legal_holds.sql",
   "005_universal_assurance.sql",
   "006_trust_operations.sql",
+  "007_trust_operations_history.sql",
 ] as const;
 
 export interface BootstrapResult {
@@ -109,6 +112,9 @@ export interface ControlPlaneStore {
   getWebhookJob(projectId: string, jobId: string): Promise<WebhookJobRecord | undefined>;
   listWebhookJobs(projectId: string, limit?: number): Promise<WebhookJobRecord[]>;
   webhookJobCounts(projectId: string): Promise<WebhookJobCounts>;
+  webhookOperationsMetrics(projectId: string, since: string): Promise<WebhookOperationsMetrics>;
+  saveTrustHealthSample(sample: TrustHealthSampleRecord): Promise<TrustHealthSampleRecord>;
+  listTrustHealthSamples(projectId: string, since: string, limit?: number): Promise<TrustHealthSampleRecord[]>;
   activateSigningKey(key: SigningKeyRecord): Promise<SigningKeyRecord>;
   getSigningKey(keyId: string): Promise<SigningKeyRecord | undefined>;
   listSigningKeys(): Promise<SigningKeyRecord[]>;
@@ -139,6 +145,7 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   private webhooks = new Map<string, WebhookRecord>();
   private webhookDeliveries = new Map<string, WebhookDeliveryRecord>();
   private webhookJobs = new Map<string, WebhookJobRecord>();
+  private trustHealthSamples = new Map<string, TrustHealthSampleRecord>();
   private signingKeys = new Map<string, SigningKeyRecord>();
   private retentionLocks = new Map<string, Promise<void>>();
 
@@ -520,6 +527,28 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
     const counts = emptyWebhookJobCounts();
     for (const job of this.webhookJobs.values()) if (job.projectId === projectId) counts[job.status] += 1;
     return counts;
+  }
+
+  async webhookOperationsMetrics(projectId: string, since: string): Promise<WebhookOperationsMetrics> {
+    return calculateWebhookOperationsMetrics(
+      [...this.webhookJobs.values()].filter((job) => job.projectId === projectId && job.createdAt >= since),
+    );
+  }
+
+  async saveTrustHealthSample(sample: TrustHealthSampleRecord): Promise<TrustHealthSampleRecord> {
+    const duplicate = [...this.trustHealthSamples.values()].find(
+      (item) => item.projectId === sample.projectId && item.externalId === sample.externalId,
+    );
+    if (duplicate) return duplicate;
+    this.trustHealthSamples.set(sample.id, sample);
+    return sample;
+  }
+
+  async listTrustHealthSamples(projectId: string, since: string, limit = 100): Promise<TrustHealthSampleRecord[]> {
+    return newest(
+      [...this.trustHealthSamples.values()].filter((item) => item.projectId === projectId && item.completedAt >= since),
+      "completedAt",
+    ).slice(0, limit);
   }
 
   async activateSigningKey(key: SigningKeyRecord): Promise<SigningKeyRecord> {
@@ -1191,6 +1220,72 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     return counts;
   }
 
+  async webhookOperationsMetrics(projectId: string, since: string): Promise<WebhookOperationsMetrics> {
+    const [bucketResult, summaryResult] = await Promise.all([this.pool.query(
+      `SELECT date_trunc('day', created_at)::date::text AS date,
+              count(*)::integer AS total,
+              count(*) FILTER (WHERE status='delivered')::integer AS delivered,
+              count(*) FILTER (WHERE attempt_count > 1)::integer AS retried,
+              count(*) FILTER (WHERE status='dead_letter')::integer AS dead_letter,
+              COALESCE(round(avg(extract(epoch FROM (completed_at-created_at)) * 1000)
+                FILTER (WHERE status='delivered' AND completed_at IS NOT NULL))::integer, 0) AS average_latency_ms,
+              COALESCE(round(percentile_cont(0.95) WITHIN GROUP
+                (ORDER BY extract(epoch FROM (completed_at-created_at)) * 1000)
+                FILTER (WHERE status='delivered' AND completed_at IS NOT NULL))::integer, 0) AS p95_latency_ms
+       FROM agentcert_webhook_jobs
+       WHERE project_id=$1 AND created_at >= $2
+       GROUP BY date_trunc('day', created_at)::date
+       ORDER BY date ASC`,
+      [projectId, since],
+    ), this.pool.query(
+      `SELECT count(*)::integer AS total,
+              count(*) FILTER (WHERE status='delivered')::integer AS delivered,
+              count(*) FILTER (WHERE attempt_count > 1)::integer AS retried,
+              count(*) FILTER (WHERE status='dead_letter')::integer AS dead_letter,
+              COALESCE(round(avg(extract(epoch FROM (completed_at-created_at)) * 1000)
+                FILTER (WHERE status='delivered' AND completed_at IS NOT NULL))::integer, 0) AS average_latency_ms,
+              COALESCE(round(percentile_cont(0.95) WITHIN GROUP
+                (ORDER BY extract(epoch FROM (completed_at-created_at)) * 1000)
+                FILTER (WHERE status='delivered' AND completed_at IS NOT NULL))::integer, 0) AS p95_latency_ms
+       FROM agentcert_webhook_jobs WHERE project_id=$1 AND created_at >= $2`,
+      [projectId, since],
+    )]);
+    const summary = summaryResult.rows[0];
+    return {
+      total: number(summary.total), delivered: number(summary.delivered), retried: number(summary.retried),
+      deadLetter: number(summary.dead_letter), averageLatencyMs: number(summary.average_latency_ms), p95LatencyMs: number(summary.p95_latency_ms),
+      buckets: bucketResult.rows.map((row) => ({
+      date: text(row.date), total: number(row.total), delivered: number(row.delivered), retried: number(row.retried),
+      deadLetter: number(row.dead_letter), averageLatencyMs: number(row.average_latency_ms), p95LatencyMs: number(row.p95_latency_ms),
+      })),
+    };
+  }
+
+  async saveTrustHealthSample(sample: TrustHealthSampleRecord): Promise<TrustHealthSampleRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_trust_health_samples
+       (id,project_id,external_id,source,status,started_at,completed_at,duration_ms,checks,error,workflow_run_id,workflow_run_url,created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       ON CONFLICT (project_id,external_id) DO UPDATE SET
+         status=EXCLUDED.status,completed_at=EXCLUDED.completed_at,duration_ms=EXCLUDED.duration_ms,
+         checks=EXCLUDED.checks,error=EXCLUDED.error,workflow_run_id=EXCLUDED.workflow_run_id,
+         workflow_run_url=EXCLUDED.workflow_run_url
+       RETURNING *`,
+      [sample.id, sample.projectId, sample.externalId, sample.source, sample.status, sample.startedAt, sample.completedAt,
+       sample.durationMs, JSON.stringify(sample.checks), sample.error ?? null, sample.workflowRunId ?? null,
+       sample.workflowRunUrl ?? null, sample.createdAt],
+    );
+    return trustHealthSampleFromRow(result.rows[0]);
+  }
+
+  async listTrustHealthSamples(projectId: string, since: string, limit = 100): Promise<TrustHealthSampleRecord[]> {
+    return many(this.pool.query(
+      `SELECT * FROM agentcert_trust_health_samples
+       WHERE project_id=$1 AND completed_at >= $2 ORDER BY completed_at DESC LIMIT $3`,
+      [projectId, since, limit],
+    ), trustHealthSampleFromRow);
+  }
+
   async activateSigningKey(key: SigningKeyRecord): Promise<SigningKeyRecord> {
     const client = await this.pool.connect();
     try {
@@ -1380,8 +1475,51 @@ function signingKeyFromRow(row: Record<string, unknown>): SigningKeyRecord {
     retiredAt: optionalIso(row.retired_at), revokedAt: optionalIso(row.revoked_at),
   };
 }
+function trustHealthSampleFromRow(row: Record<string, unknown>): TrustHealthSampleRecord {
+  return {
+    id: text(row.id), projectId: text(row.project_id), externalId: text(row.external_id),
+    source: text(row.source) as TrustHealthSampleRecord["source"], status: text(row.status) as TrustHealthSampleRecord["status"],
+    startedAt: iso(row.started_at), completedAt: iso(row.completed_at), durationMs: number(row.duration_ms),
+    checks: stringArray(row.checks), error: optionalText(row.error), workflowRunId: optionalText(row.workflow_run_id),
+    workflowRunUrl: optionalText(row.workflow_run_url), createdAt: iso(row.created_at),
+  };
+}
 function emptyWebhookJobCounts(): WebhookJobCounts {
   return { pending: 0, processing: 0, retrying: 0, delivered: 0, dead_letter: 0 };
+}
+
+function calculateWebhookOperationsMetrics(jobs: WebhookJobRecord[]): WebhookOperationsMetrics {
+  const grouped = new Map<string, WebhookJobRecord[]>();
+  for (const job of jobs) {
+    const date = job.createdAt.slice(0, 10);
+    grouped.set(date, [...(grouped.get(date) ?? []), job]);
+  }
+  const buckets = [...grouped.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([date, items]) => {
+    const latencies = items.filter((item) => item.status === "delivered" && item.completedAt)
+      .map((item) => Math.max(0, Date.parse(item.completedAt!) - Date.parse(item.createdAt))).sort((left, right) => left - right);
+    return {
+      date, total: items.length, delivered: items.filter((item) => item.status === "delivered").length,
+      retried: items.filter((item) => item.attemptCount > 1).length,
+      deadLetter: items.filter((item) => item.status === "dead_letter").length,
+      averageLatencyMs: latencies.length ? Math.round(latencies.reduce((sum, value) => sum + value, 0) / latencies.length) : 0,
+      p95LatencyMs: percentile(latencies, 0.95),
+    };
+  });
+  const latencies = jobs.filter((item) => item.status === "delivered" && item.completedAt)
+    .map((item) => Math.max(0, Date.parse(item.completedAt!) - Date.parse(item.createdAt))).sort((left, right) => left - right);
+  return {
+    total: jobs.length, delivered: jobs.filter((item) => item.status === "delivered").length,
+    retried: jobs.filter((item) => item.attemptCount > 1).length,
+    deadLetter: jobs.filter((item) => item.status === "dead_letter").length,
+    averageLatencyMs: latencies.length ? Math.round(latencies.reduce((sum, value) => sum + value, 0) / latencies.length) : 0,
+    p95LatencyMs: percentile(latencies, 0.95),
+    buckets,
+  };
+}
+
+function percentile(values: number[], fraction: number): number {
+  if (values.length === 0) return 0;
+  return values[Math.max(0, Math.ceil(values.length * fraction) - 1)] ?? 0;
 }
 function failureReviewFromRow(row: Record<string, unknown>): FailureReviewRecord {
   const context = object(row.evidence_context);
