@@ -39,6 +39,18 @@ export interface SandboxCertificationView {
   disclaimer?: string;
 }
 
+export interface VendorAcceptanceHistoryView {
+  totalRuns: number;
+  passingRuns: number;
+  passRate: number;
+  trend: "waiting" | "baseline" | "stable" | "recovered" | "regressed";
+  regressions: string[];
+  latest?: HostedRun;
+  previous?: HostedRun;
+}
+
+const VENDOR_ACCEPTANCE_PREFIX = "vendor-acceptance:stripe:";
+
 export function isSandboxCertificationRun(run: HostedRun): boolean {
   const evidenceType = text(run.metadata.evidenceType);
   return run.metadata.sandboxOnly === true
@@ -46,6 +58,42 @@ export function isSandboxCertificationRun(run: HostedRun): boolean {
     || evidenceType === "agentcert.sandbox_certification"
     || evidenceType === "agentcert.sandbox_vendor_egress"
     || run.schemaVersion.startsWith("agentcert.sandbox_");
+}
+
+export function vendorAcceptanceHistory(runs: HostedRun[]): VendorAcceptanceHistoryView {
+  const accepted = runs
+    .filter((run) => run.externalId.startsWith(VENDOR_ACCEPTANCE_PREFIX))
+    .sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt));
+  const latest = accepted[0];
+  const previous = accepted[1];
+  const passingRuns = accepted.filter((run) => run.status === "passed").length;
+  const regressions: string[] = [];
+  if (latest && latest.status !== "passed") regressions.push("latest run failed");
+  if (latest && previous) {
+    if (normalizedScore(latest.score) < normalizedScore(previous.score)) regressions.push("score decreased");
+    if (latest.schemaVersion !== previous.schemaVersion) regressions.push("schema changed");
+    const latestPolicy = text(latest.metadata.policySha256);
+    const previousPolicy = text(previous.metadata.policySha256);
+    if (latestPolicy && previousPolicy && latestPolicy !== previousPolicy) regressions.push("egress policy changed");
+  }
+  const trend = !latest
+    ? "waiting"
+    : regressions.length > 0
+      ? "regressed"
+      : !previous
+        ? "baseline"
+        : previous.status !== "passed"
+          ? "recovered"
+          : "stable";
+  return {
+    totalRuns: accepted.length,
+    passingRuns,
+    passRate: accepted.length ? passingRuns / accepted.length : 0,
+    trend,
+    regressions,
+    latest,
+    previous,
+  };
 }
 
 export function sandboxCertificationFromBundle(bundle?: EvidenceBundleDocument): SandboxCertificationView | undefined {
@@ -121,5 +169,6 @@ function array(value: unknown): unknown[] { return Array.isArray(value) ? value 
 function text(value: unknown): string { return typeof value === "string" ? value : ""; }
 function optionalText(value: unknown): string | undefined { return text(value).trim() || undefined; }
 function number(value: unknown): number { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; }
+function normalizedScore(value?: number): number { return value === undefined ? 0 : value <= 1 ? value * 100 : value; }
 function optionalNumber(value: unknown): number | undefined { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : undefined; }
 function stringArray(value: unknown): string[] { return array(value).map(text).filter(Boolean); }

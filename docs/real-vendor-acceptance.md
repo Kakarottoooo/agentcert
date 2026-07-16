@@ -1,0 +1,68 @@
+# Real Vendor Acceptance v0.5
+
+AgentCert provides a manually triggered GitHub workflow for release maintainers
+to verify one real, read-only Stripe sandbox path without exposing the vendor
+credential to evidence or logs.
+
+## Protected environment
+
+Create a GitHub environment named `vendor-sandbox` and require an authorized
+reviewer before deployment. Add these environment secrets:
+
+| Secret | Required value |
+| --- | --- |
+| `STRIPE_RESTRICTED_TEST_KEY` | An `rk_test_` restricted Stripe test key with PaymentIntents set to Read and unrelated resources set to None |
+| `STRIPE_PAYMENT_INTENT_ID` | An existing sandbox PaymentIntent ID beginning with `pi_` |
+| `AGENTCERT_PROJECT_ID` | The production Hosted project that retains acceptance runs |
+| `AGENTCERT_API_KEY` | A scoped key with `runs:read`, `runs:write`, and `evidence:write` |
+
+Do not use a secret key, live-mode key, production object, or unrestricted
+vendor credential. The workflow is manual only and has a fixed concurrency
+group, so scheduled jobs cannot consume vendor access unattended.
+
+## Run the acceptance
+
+Open **Actions**, choose **Real Stripe sandbox acceptance**, select **Run
+workflow**, and provide a short reason. The protected environment reviewer must
+approve the job before the secrets are released.
+
+The job executes these gates in order:
+
+1. Validate the key and object ID shapes without printing their values.
+2. Run the fixed Stripe PaymentIntent read-only command and write a local v0.4 report.
+3. Scan the report for forbidden fields, exact secret values, and credential-shaped material.
+4. Upload only the independently scanned report through `sandbox upload-report`, which validates it a second time.
+5. Read prior protected runs from Hosted and fail on status, score, schema, or egress-policy regression.
+6. Scan the report, first scan, and history payload together, then upload them as 30-day GitHub artifacts only if this final scan passes.
+
+The external ID uses `vendor-acceptance:stripe:<run-id>:<attempt>`. Hosted uses
+that prefix to keep real vendor acceptance history separate from synthetic
+adapter certifications.
+
+## Evidence and failure behavior
+
+The workflow fails if the vendor read fails, the redaction scan finds any
+sensitive material, production upload fails, or the current run regresses from
+the prior protected run. A failed scan prevents upload. Finding codes are safe
+to retain and never include the matched secret value.
+
+The Hosted **Sandbox certifications** page reports the protected run count,
+pass rate, latest run time, trend, and detected schema/policy regression. Each
+run still retains the full redacted v0.4 report and evidence provenance.
+
+## What this proves
+
+- the declared Stripe sandbox read succeeded through AgentCert's fixed v0.4 boundary;
+- the retained report passed two independent local secret/field checks before production upload;
+- the current result did not regress against the prior protected acceptance run;
+- production retained the redacted evidence under a traceable workflow run ID.
+
+## What this does not prove
+
+- that the restricted key has no permissions beyond its manually reviewed Stripe configuration;
+- that writes, live mode, other Stripe resources, or other vendors are safe;
+- that Stripe or the calling application is certified by AgentCert;
+- that sandbox behavior guarantees production behavior.
+
+Keep the environment approval requirement enabled, rotate the restricted key,
+and delete it immediately if a scan or log ever indicates exposure.

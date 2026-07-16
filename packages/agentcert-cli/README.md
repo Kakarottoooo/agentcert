@@ -94,6 +94,23 @@ routes, with a 5-second timeout and 10-request-per-minute process-local cap.
 The Stripe key is environment-only and is never written to output or evidence.
 See the [Bounded Vendor Sandbox Egress guide](https://github.com/Kakarottoooo/agentcert/blob/main/docs/bounded-vendor-sandbox-egress.md).
 
+Release maintainers can run the protected, manual
+`Real Stripe sandbox acceptance` GitHub workflow. It performs the bounded read,
+independently scans the generated report before upload, validates it again at
+the CLI boundary, uploads the v0.4 evidence, and compares it with prior
+protected runs. See the [real vendor acceptance guide](https://github.com/Kakarottoooo/agentcert/blob/main/docs/real-vendor-acceptance.md).
+
+The workflow's upload step is also available as a narrow command for an
+already-generated report:
+
+```bash
+npx agentcert sandbox upload-report --report .agentcert/vendor-sandbox/current-report.json --external-id vendor-acceptance:stripe:<run>:<attempt>
+```
+
+This command accepts only AgentCert sandbox conformance and vendor-egress
+contracts and rejects reports containing credential-shaped values or forbidden
+sensitive fields.
+
 Review/export helpers:
 
 ```bash

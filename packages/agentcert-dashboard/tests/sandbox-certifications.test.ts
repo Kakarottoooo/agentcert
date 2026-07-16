@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { EvidenceBundleDocument } from "../src/evidence-analysis";
 import type { HostedRun } from "../src/hosted-api";
-import { isSandboxCertificationRun, sandboxCertificationFromBundle } from "../src/sandbox-certifications";
+import { isSandboxCertificationRun, sandboxCertificationFromBundle, vendorAcceptanceHistory } from "../src/sandbox-certifications";
 
 const sandboxRun: HostedRun = {
   id: "run-1",
@@ -122,5 +122,44 @@ describe("hosted sandbox certification", () => {
       },
       requestAudit: [expect.objectContaining({ requestId: "stripe-1", outcome: "allowed", status: 200 })],
     });
+  });
+
+  it("tracks only protected real vendor acceptance runs and detects policy regression", () => {
+    const history = vendorAcceptanceHistory([
+      sandboxRun,
+      {
+        ...sandboxRun,
+        id: "acceptance-2",
+        externalId: "vendor-acceptance:stripe:2:1",
+        schemaVersion: "agentcert.sandbox_vendor_egress.v0.4",
+        startedAt: "2030-01-02T00:00:00.000Z",
+        metadata: { policySha256: "new-policy", acceptanceType: "real_vendor_sandbox" },
+      },
+      {
+        ...sandboxRun,
+        id: "acceptance-1",
+        externalId: "vendor-acceptance:stripe:1:1",
+        schemaVersion: "agentcert.sandbox_vendor_egress.v0.4",
+        startedAt: "2030-01-01T00:00:00.000Z",
+        metadata: { policySha256: "old-policy", acceptanceType: "real_vendor_sandbox" },
+      },
+    ]);
+
+    expect(history).toMatchObject({
+      totalRuns: 2,
+      passingRuns: 2,
+      passRate: 1,
+      trend: "regressed",
+      regressions: ["egress policy changed"],
+      latest: { id: "acceptance-2" },
+      previous: { id: "acceptance-1" },
+    });
+  });
+
+  it("shows a baseline for the first successful real vendor acceptance", () => {
+    expect(vendorAcceptanceHistory([{
+      ...sandboxRun,
+      externalId: "vendor-acceptance:stripe:1:1",
+    }])).toMatchObject({ totalRuns: 1, passingRuns: 1, trend: "baseline", regressions: [] });
   });
 });

@@ -93,5 +93,7 @@ jobs:
         run: npm run control-plane:test
       - name: Test production smoke harness
         run: npm run production-smoke:test
+      - name: Test real vendor sandbox acceptance harness
+        run: npm run vendor-sandbox:test
       - name: Build control plane image
         run: docker build --file Dockerfile.control-plane --tag agentcert-control-plane:ci .
