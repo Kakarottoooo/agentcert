@@ -429,7 +429,10 @@ export function generateAuditPacket(actionId: string): ActionAuditPacket {
   return {
     demo: true,
     product: "AgentCert Onegent Runtime",
-    scenario: "Procurement purchase-order approval walkthrough",
+    scenario:
+      refreshedReview.action.businessObjectType === "purchase_order" && refreshedReview.action.targetSystem === "MockERP"
+        ? "Procurement purchase-order approval walkthrough"
+        : `${refreshedReview.action.actionType} ${refreshedReview.action.businessObjectType} action in ${refreshedReview.action.targetSystem}`,
     actionIntent: refreshedReview.action,
     riskAssessment: refreshedReview.riskAssessment,
     authorizationDecision: refreshedReview.authorizationDecision,

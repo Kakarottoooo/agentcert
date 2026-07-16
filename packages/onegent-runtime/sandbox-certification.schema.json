@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.dev/schemas/agentcert-sandbox-certification-v0.1.json",
+  "title": "AgentCert Sandbox Certification Report v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "implementation", "generatedAt", "verdict", "summary", "checks", "runIds", "disclaimer"],
+  "properties": {
+    "schemaVersion": { "const": "agentcert.sandbox_certification.v0.1" },
+    "kind": { "const": "agentcert.sandbox_certification" },
+    "implementation": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "score"],
+      "properties": {
+        "passed": { "type": "boolean" },
+        "score": { "type": "integer", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "failed", "total"],
+      "properties": {
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "message"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["passed", "failed"] },
+          "message": { "type": "string", "minLength": 1 },
+          "evidence": { "type": "object" }
+        }
+      }
+    },
+    "runIds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "disclaimer": { "type": "string", "minLength": 1 }
+  }
+}

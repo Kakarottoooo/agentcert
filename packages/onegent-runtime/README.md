@@ -97,6 +97,29 @@ rollback. `createJsonlAuditStore()` provides an append-only local audit sink;
 hosted or customer-managed stores can implement the same `AuditStore`
 contract.
 
+## Sandbox Certification Harness
+
+Run the active local certification suite:
+
+```powershell
+npm run build
+node dist/cli.js sandbox-certify --out .onegent/sandbox-certification
+```
+
+It tests tenant isolation, synthetic-data enforcement, network denial, target
+allowlisting, production denial, approval, execution limits, kill switches,
+idempotency, verification, rollback, and reset. The versioned JSON report is
+validated by `sandbox-certification.schema.json`.
+
+Programmatic entry points:
+
+- `createSandboxCertificationHarness()` creates the bounded tenant/run API;
+- `createInMemorySandboxSystem()` is the local synthetic reference system;
+- `runSandboxCertificationSuite()` actively exercises all ten controls;
+- `writeSandboxReport()` writes a private local report.
+
+See [the full harness guide](../../docs/sandbox-certification-harness.md).
+
 ## Demo
 
 ```powershell
