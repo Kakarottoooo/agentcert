@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runEvidenceConformance } from "../src/conformance.js";
 
@@ -25,6 +26,17 @@ describe("evidence conformance suite v0.1", () => {
       schemaVersion: "agentcert.conformance.v0.1", implementation: "reference-adapter", valid: true,
       summary: { passed: 4, failed: 0 },
     });
+  });
+
+  it("keeps the checked-in example byte-stable across platforms", async () => {
+    const evidenceFile = fileURLToPath(new URL("../../../examples/conformance/evidence.valid.json", import.meta.url));
+    const evidence = JSON.parse(await readFile(evidenceFile, "utf8"));
+    const report = await runEvidenceConformance(evidence, {
+      evidenceFile,
+      artifactRoot: join(dirname(evidenceFile), "artifacts"),
+      implementation: "checked-in-example",
+    });
+    expect(report.valid).toBe(true);
   });
 
   it("reports hash, size, missing-manifest, path, and compatibility failures", async () => {
