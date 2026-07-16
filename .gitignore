@@ -13,6 +13,7 @@ build/
 .mcpbench/
 .agentcert/
 .tripwire/
+.onegent/
 out/
 node_modules/
 playwright-report/

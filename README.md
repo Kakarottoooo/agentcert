@@ -391,6 +391,17 @@ assessment, policy evaluation, human approval, mock ERP execution, expected-vs-
 observed verification, and an exported audit packet. It does not execute real
 payments, send real emails, or touch production systems.
 
+For safe design-partner trials, Sandbox Certification Harness v0.1 adds
+tenant-isolated synthetic state, seed/reset, deny-by-default network access,
+target and amount limits, global/tenant kill switches, concurrent idempotency,
+verification, and rollback. Run its ten-control active suite with:
+
+```powershell
+npm run onegent:sandbox-certify
+```
+
+Guide: [docs/sandbox-certification-harness.md](docs/sandbox-certification-harness.md).
+
 SDK surface and integration guide: [docs/onegent-runtime.md](docs/onegent-runtime.md)
 and [packages/onegent-runtime/README.md](packages/onegent-runtime/README.md).
 

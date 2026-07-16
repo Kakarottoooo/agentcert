@@ -117,6 +117,22 @@ The checked-in adapter path is local and deterministic:
 Real systems should only be added behind explicit credential, approval,
 rollback, verification, and audit boundaries.
 
+## Sandbox Certification Harness
+
+Onegent now includes a tenant-scoped, local-only certification harness between
+the mock demo and any future vendor sandbox. It enforces synthetic seed data,
+deny-by-default network access, target allowlists, explicit idempotency keys,
+identified approval, per-action and per-run limits, global and tenant kill
+switches, observed-state verification, rollback, and deterministic reset.
+
+```bash
+npm run onegent:sandbox-certify
+```
+
+The active suite emits a versioned report covering ten controls. See
+[Sandbox Certification Harness v0.1](sandbox-certification-harness.md) for the
+SDK, control table, schema, and customer-sandbox progression.
+
 ## Procurement Walkthrough
 
 The demo scenario is a `ProcurementAgent` submitting a `$4,850` purchase order to `Acme Industrial Supply`. The purchase order starts in local mock ERP state `DRAFT`. Because purchase orders over `$1,000` require human approval, the action is classified as `HIGH` risk and waits for approval before execution.
