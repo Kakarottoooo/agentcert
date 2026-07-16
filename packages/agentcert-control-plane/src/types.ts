@@ -251,7 +251,7 @@ export interface IncidentTransitionRecord {
   occurredAt: string;
 }
 
-export type NotificationAlertType = "destination_verification" | "incident_opened" | "incident_regressed" | "incident_recovered" | "incident_resolved";
+export type NotificationAlertType = "destination_verification" | "incident_opened" | "incident_regressed" | "incident_recovered" | "incident_resolved" | "slo_burn_rate";
 export type NotificationDestinationStatus = "pending_verification" | "active" | "disabled";
 
 export interface NotificationDestinationRecord {
@@ -274,13 +274,40 @@ export interface NotificationDeliveryRecord {
   id: string;
   projectId: string;
   destinationId: string;
+  jobId?: string;
   alertType: NotificationAlertType;
   subject: string;
   status: "delivered" | "failed";
   provider: string;
   providerMessageId?: string;
   error?: string;
+  attemptCount: number;
   attemptedAt: string;
+}
+
+export type NotificationJobStatus = "pending" | "processing" | "retrying" | "delivered" | "dead_letter";
+export type NotificationJobCounts = Record<NotificationJobStatus, number>;
+
+export interface NotificationJobRecord {
+  id: string;
+  projectId: string;
+  destinationId: string;
+  alertType: NotificationAlertType;
+  recipient: string;
+  subject: string;
+  text: string;
+  html: string;
+  status: NotificationJobStatus;
+  attemptCount: number;
+  maxAttempts: number;
+  nextAttemptAt: string;
+  lockedAt?: string;
+  lockedBy?: string;
+  provider?: string;
+  providerMessageId?: string;
+  lastError?: string;
+  createdAt: string;
+  completedAt?: string;
 }
 
 export interface TrustHealthSloWindow {
@@ -290,6 +317,16 @@ export interface TrustHealthSloWindow {
   failed: number;
   attainment: number | null;
   errorBudgetRemaining: number | null;
+  burnRate: number | null;
+}
+
+export interface TrustHealthBurnWindow {
+  label: "1h" | "6h" | "24h";
+  hours: 1 | 6 | 24;
+  total: number;
+  passed: number;
+  failed: number;
+  errorRate: number | null;
   burnRate: number | null;
 }
 

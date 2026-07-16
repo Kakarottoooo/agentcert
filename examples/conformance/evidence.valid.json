@@ -1,0 +1,35 @@
+{
+  "schemaName": "agentcert.evidence_bundle",
+  "schemaVersion": "agentcert.evidence.v0.1",
+  "schemaSemver": "0.1.0",
+  "kind": "agentcert.evidence_bundle",
+  "runId": "third_party_conformance_001",
+  "generatedAt": "2026-07-15T00:00:00.000Z",
+  "subject": { "name": "third-party-agent", "type": "agent" },
+  "verdict": { "passed": true, "score": 100, "level": "pass" },
+  "summary": { "products": [], "criticalEvidence": 0, "highEvidence": 0, "totalEvidence": 1 },
+  "results": [],
+  "evidence": [
+    {
+      "id": "trace-1",
+      "kind": "trace",
+      "severity": "info",
+      "message": "Third-party trace used by the conformance example.",
+      "source": "third-party",
+      "artifactPath": "trace.json"
+    }
+  ],
+  "artifacts": { "trace": "trace.json" },
+  "artifactManifest": {
+    "schemaVersion": "agentcert.artifact_manifest.v0.1",
+    "entries": [
+      {
+        "path": "trace.json",
+        "sha256": "424da8c186ce0e6f732a2efa0b2349d4a37562e0c31cba58719aede3ca53b191",
+        "sizeBytes": 25,
+        "kind": "trace"
+      }
+    ]
+  },
+  "standards": []
+}

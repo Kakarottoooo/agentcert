@@ -1,7 +1,7 @@
 # Trust Operations Incident Runbook
 
 This runbook covers production-smoke, Redis coordination, evidence signing,
-webhook retry, and dead-letter alerts for the hosted AgentCert control plane.
+webhook/email retry, SLO burn rate, and dead-letter alerts for the hosted AgentCert control plane.
 It is an operator procedure, not evidence that an incident is resolved.
 
 ## Alert Matrix
@@ -12,6 +12,8 @@ It is an operator procedure, not evidence that an incident is resolved.
 | Redis coordination | None | Redis is not ready or controls are not shared across instances |
 | Signing key | Active key is 90-179 days old | No active key, or active key is at least 180 days old |
 | Webhook delivery | One or more jobs are retrying | One or more jobs are in the dead-letter queue |
+| Email delivery | One or more jobs are retrying | One or more jobs are in the dead-letter queue |
+| SLO burn rate | 6h/24h sustained burn exceeds 6x/3x with minimum samples | 1h/6h fast burn exceeds 14.4x/6x with minimum samples |
 | Production incident | Recovered after two consecutive passes; human resolution pending | Open or investigating |
 
 ## Incident State Machine
@@ -78,6 +80,22 @@ A single passing run never recovers or closes an incident. A new failure after
 3. Fix receiver availability or validation before selecting **Retry**.
 4. Redrive one job first. Confirm delivery latency and retry rate recover before
    redriving additional jobs.
+
+## Email Retry Or DLQ
+
+1. Confirm the recipient is verified and has not been disabled.
+2. Inspect the provider error and attempt count under **Integrations -> Trust operations**.
+3. Check Resend status and the configured sender domain without exposing the API key.
+4. Fix provider or recipient configuration before selecting **Retry email**.
+5. Confirm the delivery ledger records a successful new attempt and the DLQ count clears.
+
+## SLO Burn-Rate Alert
+
+1. Confirm which paired windows fired: 1h/6h fast burn or 6h/24h sustained burn.
+2. Inspect the samples in both windows; do not treat one failed smoke as a burn-rate incident.
+3. Identify the common failed check and correlate it with deploys, Redis, signing, and delivery health.
+4. Require two consecutive healthy burn-rate evaluations before recovery.
+5. Resolve the burn-rate incident separately from any individual production-smoke incident.
 
 ## Closure Evidence
 

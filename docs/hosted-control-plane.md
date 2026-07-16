@@ -90,6 +90,8 @@ AGENTCERT_RATE_LIMIT_REQUESTS=300
 AGENTCERT_RATE_LIMIT_WINDOW_MS=60000
 AGENTCERT_WEBHOOK_WORKER_INTERVAL_MS=2000
 AGENTCERT_WEBHOOK_WORKER_BATCH=20
+AGENTCERT_NOTIFICATION_WORKER_INTERVAL_MS=5000
+AGENTCERT_NOTIFICATION_WORKER_BATCH=20
 # Optional platform-owned email delivery. Users never provide SMTP credentials.
 RESEND_API_KEY=re_...
 AGENTCERT_ALERT_FROM_EMAIL=AgentCert <alerts@your-verified-domain.com>
@@ -355,15 +357,16 @@ stable 32-byte base64url or 64-hex key:
 AGENTCERT_WEBHOOK_ENCRYPTION_KEY=<32 byte key>
 ```
 
-Trust Operations v0.4 writes each event to a Postgres queue before returning to
-the caller. Workers claim jobs with leases and `FOR UPDATE SKIP LOCKED`, record
+Trust Operations v0.5 writes each webhook event and email notification to a
+Postgres queue before returning to the caller. Workers claim jobs with leases and `FOR UPDATE SKIP LOCKED`, record
 every delivery attempt, retry failed requests with bounded exponential backoff,
 and move exhausted jobs to a dead-letter queue after five attempts. Expired
 worker leases are reclaimable, so a process restart does not lose queued work.
 The Dashboard shows pending, retrying, and dead-letter counts plus recent
 failure details. It also persists scheduled production-smoke outcomes and shows
 7-day smoke success, webhook latency, retry, and dead-letter trends. Redis,
-server signing, scheduled smoke, and webhook delivery each expose a separate
+server signing, scheduled smoke, webhook delivery, email delivery, and SLO burn
+rate each expose a separate
 operator-facing alert with a concrete reason. Delivery is at least once;
 receivers must deduplicate using
 `X-AgentCert-Event-Id`.
@@ -376,15 +379,20 @@ recovery evidence. An owner/admin must then review that evidence and explicitly
 resolve the incident.
 
 The operations response includes 30- and 90-day 99% SLO attainment, remaining
-error budget, and burn rate. These figures use completed scheduled production
-smokes only. Missing or stale schedules remain a separate alert, so absence of
-data cannot look healthy.
+error budget, and burn rate. It also evaluates paired 1h/6h fast-burn and
+6h/24h sustained-burn windows. Fast burn requires at least three samples in
+both windows and thresholds of 14.4x/6x. Sustained burn requires at least
+three 6-hour and six 24-hour samples and thresholds of 6x/3x. These figures use
+completed scheduled production smokes only. Missing or stale schedules remain
+a separate alert, so absence of data cannot look healthy.
 
 Owners/admins can add recipients in **Integrations -> Email alerts** and choose
 opened, regressed, recovered, and resolved notifications. AgentCert sends a
 24-hour ownership-verification link before activation. Provider credentials
 remain platform-side; users configure only recipient addresses and alert types.
-Delivery failures are retained and never roll back an incident transition.
+Delivery failures are retained in the notification attempt ledger, retried by
+the background worker, and moved to a manually replayable DLQ after five
+attempts. They never roll back an incident transition.
 
 For production acceptance without a third-party endpoint, owners can open
 **Integrations -> Trust operations** and select **Enable self-test receiver**.

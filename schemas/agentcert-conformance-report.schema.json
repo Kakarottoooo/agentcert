@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.dev/schemas/agentcert-conformance-report.schema.json",
+  "title": "AgentCertEvidenceConformanceReport",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "implementation", "evidenceFile", "artifactRoot", "generatedAt", "valid", "summary", "checks"],
+  "properties": {
+    "schemaVersion": { "const": "agentcert.conformance.v0.1" },
+    "kind": { "const": "agentcert.evidence_conformance_report" },
+    "implementation": { "type": "string", "minLength": 1 },
+    "evidenceFile": { "type": "string", "minLength": 1 },
+    "artifactRoot": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "valid": { "type": "boolean" },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "failed"],
+      "properties": {
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "message", "errors"],
+        "properties": {
+          "id": { "enum": ["schema", "compatibility", "manifest", "artifact-bytes"] },
+          "status": { "enum": ["passed", "failed"] },
+          "message": { "type": "string" },
+          "errors": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

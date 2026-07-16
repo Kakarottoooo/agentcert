@@ -12,7 +12,7 @@ const user: AuthContext = { kind: "user", userId: "00000000-0000-4000-8000-00000
 
 describe("control-plane migrations", () => {
   it("loads the universal assurance migration during startup", () => {
-    expect(CONTROL_PLANE_MIGRATIONS.at(-1)).toBe("008_trust_operations_v04.sql");
+    expect(CONTROL_PLANE_MIGRATIONS.at(-1)).toBe("009_trust_operations_v05.sql");
   });
 });
 

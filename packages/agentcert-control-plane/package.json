@@ -10,6 +10,7 @@
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
     "test": "vitest run tests",
+    "test:security": "vitest run tests/production-security.test.ts",
     "start": "node dist/cli.js",
     "dev": "npm run build && node dist/cli.js"
   },

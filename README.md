@@ -26,12 +26,14 @@ fail.
 
 Production operators should use the
 [Trust Operations incident runbook](docs/trust-operations-runbook.md) for
-scheduled-smoke, Redis, signing-key, webhook retry, and dead-letter alerts.
-Trust Operations v0.4 keeps production incidents in an auditable
+scheduled-smoke, Redis, signing-key, webhook/email retry, SLO burn-rate, and
+dead-letter alerts. Trust Operations v0.5 keeps production incidents in an auditable
 `open -> investigating -> recovered -> resolved` lifecycle, requires two
 consecutive passing smokes for recovery, and exposes 30/90-day SLO and error
-budget status. Verified recipients can subscribe to incident alerts without
-providing SMTP credentials.
+budget status. A durable email queue retries provider failures, moves exhausted
+jobs to a DLQ, and lets verified recipients subscribe without providing SMTP
+credentials. Multi-window 1h/6h and 6h/24h burn-rate alerts open a distinct,
+deduplicated operational incident only after minimum sample thresholds are met.
 
 ## 5-Minute Quickstart
 
@@ -163,12 +165,13 @@ jobs:
   tripwire:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
 
-      - uses: Kakarottoooo/agentcert/actions/tripwire@v0
+      - id: agentcert
+        uses: Kakarottoooo/agentcert/actions/tripwire@v0
         with:
           config: tripwire.yml
           out: .tripwire/latest

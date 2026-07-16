@@ -76,11 +76,35 @@ function validateEvidenceBundle(value: Record<string, unknown>, errors: string[]
   requiredArray(value, "evidence", errors);
   requiredObject(value, "artifacts", errors);
   requiredArray(value, "standards", errors);
+
+  const subject = recordValue(value.subject);
+  if (subject) {
+    requiredStringAt(subject, "name", "subject.name", errors);
+    requiredEnumAt(subject, "type", ["agent", "mcp-server", "tool", "application", "unknown"], "subject.type", errors);
+  }
+  const verdict = recordValue(value.verdict);
+  if (verdict) {
+    requiredBooleanAt(verdict, "passed", "verdict.passed", errors);
+    requiredNumberRange(verdict, "score", "verdict.score", 0, 100, errors);
+    requiredStringAt(verdict, "level", "verdict.level", errors);
+  }
+  const summary = recordValue(value.summary);
+  if (summary) {
+    stringArray(summary.products, "summary.products", errors);
+    requiredNonNegativeInteger(summary, "criticalEvidence", "summary.criticalEvidence", errors);
+    requiredNonNegativeInteger(summary, "highEvidence", "summary.highEvidence", errors);
+    requiredNonNegativeInteger(summary, "totalEvidence", "summary.totalEvidence", errors);
+  }
+  validateTimestamp(value.generatedAt, "generatedAt", errors);
+  validateArtifactMap(value.artifacts, "artifacts", errors);
+  validateResultArray(value.results, "results", errors);
+  validateEvidenceArray(value.evidence, "evidence", errors);
+  validateStandards(value.standards, errors);
 }
 
 function validateResult(value: Record<string, unknown>, errors: string[]): void {
   requiredConst(value, "schemaVersion", "1", errors);
-  requiredEnum(value, "product", ["mcpbench", "tripwire-ci", "onegent-runtime", "agentcert-cli"], errors);
+  requiredString(value, "product", errors);
   requiredString(value, "runId", errors);
   requiredString(value, "timestamp", errors);
   requiredEnum(value, "phase", ["pre-release", "runtime"], errors);
@@ -88,6 +112,55 @@ function validateResult(value: Record<string, unknown>, errors: string[]): void 
   requiredBoolean(value, "passed", errors);
   requiredObject(value, "artifacts", errors);
   requiredArray(value, "evidence", errors);
+  requiredNumberRange(value, "score", "score", 0, 100, errors);
+  validateTimestamp(value.timestamp, "timestamp", errors);
+  validateArtifactMap(value.artifacts, "artifacts", errors);
+  validateEvidenceArray(value.evidence, "evidence", errors);
+}
+
+function validateResultArray(input: unknown, path: string, errors: string[]): void {
+  if (!Array.isArray(input)) return;
+  input.forEach((item, index) => {
+    const value = object(item, `${path}[${index}]`, errors);
+    if (!value) return;
+    const nested: string[] = [];
+    validateResult(value, nested);
+    errors.push(...nested.map((error) => `${path}[${index}].${error}`));
+  });
+}
+
+function validateEvidenceArray(input: unknown, path: string, errors: string[]): void {
+  if (!Array.isArray(input)) return;
+  input.forEach((item, index) => {
+    const value = object(item, `${path}[${index}]`, errors);
+    if (!value) return;
+    requiredStringAt(value, "id", `${path}[${index}].id`, errors);
+    requiredStringAt(value, "kind", `${path}[${index}].kind`, errors);
+    requiredEnumAt(value, "severity", ["critical", "high", "medium", "low", "info"], `${path}[${index}].severity`, errors);
+    requiredStringAt(value, "message", `${path}[${index}].message`, errors);
+    for (const field of ["source", "artifactPath", "suggestedFix"]) {
+      if (value[field] !== undefined && typeof value[field] !== "string") errors.push(`${path}[${index}].${field} must be a string.`);
+    }
+    if (value.metadata !== undefined && !recordValue(value.metadata)) errors.push(`${path}[${index}].metadata must be an object.`);
+  });
+}
+
+function validateArtifactMap(input: unknown, path: string, errors: string[]): void {
+  const value = recordValue(input);
+  if (!value) return;
+  for (const [key, item] of Object.entries(value)) if (typeof item !== "string") errors.push(`${path}.${key} must be a string.`);
+}
+
+function validateStandards(input: unknown, errors: string[]): void {
+  if (!Array.isArray(input)) return;
+  input.forEach((item, index) => {
+    const value = object(item, `standards[${index}]`, errors);
+    if (!value) return;
+    requiredStringAt(value, "id", `standards[${index}].id`, errors);
+    requiredStringAt(value, "name", `standards[${index}].name`, errors);
+    requiredEnumAt(value, "status", ["mapped", "planned"], `standards[${index}].status`, errors);
+    requiredStringAt(value, "note", `standards[${index}].note`, errors);
+  });
 }
 
 function validateCorpusRecord(value: Record<string, unknown>, errors: string[]): void {
@@ -185,4 +258,40 @@ function requiredEnum(input: Record<string, unknown>, key: string, values: strin
   if (typeof input[key] !== "string" || !values.includes(input[key])) {
     errors.push(`${key} must be one of: ${values.join(", ")}.`);
   }
+}
+
+function recordValue(input: unknown): Record<string, unknown> | undefined {
+  return input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : undefined;
+}
+
+function requiredStringAt(input: Record<string, unknown>, key: string, path: string, errors: string[]): void {
+  if (typeof input[key] !== "string" || input[key] === "") errors.push(`${path} must be a non-empty string.`);
+}
+
+function requiredBooleanAt(input: Record<string, unknown>, key: string, path: string, errors: string[]): void {
+  if (typeof input[key] !== "boolean") errors.push(`${path} must be a boolean.`);
+}
+
+function requiredEnumAt(input: Record<string, unknown>, key: string, values: string[], path: string, errors: string[]): void {
+  if (typeof input[key] !== "string" || !values.includes(input[key] as string)) errors.push(`${path} must be one of: ${values.join(", ")}.`);
+}
+
+function requiredNumberRange(input: Record<string, unknown>, key: string, path: string, minimum: number, maximum: number, errors: string[]): void {
+  const value = input[key];
+  if (typeof value !== "number" || !Number.isFinite(value) || value < minimum || value > maximum) {
+    errors.push(`${path} must be a finite number from ${minimum} to ${maximum}.`);
+  }
+}
+
+function requiredNonNegativeInteger(input: Record<string, unknown>, key: string, path: string, errors: string[]): void {
+  const value = input[key];
+  if (!Number.isInteger(value) || (value as number) < 0) errors.push(`${path} must be a non-negative integer.`);
+}
+
+function stringArray(input: unknown, path: string, errors: string[]): void {
+  if (!Array.isArray(input) || input.some((item) => typeof item !== "string")) errors.push(`${path} must be an array of strings.`);
+}
+
+function validateTimestamp(input: unknown, path: string, errors: string[]): void {
+  if (typeof input === "string" && !Number.isFinite(Date.parse(input))) errors.push(`${path} must be a valid date-time string.`);
 }

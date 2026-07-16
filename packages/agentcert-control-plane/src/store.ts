@@ -29,6 +29,8 @@ import type {
   WebhookOperationsMetrics,
   NotificationDestinationRecord,
   NotificationDeliveryRecord,
+  NotificationJobRecord,
+  NotificationJobCounts,
 } from "./types.js";
 
 export const CONTROL_PLANE_MIGRATIONS = [
@@ -40,6 +42,7 @@ export const CONTROL_PLANE_MIGRATIONS = [
   "006_trust_operations.sql",
   "007_trust_operations_history.sql",
   "008_trust_operations_v04.sql",
+  "009_trust_operations_v05.sql",
 ] as const;
 
 export interface BootstrapResult {
@@ -134,6 +137,12 @@ export interface ControlPlaneStore {
   disableNotificationDestination(projectId: string, destinationId: string, disabledAt: string): Promise<NotificationDestinationRecord | undefined>;
   insertNotificationDelivery(delivery: NotificationDeliveryRecord): Promise<NotificationDeliveryRecord>;
   listNotificationDeliveries(projectId: string, limit?: number): Promise<NotificationDeliveryRecord[]>;
+  enqueueNotificationJob(job: NotificationJobRecord): Promise<NotificationJobRecord>;
+  claimNotificationJobs(workerId: string, now: string, leaseExpiredBefore: string, limit?: number): Promise<NotificationJobRecord[]>;
+  updateNotificationJob(job: NotificationJobRecord): Promise<NotificationJobRecord>;
+  getNotificationJob(projectId: string, jobId: string): Promise<NotificationJobRecord | undefined>;
+  listNotificationJobs(projectId: string, limit?: number): Promise<NotificationJobRecord[]>;
+  notificationJobCounts(projectId: string): Promise<NotificationJobCounts>;
   activateSigningKey(key: SigningKeyRecord): Promise<SigningKeyRecord>;
   getSigningKey(keyId: string): Promise<SigningKeyRecord | undefined>;
   listSigningKeys(): Promise<SigningKeyRecord[]>;
@@ -168,6 +177,7 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   private trustHealthSamples = new Map<string, TrustHealthSampleRecord>();
   private notificationDestinations = new Map<string, NotificationDestinationRecord>();
   private notificationDeliveries = new Map<string, NotificationDeliveryRecord>();
+  private notificationJobs = new Map<string, NotificationJobRecord>();
   private signingKeys = new Map<string, SigningKeyRecord>();
   private retentionLocks = new Map<string, Promise<void>>();
 
@@ -654,6 +664,43 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
 
   async listNotificationDeliveries(projectId: string, limit = 100): Promise<NotificationDeliveryRecord[]> {
     return newest([...this.notificationDeliveries.values()].filter((item) => item.projectId === projectId), "attemptedAt").slice(0, limit);
+  }
+
+  async enqueueNotificationJob(job: NotificationJobRecord): Promise<NotificationJobRecord> {
+    this.notificationJobs.set(job.id, job);
+    return job;
+  }
+
+  async claimNotificationJobs(workerId: string, now: string, leaseExpiredBefore: string, limit = 20): Promise<NotificationJobRecord[]> {
+    const due = [...this.notificationJobs.values()]
+      .filter((job) => (job.status === "pending" || job.status === "retrying" || (job.status === "processing" && Boolean(job.lockedAt) && job.lockedAt! <= leaseExpiredBefore)) && job.nextAttemptAt <= now)
+      .sort((left, right) => left.nextAttemptAt.localeCompare(right.nextAttemptAt))
+      .slice(0, limit);
+    return due.map((job) => {
+      const claimed = { ...job, status: "processing" as const, lockedAt: now, lockedBy: workerId };
+      this.notificationJobs.set(job.id, claimed);
+      return claimed;
+    });
+  }
+
+  async updateNotificationJob(job: NotificationJobRecord): Promise<NotificationJobRecord> {
+    this.notificationJobs.set(job.id, job);
+    return job;
+  }
+
+  async getNotificationJob(projectId: string, jobId: string): Promise<NotificationJobRecord | undefined> {
+    const job = this.notificationJobs.get(jobId);
+    return job?.projectId === projectId ? job : undefined;
+  }
+
+  async listNotificationJobs(projectId: string, limit = 100): Promise<NotificationJobRecord[]> {
+    return newest([...this.notificationJobs.values()].filter((item) => item.projectId === projectId), "createdAt").slice(0, limit);
+  }
+
+  async notificationJobCounts(projectId: string): Promise<NotificationJobCounts> {
+    const counts = emptyNotificationJobCounts();
+    for (const job of this.notificationJobs.values()) if (job.projectId === projectId) counts[job.status] += 1;
+    return counts;
   }
 
   async activateSigningKey(key: SigningKeyRecord): Promise<SigningKeyRecord> {
@@ -1554,10 +1601,10 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
   async insertNotificationDelivery(delivery: NotificationDeliveryRecord): Promise<NotificationDeliveryRecord> {
     const result = await this.pool.query(
       `INSERT INTO agentcert_notification_deliveries
-       (id,project_id,destination_id,alert_type,subject,status,provider,provider_message_id,error,attempted_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-      [delivery.id, delivery.projectId, delivery.destinationId, delivery.alertType, delivery.subject, delivery.status,
-       delivery.provider, delivery.providerMessageId ?? null, delivery.error ?? null, delivery.attemptedAt],
+       (id,project_id,destination_id,job_id,alert_type,subject,status,provider,provider_message_id,error,attempt_count,attempted_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      [delivery.id, delivery.projectId, delivery.destinationId, delivery.jobId ?? null, delivery.alertType, delivery.subject, delivery.status,
+       delivery.provider, delivery.providerMessageId ?? null, delivery.error ?? null, delivery.attemptCount, delivery.attemptedAt],
     );
     return notificationDeliveryFromRow(result.rows[0]);
   }
@@ -1567,6 +1614,74 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
       "SELECT * FROM agentcert_notification_deliveries WHERE project_id=$1 ORDER BY attempted_at DESC LIMIT $2",
       [projectId, limit],
     ), notificationDeliveryFromRow);
+  }
+
+  async enqueueNotificationJob(job: NotificationJobRecord): Promise<NotificationJobRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_notification_jobs
+       (id,project_id,destination_id,alert_type,recipient,subject,text_body,html_body,status,attempt_count,max_attempts,
+        next_attempt_at,locked_at,locked_by,provider,provider_message_id,last_error,created_at,completed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`,
+      [job.id, job.projectId, job.destinationId, job.alertType, job.recipient, job.subject, job.text, job.html,
+       job.status, job.attemptCount, job.maxAttempts, job.nextAttemptAt, job.lockedAt ?? null, job.lockedBy ?? null,
+       job.provider ?? null, job.providerMessageId ?? null, job.lastError ?? null, job.createdAt, job.completedAt ?? null],
+    );
+    return notificationJobFromRow(result.rows[0]);
+  }
+
+  async claimNotificationJobs(workerId: string, now: string, leaseExpiredBefore: string, limit = 20): Promise<NotificationJobRecord[]> {
+    return many(this.pool.query(
+      `WITH due AS (
+         SELECT id FROM agentcert_notification_jobs
+         WHERE next_attempt_at <= $2
+           AND (status IN ('pending','retrying') OR (status='processing' AND locked_at <= $3))
+         ORDER BY next_attempt_at, created_at
+         FOR UPDATE SKIP LOCKED
+         LIMIT $4
+       )
+       UPDATE agentcert_notification_jobs jobs
+       SET status='processing', locked_at=$2, locked_by=$1
+       FROM due WHERE jobs.id=due.id
+       RETURNING jobs.*`,
+      [workerId, now, leaseExpiredBefore, limit],
+    ), notificationJobFromRow);
+  }
+
+  async updateNotificationJob(job: NotificationJobRecord): Promise<NotificationJobRecord> {
+    const result = await this.pool.query(
+      `UPDATE agentcert_notification_jobs SET
+       status=$2,attempt_count=$3,max_attempts=$4,next_attempt_at=$5,locked_at=$6,locked_by=$7,
+       provider=$8,provider_message_id=$9,last_error=$10,completed_at=$11
+       WHERE id=$1 RETURNING *`,
+      [job.id, job.status, job.attemptCount, job.maxAttempts, job.nextAttemptAt, job.lockedAt ?? null,
+       job.lockedBy ?? null, job.provider ?? null, job.providerMessageId ?? null, job.lastError ?? null, job.completedAt ?? null],
+    );
+    if (!result.rows[0]) throw new Error(`Notification job ${job.id} was not found.`);
+    return notificationJobFromRow(result.rows[0]);
+  }
+
+  async getNotificationJob(projectId: string, jobId: string): Promise<NotificationJobRecord | undefined> {
+    return one(this.pool.query(
+      "SELECT * FROM agentcert_notification_jobs WHERE project_id=$1 AND id=$2",
+      [projectId, jobId],
+    ), notificationJobFromRow);
+  }
+
+  async listNotificationJobs(projectId: string, limit = 100): Promise<NotificationJobRecord[]> {
+    return many(this.pool.query(
+      "SELECT * FROM agentcert_notification_jobs WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2",
+      [projectId, limit],
+    ), notificationJobFromRow);
+  }
+
+  async notificationJobCounts(projectId: string): Promise<NotificationJobCounts> {
+    const counts = emptyNotificationJobCounts();
+    const result = await this.pool.query(
+      "SELECT status, count(*)::integer AS count FROM agentcert_notification_jobs WHERE project_id=$1 GROUP BY status",
+      [projectId],
+    );
+    for (const row of result.rows) counts[text(row.status) as NotificationJobRecord["status"]] = number(row.count);
+    return counts;
   }
 
   async activateSigningKey(key: SigningKeyRecord): Promise<SigningKeyRecord> {
@@ -1750,10 +1865,22 @@ function notificationDestinationFromRow(row: Record<string, unknown>): Notificat
 }
 function notificationDeliveryFromRow(row: Record<string, unknown>): NotificationDeliveryRecord {
   return {
-    id: text(row.id), projectId: text(row.project_id), destinationId: text(row.destination_id),
+    id: text(row.id), projectId: text(row.project_id), destinationId: text(row.destination_id), jobId: optionalText(row.job_id),
     alertType: text(row.alert_type) as NotificationDeliveryRecord["alertType"], subject: text(row.subject),
     status: text(row.status) as NotificationDeliveryRecord["status"], provider: text(row.provider),
-    providerMessageId: optionalText(row.provider_message_id), error: optionalText(row.error), attemptedAt: iso(row.attempted_at),
+    providerMessageId: optionalText(row.provider_message_id), error: optionalText(row.error),
+    attemptCount: optionalNumber(row.attempt_count) ?? 1, attemptedAt: iso(row.attempted_at),
+  };
+}
+function notificationJobFromRow(row: Record<string, unknown>): NotificationJobRecord {
+  return {
+    id: text(row.id), projectId: text(row.project_id), destinationId: text(row.destination_id),
+    alertType: text(row.alert_type) as NotificationJobRecord["alertType"], recipient: text(row.recipient),
+    subject: text(row.subject), text: text(row.text_body), html: text(row.html_body),
+    status: text(row.status) as NotificationJobRecord["status"], attemptCount: number(row.attempt_count),
+    maxAttempts: number(row.max_attempts), nextAttemptAt: iso(row.next_attempt_at), lockedAt: optionalIso(row.locked_at),
+    lockedBy: optionalText(row.locked_by), provider: optionalText(row.provider), providerMessageId: optionalText(row.provider_message_id),
+    lastError: optionalText(row.last_error), createdAt: iso(row.created_at), completedAt: optionalIso(row.completed_at),
   };
 }
 function apiKeyFromRow(row: Record<string, unknown>): ApiKeyRecord {
@@ -1819,6 +1946,10 @@ function trustHealthSampleFromRow(row: Record<string, unknown>): TrustHealthSamp
   };
 }
 function emptyWebhookJobCounts(): WebhookJobCounts {
+  return { pending: 0, processing: 0, retrying: 0, delivered: 0, dead_letter: 0 };
+}
+
+function emptyNotificationJobCounts(): NotificationJobCounts {
   return { pending: 0, processing: 0, retrying: 0, delivered: 0, dead_letter: 0 };
 }
 

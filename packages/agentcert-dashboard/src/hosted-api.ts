@@ -115,7 +115,7 @@ export interface HostedIncidentTransition {
   occurredAt: string;
 }
 
-export type HostedNotificationAlertType = "incident_opened" | "incident_regressed" | "incident_recovered" | "incident_resolved";
+export type HostedNotificationAlertType = "incident_opened" | "incident_regressed" | "incident_recovered" | "incident_resolved" | "slo_burn_rate";
 
 export interface HostedNotificationDestination {
   id: string;
@@ -250,6 +250,20 @@ export interface HostedWebhookJob {
   completedAt?: string;
 }
 
+export interface HostedNotificationJob {
+  id: string;
+  destinationId: string;
+  alertType: HostedNotificationAlertType | "destination_verification";
+  recipient: string;
+  subject: string;
+  status: "pending" | "processing" | "retrying" | "delivered" | "dead_letter";
+  attemptCount: number;
+  maxAttempts: number;
+  lastError?: string;
+  createdAt: string;
+  completedAt?: string;
+}
+
 export interface HostedSigningKey {
   keyId: string;
   algorithm: "Ed25519";
@@ -259,12 +273,12 @@ export interface HostedSigningKey {
 }
 
 export interface HostedOperations {
-  schemaVersion: "agentcert.trust_operations.v0.4";
+  schemaVersion: "agentcert.trust_operations.v0.5";
   projectId: string;
   status: "healthy" | "warning" | "critical";
   generatedAt: string;
   coordination: { backend: "memory" | "redis"; state: "ready" | "degraded"; shared: boolean };
-  alerts: Record<"redis" | "signing" | "scheduledSmoke" | "webhooks" | "incidents", { status: "healthy" | "warning" | "critical"; message: string }>;
+  alerts: Record<"redis" | "signing" | "scheduledSmoke" | "webhooks" | "notifications" | "sloBurnRate" | "incidents", { status: "healthy" | "warning" | "critical"; message: string }>;
   webhooks: {
     queue: Record<HostedWebhookJob["status"], number>;
     recentJobs: HostedWebhookJob[];
@@ -282,12 +296,21 @@ export interface HostedOperations {
   notifications: {
     provider: string;
     configured: boolean;
+    queue: Record<HostedNotificationJob["status"], number>;
     destinations: HostedNotificationDestination[];
-    recentDeliveries: Array<{ id: string; destinationId: string; alertType: string; subject: string; status: "delivered" | "failed"; provider: string; error?: string; attemptedAt: string }>;
+    recentJobs: HostedNotificationJob[];
+    recentDeliveries: Array<{ id: string; destinationId: string; jobId?: string; alertType: string; subject: string; status: "delivered" | "failed"; provider: string; error?: string; attemptCount: number; attemptedAt: string }>;
+    deadLetters: HostedNotificationJob[];
   };
   slo: {
     objective: number;
     windows: Array<{ days: 30 | 90; total: number; passed: number; failed: number; attainment: number | null; errorBudgetRemaining: number | null; burnRate: number | null }>;
+    burnRate: {
+      status: "healthy" | "warning" | "critical";
+      reason: string;
+      windows: Array<{ label: "1h" | "6h" | "24h"; hours: 1 | 6 | 24; total: number; passed: number; failed: number; errorRate: number | null; burnRate: number | null }>;
+      policy: Record<string, unknown>;
+    };
   };
   trends: {
     windowDays: 7;
@@ -586,6 +609,10 @@ export async function revokeHostedApiKey(session: HostedSession, projectId: stri
 
 export async function retryHostedWebhookJob(session: HostedSession, projectId: string, jobId: string): Promise<HostedWebhookJob> {
   return apiRequest(session, path(projectId, `webhook-jobs/${encodeURIComponent(jobId)}/retry`), { method: "POST" });
+}
+
+export async function retryHostedNotificationJob(session: HostedSession, projectId: string, jobId: string): Promise<HostedNotificationJob> {
+  return apiRequest(session, path(projectId, `notification-jobs/${encodeURIComponent(jobId)}/retry`), { method: "POST" });
 }
 
 export async function loadHostedWebhooks(session: HostedSession, projectId: string): Promise<HostedWebhookState> {

@@ -44,6 +44,8 @@ import type {
   NotificationAlertType,
   NotificationDestinationRecord,
   PublicNotificationDestinationRecord,
+  NotificationJobRecord,
+  TrustHealthBurnWindow,
   WebhookJobRecord,
   WebhookRecord,
 } from "./types.js";
@@ -66,7 +68,23 @@ const DEFAULT_WEBHOOK_LEASE_MS = 60_000;
 const DEFAULT_WEBHOOK_RETRY_BASE_MS = 5_000;
 const MAX_WEBHOOK_RETRY_MS = 60 * 60 * 1000;
 const PRODUCTION_SMOKE_FINGERPRINT = "trust-operations:production-smoke";
+const SLO_BURN_FINGERPRINT = "trust-operations:slo-burn-rate";
 const TRUST_SLO_OBJECTIVE = 0.99;
+const DEFAULT_NOTIFICATION_MAX_ATTEMPTS = 5;
+const DEFAULT_NOTIFICATION_LEASE_MS = 60_000;
+const DEFAULT_NOTIFICATION_RETRY_BASE_MS = 60_000;
+const MAX_NOTIFICATION_RETRY_MS = 6 * 60 * 60 * 1000;
+
+interface SloBurnEvaluation {
+  status: "healthy" | "warning" | "critical";
+  reason: string;
+  windows: TrustHealthBurnWindow[];
+  policy: {
+    objective: number;
+    fastBurn: { shortWindow: "1h"; longWindow: "6h"; shortThreshold: number; longThreshold: number; minimumSamples: number };
+    slowBurn: { shortWindow: "6h"; longWindow: "24h"; shortThreshold: number; longThreshold: number; minimumShortSamples: number; minimumLongSamples: number };
+  };
+}
 
 export class ControlPlaneError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -802,7 +820,8 @@ export class AgentCertControlPlane {
       workflowRunId: optionalString(body, "workflowRunId"), workflowRunUrl, createdAt: now,
     });
     const lifecycle = source === "production_smoke" ? await this.applyProductionSmokeOutcome(auth, sample) : {};
-    return { sample, ...lifecycle };
+    const sloBurnRate = source === "production_smoke" ? await this.applySloBurnRateOutcome(auth, sample) : undefined;
+    return { sample, ...lifecycle, ...(sloBurnRate ? { sloBurnRate } : {}) };
   }
 
   private async applyProductionSmokeOutcome(
@@ -865,6 +884,68 @@ export class AgentCertControlPlane {
     const next = await this.store.updateIncidentWithTransition(candidate, transition);
     await this.sendIncidentNotification("incident_recovered", next.incident, next.transition);
     return { operationalIncident: next.incident, incidentTransition: next.transition };
+  }
+
+  private async applySloBurnRateOutcome(auth: AuthContext, sample: TrustHealthSampleRecord): Promise<{
+    evaluation: SloBurnEvaluation;
+    operationalIncident?: IncidentRecord;
+    incidentTransition?: IncidentTransitionRecord;
+  }> {
+    const evaluation = await sloBurnEvaluation(this.store, sample.projectId, new Date(sample.completedAt), TRUST_SLO_OBJECTIVE);
+    const active = await this.store.getActiveIncidentByFingerprint(sample.projectId, SLO_BURN_FINGERPRINT);
+    if (evaluation.status !== "healthy") {
+      const evidence = { sample: sampleEvidence(sample), burnRate: evaluation };
+      if (!active) {
+        const incident: IncidentRecord = {
+          id: randomUUID(), projectId: sample.projectId, severity: evaluation.status === "critical" ? "critical" : "high",
+          type: "slo_burn_rate", status: "open", summary: `Production smoke error budget is burning at ${evaluation.status} rate.`,
+          firstDivergence: evaluation.reason, fingerprint: SLO_BURN_FINGERPRINT, occurrenceCount: 1, consecutivePasses: 0,
+          lastFailedAt: sample.completedAt, createdAt: sample.completedAt, updatedAt: sample.completedAt,
+        };
+        try {
+          const transition = this.incidentTransition(incident, undefined, "open", auth, evaluation.reason, evidence);
+          const inserted = await this.store.insertIncidentWithTransition(incident, transition);
+          await this.sendIncidentNotification("slo_burn_rate", inserted.incident, inserted.transition);
+          return { evaluation, operationalIncident: inserted.incident, incidentTransition: inserted.transition };
+        } catch (error) {
+          if (databaseErrorCode(error) !== "23505") throw error;
+          return this.applySloBurnRateOutcome(auth, sample);
+        }
+      }
+      const regressed = active.status === "recovered";
+      const next: IncidentRecord = {
+        ...active, status: regressed ? "open" : active.status, severity: evaluation.status === "critical" ? "critical" : active.severity,
+        summary: `Production smoke error budget is burning at ${evaluation.status} rate.`, firstDivergence: evaluation.reason,
+        occurrenceCount: active.occurrenceCount + 1, consecutivePasses: 0, lastFailedAt: sample.completedAt, updatedAt: sample.completedAt,
+      };
+      const transition = this.incidentTransition(
+        next, active.status, next.status, auth,
+        regressed ? "SLO burn rate regressed after recovery." : "SLO burn rate remained above the multi-window threshold.",
+        evidence,
+      );
+      const updated = await this.store.updateIncidentWithTransition(next, transition);
+      if (regressed) {
+        await this.sendIncidentNotification("incident_regressed", updated.incident, updated.transition);
+        await this.sendIncidentNotification("slo_burn_rate", updated.incident, updated.transition);
+      }
+      return { evaluation, operationalIncident: updated.incident, incidentTransition: updated.transition };
+    }
+
+    if (!active) return { evaluation };
+    const consecutivePasses = active.consecutivePasses + 1;
+    const recovered = consecutivePasses >= 2 && (active.status === "open" || active.status === "investigating");
+    const candidate: IncidentRecord = {
+      ...active, status: recovered ? "recovered" : active.status, consecutivePasses, lastPassedAt: sample.completedAt,
+      recoveredAt: recovered ? sample.completedAt : active.recoveredAt, updatedAt: sample.completedAt,
+    };
+    if (!recovered) return { evaluation, operationalIncident: await this.store.updateIncident(candidate) };
+    const transition = this.incidentTransition(
+      candidate, active.status, "recovered", auth, "Multi-window SLO burn rate remained healthy for two evaluations.",
+      { sample: sampleEvidence(sample), burnRate: evaluation, consecutivePasses },
+    );
+    const updated = await this.store.updateIncidentWithTransition(candidate, transition);
+    await this.sendIncidentNotification("incident_recovered", updated.incident, updated.transition);
+    return { evaluation, operationalIncident: updated.incident, incidentTransition: updated.transition };
   }
 
   async acknowledgeOperationalIncident(auth: AuthContext, projectId: string, incidentId: string, input: unknown) {
@@ -931,10 +1012,10 @@ export class AgentCertControlPlane {
       verificationExpiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(), createdBy: auth.userId, createdAt: now.toISOString(),
     });
     const verificationUrl = `${this.publicUrl.replace(/\/$/, "")}/v1/notification-destinations/verify?token=${encodeURIComponent(token)}`;
-    await this.deliverEmail(destination, "destination_verification", "Verify your AgentCert alert email", {
+    await this.enqueueEmail(destination, "destination_verification", "Verify your AgentCert alert email", {
       text: `Verify this email for AgentCert project alerts: ${verificationUrl}\n\nThis link expires in 24 hours.`,
       html: `<p>Verify this email for AgentCert project alerts.</p><p><a href="${escapeHtml(verificationUrl)}">Verify alert email</a></p><p>This link expires in 24 hours.</p>`,
-    }, true);
+    });
     return publicNotificationDestination(destination);
   }
 
@@ -957,12 +1038,96 @@ export class AgentCertControlPlane {
     return publicNotificationDestination(destination);
   }
 
+  async retryNotificationJob(auth: AuthContext, projectId: string, jobId: string): Promise<NotificationJobRecord> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    const job = await this.store.getNotificationJob(projectId, jobId);
+    if (!job) throw new ControlPlaneError("Notification job was not found.", 404);
+    if (job.status !== "dead_letter") throw new ControlPlaneError("Only dead-letter notification jobs can be retried.", 409);
+    return this.store.updateNotificationJob({
+      ...job, status: "pending", attemptCount: 0, nextAttemptAt: new Date().toISOString(), lockedAt: undefined,
+      lockedBy: undefined, providerMessageId: undefined, lastError: undefined, completedAt: undefined,
+    });
+  }
+
+  async processNotificationJobs(
+    workerId: string,
+    now = new Date(),
+    limit = 20,
+    leaseMs = DEFAULT_NOTIFICATION_LEASE_MS,
+  ): Promise<{ claimed: number; delivered: number; retrying: number; deadLetter: number }> {
+    if (!this.emailProvider.configured) return { claimed: 0, delivered: 0, retrying: 0, deadLetter: 0 };
+    const jobs = await this.store.claimNotificationJobs(
+      workerId, now.toISOString(), new Date(now.getTime() - leaseMs).toISOString(), limit,
+    );
+    const result = { claimed: jobs.length, delivered: 0, retrying: 0, deadLetter: 0 };
+    for (const job of jobs) {
+      const destination = (await this.store.listNotificationDestinations(job.projectId)).find((item) => item.id === job.destinationId);
+      const destinationUsable = destination && (destination.status === "active" || job.alertType === "destination_verification");
+      if (!destinationUsable || destination?.status === "disabled") {
+        const message = "Notification destination is missing, disabled, or unverified.";
+        await this.store.insertNotificationDelivery({
+          id: randomUUID(), projectId: job.projectId, destinationId: job.destinationId, jobId: job.id,
+          alertType: job.alertType, subject: job.subject, status: "failed", provider: this.emailProvider.name,
+          error: message, attemptCount: job.attemptCount + 1, attemptedAt: now.toISOString(),
+        });
+        await this.finishNotificationJob(job, undefined, message, now, result);
+        continue;
+      }
+      try {
+        const sent = await this.emailProvider.send({ to: job.recipient, subject: job.subject, text: job.text, html: job.html });
+        await this.store.insertNotificationDelivery({
+          id: randomUUID(), projectId: job.projectId, destinationId: job.destinationId, jobId: job.id,
+          alertType: job.alertType, subject: job.subject, status: "delivered", provider: sent.provider,
+          providerMessageId: sent.messageId, attemptCount: job.attemptCount + 1, attemptedAt: now.toISOString(),
+        });
+        await this.finishNotificationJob(job, sent, undefined, now, result, true);
+      } catch (error) {
+        const message = error instanceof Error ? error.message.slice(0, 2_000) : "Email delivery failed.";
+        await this.store.insertNotificationDelivery({
+          id: randomUUID(), projectId: job.projectId, destinationId: job.destinationId, jobId: job.id,
+          alertType: job.alertType, subject: job.subject, status: "failed", provider: this.emailProvider.name,
+          error: message, attemptCount: job.attemptCount + 1, attemptedAt: now.toISOString(),
+        });
+        await this.finishNotificationJob(job, undefined, message, now, result);
+      }
+    }
+    return result;
+  }
+
+  private async finishNotificationJob(
+    job: NotificationJobRecord,
+    sent: { provider: string; messageId?: string } | undefined,
+    error: string | undefined,
+    now: Date,
+    result: { delivered: number; retrying: number; deadLetter: number },
+    delivered = false,
+  ): Promise<void> {
+    const attemptCount = job.attemptCount + 1;
+    if (delivered && sent) {
+      result.delivered += 1;
+      await this.store.updateNotificationJob({
+        ...job, status: "delivered", attemptCount, provider: sent.provider, providerMessageId: sent.messageId,
+        lastError: undefined, lockedAt: undefined, lockedBy: undefined, completedAt: now.toISOString(),
+      });
+      return;
+    }
+    const deadLetter = attemptCount >= job.maxAttempts;
+    result[deadLetter ? "deadLetter" : "retrying"] += 1;
+    await this.store.updateNotificationJob({
+      ...job, status: deadLetter ? "dead_letter" : "retrying", attemptCount, provider: this.emailProvider.name,
+      lastError: error ?? "Email delivery failed.",
+      nextAttemptAt: deadLetter ? now.toISOString() : new Date(now.getTime() + notificationRetryDelay(attemptCount)).toISOString(),
+      lockedAt: undefined, lockedBy: undefined, completedAt: deadLetter ? now.toISOString() : undefined,
+    });
+  }
+
   async operationsOverview(auth: AuthContext, projectId: string, coordination?: CoordinationHealth, now = new Date()) {
     await this.authorizeProject(auth, projectId, undefined, "runs:read");
     const since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const since30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const since90 = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
-    const [jobs, jobCounts, deliveries, signingKeys, smokeSamples, latestSmokeSamples, webhookMetrics, slo30, slo90, incidents] = await Promise.all([
+    const [jobs, jobCounts, deliveries, signingKeys, smokeSamples, latestSmokeSamples, webhookMetrics, slo30, slo90, incidents,
+      notificationJobs, notificationJobCounts, notificationDeliveries, notificationDestinations] = await Promise.all([
       this.store.listWebhookJobs(projectId, 100),
       this.store.webhookJobCounts(projectId),
       this.store.listWebhookDeliveries(projectId, 100),
@@ -973,7 +1138,12 @@ export class AgentCertControlPlane {
       this.store.trustHealthCounts(projectId, since30),
       this.store.trustHealthCounts(projectId, since90),
       this.store.listIncidents(projectId, 50),
+      this.store.listNotificationJobs(projectId, 100),
+      this.store.notificationJobCounts(projectId),
+      this.store.listNotificationDeliveries(projectId, 20),
+      this.store.listNotificationDestinations(projectId),
     ]);
+    const burnRateEvaluation = await sloBurnEvaluation(this.store, projectId, now, TRUST_SLO_OBJECTIVE);
     const activeKey = signingKeys.find((key) => key.status === "active");
     const coordinationState = coordination ?? { backend: "memory" as const, state: "degraded" as const, shared: false };
     const redisAlert = coordinationState.state === "ready" && coordinationState.shared
@@ -1005,6 +1175,16 @@ export class AgentCertControlPlane {
       : jobCounts.retrying > 0
         ? alert("warning", `${jobCounts.retrying} webhook deliveries are retrying.`)
         : alert("healthy", "No webhook deliveries require operator action.");
+    const notificationAlert = notificationJobCounts.dead_letter > 0
+      ? alert("critical", `${notificationJobCounts.dead_letter} email notifications require dead-letter review.`)
+      : notificationJobCounts.retrying > 0
+        ? alert("warning", `${notificationJobCounts.retrying} email notifications are retrying.`)
+        : alert("healthy", "No email notifications require operator action.");
+    const burnRateAlert = burnRateEvaluation.status === "critical"
+      ? alert("critical", burnRateEvaluation.reason)
+      : burnRateEvaluation.status === "warning"
+        ? alert("warning", burnRateEvaluation.reason)
+        : alert("healthy", burnRateEvaluation.reason);
     const smokeBuckets = trustHealthBuckets(smokeSamples, now, 7);
     const webhookBuckets = fillWebhookBuckets(webhookMetrics.buckets, now, 7);
     const smokePassed = smokeSamples.filter((sample) => sample.status === "passed").length;
@@ -1015,17 +1195,17 @@ export class AgentCertControlPlane {
       : activeIncident.status === "recovered"
         ? alert("warning", "Production trust incident recovered and awaits human resolution.")
         : alert("critical", `Production trust incident is ${activeIncident.status}.`);
-    const alertStates = [redisAlert.status, signingAlert.status, smokeAlert.status, webhookAlert.status, incidentAlert.status];
+    const alertStates = [redisAlert.status, signingAlert.status, smokeAlert.status, webhookAlert.status, notificationAlert.status, burnRateAlert.status, incidentAlert.status];
     const status = alertStates.includes("critical") ? "critical" : alertStates.includes("warning") ? "warning" : "healthy";
     const incidentForLedger = activeIncident ?? operationalIncidents[0] ?? null;
     const transitions = incidentForLedger ? await this.store.listIncidentTransitions(projectId, incidentForLedger.id) : [];
     return {
-      schemaVersion: "agentcert.trust_operations.v0.4",
+      schemaVersion: "agentcert.trust_operations.v0.5",
       projectId,
       status,
       generatedAt: now.toISOString(),
       coordination: coordinationState,
-      alerts: { redis: redisAlert, signing: signingAlert, scheduledSmoke: smokeAlert, webhooks: webhookAlert, incidents: incidentAlert },
+      alerts: { redis: redisAlert, signing: signingAlert, scheduledSmoke: smokeAlert, webhooks: webhookAlert, notifications: notificationAlert, sloBurnRate: burnRateAlert, incidents: incidentAlert },
       webhooks: {
         queue: jobCounts,
         recentJobs: jobs.slice(0, 50),
@@ -1043,12 +1223,16 @@ export class AgentCertControlPlane {
       notifications: {
         provider: this.emailProvider.name,
         configured: this.emailProvider.configured,
-        destinations: (await this.store.listNotificationDestinations(projectId)).map(publicNotificationDestination),
-        recentDeliveries: await this.store.listNotificationDeliveries(projectId, 20),
+        queue: notificationJobCounts,
+        destinations: notificationDestinations.map(publicNotificationDestination),
+        recentJobs: notificationJobs.slice(0, 50),
+        recentDeliveries: notificationDeliveries,
+        deadLetters: notificationJobs.filter((job) => job.status === "dead_letter").slice(0, 20),
       },
       slo: {
         objective: TRUST_SLO_OBJECTIVE,
         windows: [sloWindow(30, slo30, TRUST_SLO_OBJECTIVE), sloWindow(90, slo90, TRUST_SLO_OBJECTIVE)],
+        burnRate: burnRateEvaluation,
       },
       trends: {
         windowDays: 7,
@@ -1304,7 +1488,7 @@ export class AgentCertControlPlane {
     if (!this.emailProvider.configured) return;
     const destinations = (await this.store.listNotificationDestinations(incident.projectId))
       .filter((destination) => destination.status === "active" && destination.alertTypes.includes(alertType));
-    const label = alertType.replace(/^incident_/, "").replace("regressed", "regressed to open");
+    const label = alertType === "slo_burn_rate" ? "SLO burn-rate threshold exceeded" : alertType.replace(/^incident_/, "").replace("regressed", "regressed to open");
     const subject = `[AgentCert] Production trust incident ${label}`;
     const details = [
       `Incident: ${incident.summary}`,
@@ -1313,34 +1497,24 @@ export class AgentCertControlPlane {
       `Reason: ${transition.reason}`,
       `Project: ${incident.projectId}`,
     ].join("\n");
-    await Promise.all(destinations.map((destination) => this.deliverEmail(destination, alertType, subject, {
+    await Promise.all(destinations.map((destination) => this.enqueueEmail(destination, alertType, subject, {
       text: `${details}\n\nOpen AgentCert: ${this.publicUrl}`,
       html: `<p><strong>${escapeHtml(incident.summary)}</strong></p><ul><li>Status: ${escapeHtml(incident.status)}</li><li>Occurrences: ${incident.occurrenceCount}</li><li>Reason: ${escapeHtml(transition.reason)}</li></ul><p><a href="${escapeHtml(this.publicUrl)}">Open AgentCert</a></p>`,
     })));
   }
 
-  private async deliverEmail(
+  private async enqueueEmail(
     destination: NotificationDestinationRecord,
     alertType: NotificationAlertType,
     subject: string,
     content: { text: string; html: string },
-    failRequest = false,
-  ): Promise<void> {
-    const attemptedAt = new Date().toISOString();
-    try {
-      const result = await this.emailProvider.send({ to: destination.email, subject, ...content });
-      await this.store.insertNotificationDelivery({
-        id: randomUUID(), projectId: destination.projectId, destinationId: destination.id, alertType, subject,
-        status: "delivered", provider: result.provider, providerMessageId: result.messageId, attemptedAt,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message.slice(0, 2_000) : "Email delivery failed.";
-      await this.store.insertNotificationDelivery({
-        id: randomUUID(), projectId: destination.projectId, destinationId: destination.id, alertType, subject,
-        status: "failed", provider: this.emailProvider.name, error: message, attemptedAt,
-      });
-      if (failRequest) throw new ControlPlaneError(`Verification email could not be delivered: ${message}`, 502);
-    }
+  ): Promise<NotificationJobRecord> {
+    const now = new Date().toISOString();
+    return this.store.enqueueNotificationJob({
+      id: randomUUID(), projectId: destination.projectId, destinationId: destination.id, alertType,
+      recipient: destination.email, subject, text: content.text, html: content.html, status: "pending",
+      attemptCount: 0, maxAttempts: DEFAULT_NOTIFICATION_MAX_ATTEMPTS, nextAttemptAt: now, createdAt: now,
+    });
   }
 
   private requirePlatformAdmin(auth: AuthContext): void {
@@ -1373,6 +1547,67 @@ function assessAction(
 
 function webhookRetryDelay(attemptCount: number): number {
   return Math.min(DEFAULT_WEBHOOK_RETRY_BASE_MS * (2 ** Math.max(0, attemptCount - 1)), MAX_WEBHOOK_RETRY_MS);
+}
+
+function notificationRetryDelay(attemptCount: number): number {
+  return Math.min(DEFAULT_NOTIFICATION_RETRY_BASE_MS * (2 ** Math.max(0, attemptCount - 1)), MAX_NOTIFICATION_RETRY_MS);
+}
+
+async function sloBurnEvaluation(
+  store: ControlPlaneStore,
+  projectId: string,
+  now: Date,
+  objective: number,
+): Promise<SloBurnEvaluation> {
+  const definitions = [
+    { label: "1h" as const, hours: 1 as const },
+    { label: "6h" as const, hours: 6 as const },
+    { label: "24h" as const, hours: 24 as const },
+  ];
+  const windows = await Promise.all(definitions.map(async ({ label, hours }): Promise<TrustHealthBurnWindow> => {
+    const since = new Date(now.getTime() - hours * 60 * 60 * 1000).toISOString();
+    const counts = await store.trustHealthCounts(projectId, since);
+    const errorRate = counts.total ? counts.failed / counts.total : null;
+    return {
+      label,
+      hours,
+      ...counts,
+      errorRate,
+      burnRate: errorRate === null ? null : errorRate / (1 - objective),
+    };
+  }));
+  const [oneHour, sixHour, twentyFourHour] = windows;
+  const policy: SloBurnEvaluation["policy"] = {
+    objective,
+    fastBurn: { shortWindow: "1h", longWindow: "6h", shortThreshold: 14.4, longThreshold: 6, minimumSamples: 3 },
+    slowBurn: { shortWindow: "6h", longWindow: "24h", shortThreshold: 6, longThreshold: 3, minimumShortSamples: 3, minimumLongSamples: 6 },
+  };
+  const fastBurn = oneHour!.total >= policy.fastBurn.minimumSamples && sixHour!.total >= policy.fastBurn.minimumSamples &&
+    (oneHour!.burnRate ?? 0) >= policy.fastBurn.shortThreshold && (sixHour!.burnRate ?? 0) >= policy.fastBurn.longThreshold;
+  if (fastBurn) {
+    return {
+      status: "critical",
+      reason: `Fast SLO burn detected: 1h ${oneHour!.burnRate!.toFixed(1)}x and 6h ${sixHour!.burnRate!.toFixed(1)}x error-budget consumption.`,
+      windows,
+      policy,
+    };
+  }
+  const slowBurn = sixHour!.total >= policy.slowBurn.minimumShortSamples && twentyFourHour!.total >= policy.slowBurn.minimumLongSamples &&
+    (sixHour!.burnRate ?? 0) >= policy.slowBurn.shortThreshold && (twentyFourHour!.burnRate ?? 0) >= policy.slowBurn.longThreshold;
+  if (slowBurn) {
+    return {
+      status: "warning",
+      reason: `Sustained SLO burn detected: 6h ${sixHour!.burnRate!.toFixed(1)}x and 24h ${twentyFourHour!.burnRate!.toFixed(1)}x error-budget consumption.`,
+      windows,
+      policy,
+    };
+  }
+  return {
+    status: "healthy",
+    reason: "Multi-window SLO burn is below the 1h/6h and 6h/24h alert thresholds.",
+    windows,
+    policy,
+  };
 }
 function publicApiKey(apiKey: ApiKeyRecord): PublicApiKeyRecord {
   const { secretHash: _secretHash, ...publicRecord } = apiKey;
@@ -1413,7 +1648,7 @@ function notificationEmail(value: string): string {
 }
 
 function notificationAlertTypes(value: unknown): NotificationAlertType[] {
-  const allowed = new Set<NotificationAlertType>(["incident_opened", "incident_regressed", "incident_recovered", "incident_resolved"]);
+  const allowed = new Set<NotificationAlertType>(["incident_opened", "incident_regressed", "incident_recovered", "incident_resolved", "slo_burn_rate"]);
   const selected = stringList(value);
   if (selected.length === 0 || selected.some((item) => !allowed.has(item as NotificationAlertType))) {
     throw new ControlPlaneError("alertTypes must contain one or more supported incident alert types.");
