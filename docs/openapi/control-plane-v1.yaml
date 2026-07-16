@@ -20,6 +20,16 @@ paths:
       summary: Read public authentication configuration
       responses:
         "200": { description: Public control-plane configuration }
+  /v1/webhook-test-receiver/{projectId}/{webhookId}:
+    post:
+      security: []
+      summary: Receive a signed AgentCert self-test webhook without retaining a second payload copy
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: path, name: webhookId, required: true, schema: {type: string, format: uuid}}
+      responses:
+        "204": {description: Signature, timestamp, and event binding verified}
+        "401": {description: Signature or timestamp invalid}
   /v1/signing-keys/current:
     get:
       security: []
@@ -27,6 +37,21 @@ paths:
       responses:
         "200": {description: Current public signing key and key ID}
         "503": {description: Server evidence signing is not configured}
+  /v1/signing-keys:
+    get:
+      security: []
+      summary: List active, retired, and revoked evidence verification keys
+      responses:
+        "200": {description: Durable public signing-key history}
+  /v1/signing-keys/{keyId}:
+    get:
+      security: []
+      summary: Resolve the exact public key named by an evidence attestation
+      parameters:
+        - {in: path, name: keyId, required: true, schema: {type: string}}
+      responses:
+        "200": {description: Historical public signing key}
+        "404": {description: Signing key not found}
   /v1/me/capabilities:
     get:
       summary: Read signed-in operator capabilities
@@ -47,6 +72,12 @@ paths:
       parameters: [{$ref: "#/components/parameters/ProjectId"}]
       responses:
         "200": { description: Project overview }
+  /v1/projects/{projectId}/operations:
+    get:
+      summary: Read Trust Operations health, webhook queue, and signing-key state
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses:
+        "200": {description: Trust Operations v0.2 status}
   /v1/projects/{projectId}/envelopes:
     post:
       summary: Ingest a framework-neutral event or action envelope
@@ -280,6 +311,21 @@ paths:
         - {$ref: "#/components/parameters/ProjectId"}
         - {in: path, name: webhookId, required: true, schema: {type: string, format: uuid}}
       responses: {"200": {description: Revoked webhook}}
+  /v1/projects/{projectId}/webhooks/test-receiver:
+    post:
+      summary: Idempotently enable the AgentCert signed self-test receiver
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses:
+        "201": {description: Existing or newly created self-test webhook}
+  /v1/projects/{projectId}/webhook-jobs/{jobId}/retry:
+    post:
+      summary: Requeue a dead-letter webhook job as a human owner or admin
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: path, name: jobId, required: true, schema: {type: string, format: uuid}}
+      responses:
+        "200": {description: Job returned to the pending queue}
+        "409": {description: Job is not in the dead-letter queue}
   /v1/projects/{projectId}/retention-report:
     get:
       summary: Export evidence retention, legal hold, and deletion-journal state

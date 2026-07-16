@@ -59,4 +59,23 @@ describe("AgentCertClient", () => {
     expect(verifyServerAttestation(payload, attestation, pem)).toBe(true);
     expect(verifyServerAttestation({ ...payload, sizeBytes: 3 }, attestation, pem)).toBe(false);
   });
+
+  it("resolves historical public keys by attestation key ID", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    const payload = { evidenceId: "e-old", projectId: "p-1", kind: "trace", schemaVersion: "v1", sha256: "cd".repeat(32), sizeBytes: 4, createdAt: "2026-06-15T00:00:00.000Z" };
+    const bytes = Buffer.from(canonicalJson(payload));
+    const attestation = {
+      schemaVersion: "agentcert.server_attestation.v0.1" as const, algorithm: "Ed25519" as const, keyId: "retired-key",
+      signedAt: "2026-06-15T00:00:01.000Z", payloadSha256: createHash("sha256").update(bytes).digest("hex"),
+      signature: sign(null, bytes, privateKey).toString("base64url"),
+    };
+    const request = vi.fn(async () => new Response(JSON.stringify({
+      keyId: "retired-key", algorithm: "Ed25519", publicKeyPem: publicKey.export({ type: "spki", format: "pem" }).toString(),
+      status: "retired", activatedAt: "2026-06-01T00:00:00.000Z", retiredAt: "2026-07-01T00:00:00.000Z",
+    }), { status: 200 }));
+    const client = new AgentCertClient({ baseUrl: "https://agentcert.example", projectId: "project-1", apiKey: "ac_live_test", fetch: request as typeof fetch });
+
+    await expect(client.verifyEvidenceAttestation(payload, attestation)).resolves.toBe(true);
+    expect(request).toHaveBeenCalledWith("https://agentcert.example/v1/signing-keys/retired-key");
+  });
 });

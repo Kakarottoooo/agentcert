@@ -1475,6 +1475,41 @@ button {
   border: 1px solid var(--border);
 }
 
+.trust-operations-band {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 18px;
+  background: #f8fbfd;
+  border: 1px solid #c9d8e5;
+  border-left: 4px solid var(--accent);
+}
+
+.trust-operations-band > div {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  min-height: 104px;
+  padding: 16px;
+  border-right: 1px solid #dbe5ed;
+}
+
+.trust-operations-band > div:last-child {
+  border-right: 0;
+}
+
+.trust-operations-band span,
+.trust-operations-band em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.trust-operations-band strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 16px;
+}
+
 .control-metrics > div {
   display: grid;
   gap: 7px;
@@ -1603,6 +1638,14 @@ button {
   background: var(--teal-soft);
 }
 
+.hosted-status.healthy,
+.hosted-status.delivered,
+.hosted-status.ready,
+.hosted-status.active {
+  color: var(--teal);
+  background: var(--teal-soft);
+}
+
 .hosted-status.failed,
 .hosted-status.denied,
 .hosted-status.rejected,
@@ -1613,11 +1656,25 @@ button {
   background: var(--red-soft);
 }
 
+.hosted-status.dead-letter,
+.hosted-status.revoked {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
 .hosted-status.pending-approval,
 .hosted-status.needs-evidence,
 .hosted-status.manual-review,
 .hosted-status.partial,
 .hosted-status.medium {
+  color: var(--amber);
+  background: var(--amber-soft);
+}
+
+.hosted-status.degraded,
+.hosted-status.retrying,
+.hosted-status.processing,
+.hosted-status.retired {
   color: var(--amber);
   background: var(--amber-soft);
 }
@@ -1847,6 +1904,32 @@ button {
 .integration-layout {
   display: grid;
   gap: 18px;
+}
+
+.trust-ops-list {
+  display: grid;
+}
+
+.trust-ops-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 56px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.trust-ops-list article > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.trust-ops-list article span:not(.hosted-status) {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .connection-quickstart {
@@ -2635,6 +2718,9 @@ button {
 }
 
 @media (max-width: 1100px) {
+  .trust-operations-band {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .control-metrics {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -2681,7 +2767,12 @@ button {
   .hosted-workspace {
     width: calc(100% - 24px);
   }
+  .section-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
   .control-metrics,
+  .trust-operations-band,
   .operations-band,
   .inline-form,
   .connection-quickstart,
@@ -2696,6 +2787,11 @@ button {
   .control-metrics > div {
     min-height: 96px;
     border-right: 0;
+  }
+  .trust-operations-band > div {
+    min-height: 88px;
+    border-right: 0;
+    border-bottom: 1px solid #dbe5ed;
   }
   .inline-form .wide {
     grid-column: auto;
@@ -2725,6 +2821,7 @@ button {
   .governance-list article,
   .governance-actions,
   .key-create-controls {
+    display: grid;
     grid-template-columns: 1fr;
     align-items: stretch;
   }

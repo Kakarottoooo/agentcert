@@ -48,6 +48,16 @@ export interface ServerAttestation {
   signature: string;
 }
 
+export interface AgentCertSigningKey {
+  keyId: string;
+  algorithm: "Ed25519";
+  publicKeyPem: string;
+  status: "active" | "retired" | "revoked";
+  activatedAt: string;
+  retiredAt?: string;
+  revokedAt?: string;
+}
+
 export interface RunInput {
   externalId: string;
   agentId?: string;
@@ -135,6 +145,17 @@ export class AgentCertClient {
       headers: { "idempotency-key": idempotencyKey },
       body: JSON.stringify(input),
     });
+  }
+
+  async getSigningKey(keyId: string): Promise<AgentCertSigningKey> {
+    const response = await this.requestFetch(`${this.baseUrl}/v1/signing-keys/${encodeURIComponent(keyId)}`);
+    return await responseJson(response) as unknown as AgentCertSigningKey;
+  }
+
+  async verifyEvidenceAttestation(payload: EvidenceAttestationPayload, attestation: ServerAttestation): Promise<boolean> {
+    const key = await this.getSigningKey(attestation.keyId);
+    if (key.status === "revoked") return false;
+    return verifyServerAttestation(payload, attestation, key.publicKeyPem);
   }
 
   async uploadEvidence(input: { bytes: Uint8Array; fileName: string; contentType?: string; kind?: string; schemaVersion?: string; runId?: string; actionId?: string; sourcePath?: string }): Promise<Record<string, unknown>> {

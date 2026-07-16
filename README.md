@@ -103,8 +103,9 @@ high-risk actions.
 The framework-neutral `agentcert.envelope.v0.1` contract now accepts observed
 events and proposed actions with W3C/OpenTelemetry-compatible trace IDs.
 Reference adapters cover LangGraph event streams, OpenAI Agents SDK tracing,
-and browser-use step hooks. Hosted ingestion adds scoped API keys, rate limits,
-24-hour idempotency records, signed webhooks, server-signed Ed25519 evidence,
+and browser-use step hooks. Hosted ingestion adds scoped API keys, Redis-backed
+shared rate limits and idempotency locks, durable webhook retry/dead-letter
+delivery, historical signing-key verification, server-signed Ed25519 evidence,
 legal-hold review/export, an immutable deletion journal, and continuous failure
 taxonomy coverage/precision/correction metrics.
 

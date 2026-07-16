@@ -12,6 +12,8 @@ projects, agents, runs, runtime actions, incidents, and private evidence.
 - **Supabase Auth:** open email/password registration and email verification.
 - **Supabase Storage:** private `agentcert-evidence` bucket for screenshots,
   DOM, traces, reports, and evidence bundles.
+- **Redis-compatible key value:** shared rate limits and idempotency locks for
+  multi-instance-safe request coordination. Postgres remains the durable queue.
 
 This keeps the initial production footprint to two vendors. The application
 code still uses ordinary Postgres and an `ArtifactStore` interface, so another
@@ -83,6 +85,11 @@ AGENTCERT_RUN_STORAGE_BYTES=104857600
 AGENTCERT_EVIDENCE_RETENTION_DAYS=90
 AGENTCERT_EVIDENCE_CLEANUP_INTERVAL_MS=86400000
 AGENTCERT_EVIDENCE_CLEANUP_BATCH=500
+REDIS_URL=rediss://...
+AGENTCERT_RATE_LIMIT_REQUESTS=300
+AGENTCERT_RATE_LIMIT_WINDOW_MS=60000
+AGENTCERT_WEBHOOK_WORKER_INTERVAL_MS=2000
+AGENTCERT_WEBHOOK_WORKER_BATCH=20
 ```
 
 Never expose `DATABASE_URL` or `SUPABASE_SECRET_KEY` to the browser,
@@ -147,7 +154,7 @@ fallbacks, but new deployments should use the current key types above.
 3. Select the `Kakarottoooo/agentcert` repository. Render reads the root
    `render.yaml` and `Dockerfile.control-plane`.
 4. Enter all `sync: false` values when prompted:
-   `AGENTCERT_PUBLIC_URL`, `DATABASE_URL`, `SUPABASE_URL`,
+   `AGENTCERT_PUBLIC_URL`, `DATABASE_URL`, `REDIS_URL`, `SUPABASE_URL`,
    `SUPABASE_PUBLISHABLE_KEY`, and `SUPABASE_SECRET_KEY`.
 5. Set `AGENTCERT_PUBLIC_URL` to the initial `https://...onrender.com` URL.
 6. Deploy and wait for `/health` to return `{ "ok": true }`.
@@ -310,8 +317,10 @@ accept `Idempotency-Key`. The server stores the request
 hash and response for 24 hours. Reusing the same key and body replays the
 response; reusing it with a different body returns `409`. Authenticated traffic
 is subject to a fixed-window limit and returns `429` plus `Retry-After` when
-exhausted. The v0.1 limiter is per process, so multi-instance deployments must
-replace it with a shared Redis/Postgres limiter before horizontal scaling.
+exhausted. When `REDIS_URL` is configured, limits and in-flight idempotency
+locks are shared across instances. Without Redis the service stays available
+with a single-process fallback and reports `coordination.state=degraded` from
+`/health` and the project Trust Operations endpoint.
 
 ```text
 AGENTCERT_RATE_LIMIT_REQUESTS=300
@@ -339,9 +348,40 @@ stable 32-byte base64url or 64-hex key:
 AGENTCERT_WEBHOOK_ENCRYPTION_KEY=<32 byte key>
 ```
 
-v0.1 records every delivery and applies a 10-second timeout, but performs one
-immediate attempt only. Durable retry/backoff and dead-letter processing are
-required before treating webhooks as a guaranteed delivery channel.
+Trust Operations v0.2 writes each event to a Postgres queue before returning to
+the caller. Workers claim jobs with leases and `FOR UPDATE SKIP LOCKED`, record
+every delivery attempt, retry failed requests with bounded exponential backoff,
+and move exhausted jobs to a dead-letter queue after five attempts. Expired
+worker leases are reclaimable, so a process restart does not lose queued work.
+The Dashboard shows pending, retrying, and dead-letter counts plus recent
+failure details. Delivery is at least once; receivers must deduplicate using
+`X-AgentCert-Event-Id`.
+
+For production acceptance without a third-party endpoint, owners can open
+**Integrations -> Trust operations** and select **Enable self-test receiver**.
+AgentCert creates one `run.completed` webhook targeting its own public
+receiver. The receiver accepts only a body with a valid five-minute timestamp,
+matching event headers, and the exact HMAC signature over the received bytes.
+It stores no duplicate payload; the durable job and attempt log remain the
+audit record.
+
+## Scheduled production acceptance
+
+`.github/workflows/production-smoke.yml` runs daily and can also be dispatched
+manually. It checks health and shared Redis coordination, idempotent replay and
+conflict handling, evidence upload/download byte equality, historical-key
+signature verification, run completion, signed webhook delivery through the
+self-test receiver, and the Trust Operations status.
+
+Configure these GitHub repository Actions secrets:
+
+```text
+AGENTCERT_PROJECT_ID=<production smoke project ID>
+AGENTCERT_API_KEY=<project-scoped ingestion key>
+```
+
+The uploaded workflow artifact contains IDs and check results only. It never
+contains the API key or authorization headers.
 
 ## Retention audit
 

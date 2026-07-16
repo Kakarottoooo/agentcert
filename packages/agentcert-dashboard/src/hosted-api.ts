@@ -191,6 +191,68 @@ export interface HostedCapabilities {
   signedWebhooks: boolean;
 }
 
+export interface HostedWebhookFailure {
+  id: string;
+  eventType: string;
+  responseStatus?: number;
+  error?: string;
+  attemptedAt: string;
+}
+
+export interface HostedWebhookJob {
+  id: string;
+  eventId: string;
+  eventType: string;
+  status: "pending" | "processing" | "retrying" | "delivered" | "dead_letter";
+  attemptCount: number;
+  maxAttempts: number;
+  lastError?: string;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface HostedSigningKey {
+  keyId: string;
+  algorithm: "Ed25519";
+  status: "active" | "retired" | "revoked";
+  activatedAt: string;
+  retiredAt?: string;
+}
+
+export interface HostedOperations {
+  schemaVersion: "agentcert.trust_operations.v0.2";
+  projectId: string;
+  status: "healthy" | "degraded";
+  generatedAt: string;
+  coordination: { backend: "memory" | "redis"; state: "ready" | "degraded"; shared: boolean };
+  webhooks: {
+    queue: Record<HostedWebhookJob["status"], number>;
+    recentJobs: HostedWebhookJob[];
+    recentFailures: HostedWebhookFailure[];
+    deadLetters: HostedWebhookJob[];
+  };
+  signing: {
+    configured: boolean;
+    activeKey: HostedSigningKey | null;
+    historicalKeys: number;
+    keys: HostedSigningKey[];
+  };
+}
+
+export interface HostedWebhook {
+  id: string;
+  url: string;
+  eventTypes: string[];
+  createdAt: string;
+  revokedAt?: string;
+}
+
+export interface HostedWebhookState {
+  webhooks: HostedWebhook[];
+  deliveries: HostedWebhookFailure[];
+  jobs: HostedWebhookJob[];
+}
+
 export interface HostedRetentionReport {
   schemaVersion: "agentcert.retention_report.v0.1";
   projectId: string;
@@ -353,6 +415,10 @@ export async function loadOverview(session: HostedSession, projectId: string): P
   return apiRequest(session, path(projectId, "overview"));
 }
 
+export async function loadHostedOperations(session: HostedSession, projectId: string): Promise<HostedOperations> {
+  return apiRequest(session, path(projectId, "operations"));
+}
+
 export async function loadHostedAgents(session: HostedSession, projectId: string): Promise<HostedAgent[]> {
   return (await apiRequest<{ agents: HostedAgent[] }>(session, path(projectId, "agents"))).agents;
 }
@@ -415,6 +481,18 @@ export async function loadHostedApiKeys(session: HostedSession, projectId: strin
 
 export async function revokeHostedApiKey(session: HostedSession, projectId: string, apiKeyId: string): Promise<HostedApiKey> {
   return apiRequest(session, path(projectId, `api-keys/${encodeURIComponent(apiKeyId)}`), { method: "DELETE" });
+}
+
+export async function retryHostedWebhookJob(session: HostedSession, projectId: string, jobId: string): Promise<HostedWebhookJob> {
+  return apiRequest(session, path(projectId, `webhook-jobs/${encodeURIComponent(jobId)}/retry`), { method: "POST" });
+}
+
+export async function loadHostedWebhooks(session: HostedSession, projectId: string): Promise<HostedWebhookState> {
+  return apiRequest(session, path(projectId, "webhooks"));
+}
+
+export async function createHostedTestWebhook(session: HostedSession, projectId: string): Promise<{ webhook: HostedWebhook; reused: boolean }> {
+  return apiRequest(session, path(projectId, "webhooks/test-receiver"), { method: "POST" });
 }
 
 export async function loadAdminLegalHolds(session: HostedSession): Promise<HostedLegalHoldRequest[]> {
