@@ -24,6 +24,13 @@ artifact SHA-256 provenance, and an optional Ed25519 signature. It is assurance
 evidence, not an official certification or a guarantee that an agent cannot
 fail.
 
+**Public proof:** [Real Stripe sandbox acceptance](https://kakarottoooo.github.io/agentcert/public-demo/vendor-sandbox-acceptance/)
+shows two protected vendor runs, 2/2 passing, a stable repeat, zero redaction
+findings, and the full seven-step evidence chain without publishing the vendor
+object ID or credentials. The
+[anonymized JSON](public-demo/vendor-sandbox-acceptance/report.json) is checked
+in under `agentcert.public_vendor_acceptance.v0.1`.
+
 Production operators should use the
 [Trust Operations incident runbook](docs/trust-operations-runbook.md) for
 scheduled-smoke, Redis, signing-key, webhook/email retry, SLO burn-rate, and
@@ -193,6 +200,12 @@ stored in the production Control Plane, and compared with prior protected runs.
 The Hosted **Sandbox certifications** page shows pass rate, latest run, trend,
 and policy/schema regressions. Setup and security boundary:
 [Real Vendor Acceptance v0.5](docs/real-vendor-acceptance.md).
+
+Public anonymized result:
+[2/2 passing, stable, zero scan findings](https://kakarottoooo.github.io/agentcert/public-demo/vendor-sandbox-acceptance/).
+The page links both source workflow runs and publishes report/policy SHA-256
+digests while omitting the PaymentIntent ID, API keys, headers, and raw vendor
+response.
 
 ## GitHub Action
 

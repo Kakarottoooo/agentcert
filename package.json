@@ -46,7 +46,7 @@
     "control-plane:dev": "npm run control-plane:build && node packages/agentcert-control-plane/dist/cli.js",
     "production-smoke": "node scripts/production-smoke.mjs",
     "production-smoke:test": "node --test scripts/production-smoke.test.mjs scripts/production-smoke-incident.test.mjs",
-    "vendor-sandbox:test": "node --test scripts/vendor-sandbox-acceptance.test.mjs",
+    "vendor-sandbox:test": "node --test scripts/vendor-sandbox-acceptance.test.mjs scripts/build-public-vendor-acceptance.test.mjs",
     "check": "npm run tripwire:build && npm run tripwire:test && npm run onegent:build && npm run onegent:test && npm run agentcert:build && npm run agentcert:test && npm run vendor-sandbox:test"
   },
   "engines": {
