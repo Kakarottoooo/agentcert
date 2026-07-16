@@ -57,6 +57,7 @@ import HostedRunsView from "./HostedRunsView";
 import HostedSandboxView from "./HostedSandboxView";
 import HostedOnboarding from "./HostedOnboarding";
 import HostedProjectSwitcher from "./HostedProjectSwitcher";
+import HostedPilotReport from "./HostedPilotReport";
 import { isSandboxCertificationRun } from "./sandbox-certifications";
 
 type HostedView = "overview" | "agents" | "runs" | "sandbox" | "gates" | "actions" | "incidents" | "evidence" | "integrations" | "governance";
@@ -433,6 +434,7 @@ function GovernanceView({ project, session }: { project: HostedProject; session:
   }
   return <div className="governance-layout">
     {error ? <div className="console-error">{error}</div> : null}
+    <HostedPilotReport session={session} />
     <section className="data-section"><div className="section-actions"><SectionTitle title="Legal hold review" caption="Independent approval, rejection, and release decisions" /><button onClick={() => void downloadRetentionReport(session, project.id)}>Export retention report</button></div>
       <div className="governance-list">{holds.map((hold) => <article key={hold.id}><div><span className="eyebrow">{hold.projectId}</span><strong>{hold.reason}</strong><small>Requested by {hold.requestedByEmail ?? "unknown"} on {compactTime(hold.requestedAt)}</small></div><Status value={hold.status} />
         <div className="governance-actions"><button onClick={() => void downloadAdminLegalHoldReport(session, hold.id)}>Export report</button>{(hold.status === "requested" || hold.status === "approved") ? <>{selected === hold.id ? <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Decision rationale and preservation scope" /> : null}{hold.status === "requested" ? <><button onClick={() => void decide(hold, "reject")}>Reject</button><button className="primary-action compact" onClick={() => void decide(hold, "approve")}>Approve</button></> : <button className="danger-action" onClick={() => void decide(hold, "release")}>Release hold</button>}</> : null}</div>

@@ -49,6 +49,8 @@ import type {
   PilotFeedbackOutcome,
   PilotFeedbackRecord,
   PilotFeedbackStage,
+  PilotFunnelReport,
+  PilotFunnelSource,
   Project,
   ProjectOnboardingStatus,
   TrustHealthBurnWindow,
@@ -233,6 +235,16 @@ export class AgentCertControlPlane {
   async listPilotFeedback(auth: AuthContext, projectId: string): Promise<PilotFeedbackRecord[]> {
     await this.authorizeProject(auth, projectId, ["owner", "admin"]);
     return this.store.listPilotFeedback(projectId, 500);
+  }
+
+  async pilotFunnelReport(auth: AuthContext, days: number): Promise<PilotFunnelReport> {
+    this.requirePlatformAdmin(auth);
+    if (days !== 7 && days !== 30 && days !== 90) {
+      throw new ControlPlaneError("days must be 7, 30, or 90.", 422, "invalid_pilot_period");
+    }
+    const generatedAt = new Date();
+    const since = new Date(generatedAt.getTime() - days * 24 * 60 * 60 * 1_000).toISOString();
+    return buildPilotFunnelReport(await this.store.pilotFunnelSource(since), days, since, generatedAt.toISOString());
   }
 
   async authorizeProject(auth: AuthContext, projectId: string, roles?: string[], scope?: ApiKeyScope): Promise<void> {
@@ -1961,6 +1973,75 @@ function pilotFeedbackContext(value: unknown): Record<string, unknown> {
     else if (key === "stageDurationMs" && typeof item === "number" && Number.isFinite(item) && item >= 0) context[key] = Math.round(item);
   }
   return context;
+}
+function buildPilotFunnelReport(
+  source: PilotFunnelSource,
+  periodDays: 7 | 30 | 90,
+  since: string,
+  generatedAt: string,
+): PilotFunnelReport {
+  const frictionOutcomes = new Set<PilotFeedbackOutcome>(["blocked", "confusing", "failed"]);
+  const projects = source.projects.map(({ project, firstKeyAt, firstConnectionAt, firstEvidenceAt }) => {
+    let stage: PilotFunnelReport["projects"][number]["stage"] = "project_created";
+    if (firstKeyAt) stage = "key_created";
+    if (firstConnectionAt) stage = "cli_connected";
+    if (firstEvidenceAt) stage = "first_evidence";
+    const feedback = source.feedback.filter((item) => item.projectId === project.id);
+    return {
+      projectId: project.id, name: project.name, slug: project.slug, createdAt: project.createdAt, stage,
+      firstKeyAt, firstConnectionAt, firstEvidenceAt,
+      totalDurationMs: firstEvidenceAt ? elapsedMs(project.createdAt, firstEvidenceAt) : undefined,
+      frictionCount: feedback.filter((item) => frictionOutcomes.has(item.outcome)).length,
+    };
+  });
+  const stageCounts = {
+    project_created: projects.length,
+    key_created: projects.filter((project) => project.stage !== "project_created").length,
+    cli_connected: projects.filter((project) => project.stage === "cli_connected" || project.stage === "first_evidence").length,
+    first_evidence: projects.filter((project) => project.stage === "first_evidence").length,
+  };
+  const orderedStages: Array<keyof typeof stageCounts> = ["project_created", "key_created", "cli_connected", "first_evidence"];
+  const stages = orderedStages.map((id, index) => ({
+    id,
+    count: stageCounts[id],
+    conversionFromPrevious: ratio(stageCounts[id], index === 0 ? stageCounts[id] : stageCounts[orderedStages[index - 1]!]),
+    conversionFromStart: ratio(stageCounts[id], stageCounts.project_created),
+  }));
+  const reasonGroups = new Map<string, { reasonCode: string; count: number; stage: PilotFeedbackStage; category: PilotFeedbackCategory }>();
+  for (const feedback of source.feedback.filter((item) => frictionOutcomes.has(item.outcome))) {
+    const key = `${feedback.reasonCode}:${feedback.stage}:${feedback.category}`;
+    const existing = reasonGroups.get(key);
+    reasonGroups.set(key, existing ? { ...existing, count: existing.count + 1 } : {
+      reasonCode: feedback.reasonCode, count: 1, stage: feedback.stage, category: feedback.category,
+    });
+  }
+  const byOutcome: PilotFunnelReport["feedback"]["byOutcome"] = { blocked: 0, confusing: 0, failed: 0, completed: 0, suggestion: 0 };
+  for (const feedback of source.feedback) byOutcome[feedback.outcome] += 1;
+  return {
+    schemaVersion: "agentcert.pilot_funnel.v0.1", periodDays, since, generatedAt, stages,
+    timing: {
+      medianProjectToKeyMs: median(projects.flatMap((project) => project.firstKeyAt ? [elapsedMs(project.createdAt, project.firstKeyAt)] : [])),
+      medianKeyToConnectionMs: median(projects.flatMap((project) => project.firstKeyAt && project.firstConnectionAt ? [elapsedMs(project.firstKeyAt, project.firstConnectionAt)] : [])),
+      medianConnectionToEvidenceMs: median(projects.flatMap((project) => project.firstConnectionAt && project.firstEvidenceAt ? [elapsedMs(project.firstConnectionAt, project.firstEvidenceAt)] : [])),
+      medianProjectToEvidenceMs: median(projects.flatMap((project) => project.totalDurationMs === undefined ? [] : [project.totalDurationMs])),
+    },
+    feedback: {
+      total: source.feedback.length,
+      friction: source.feedback.filter((item) => frictionOutcomes.has(item.outcome)).length,
+      completedOrSuggestion: byOutcome.completed + byOutcome.suggestion,
+      byOutcome,
+      topReasons: [...reasonGroups.values()].sort((left, right) => right.count - left.count || left.reasonCode.localeCompare(right.reasonCode)).slice(0, 10),
+    },
+    projects: projects.sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+  };
+}
+function elapsedMs(start: string, end: string): number { return Math.max(0, Date.parse(end) - Date.parse(start)); }
+function ratio(numerator: number, denominator: number): number { return denominator === 0 ? 0 : numerator / denominator; }
+function median(values: number[]): number | undefined {
+  if (values.length === 0) return undefined;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : Math.round((sorted[middle - 1]! + sorted[middle]!) / 2);
 }
 function requiredTimestamp(value: Record<string, unknown>, key: string): string {
   const result = requiredString(value, key);

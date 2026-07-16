@@ -94,6 +94,54 @@ export interface PilotFeedbackRecord {
   createdAt: string;
 }
 
+export interface PilotFunnelSource {
+  projects: Array<{
+    project: Project;
+    firstKeyAt?: string;
+    firstConnectionAt?: string;
+    firstEvidenceAt?: string;
+  }>;
+  feedback: PilotFeedbackRecord[];
+}
+
+export interface PilotFunnelReport {
+  schemaVersion: "agentcert.pilot_funnel.v0.1";
+  periodDays: 7 | 30 | 90;
+  since: string;
+  generatedAt: string;
+  stages: Array<{
+    id: "project_created" | "key_created" | "cli_connected" | "first_evidence";
+    count: number;
+    conversionFromPrevious: number;
+    conversionFromStart: number;
+  }>;
+  timing: {
+    medianProjectToKeyMs?: number;
+    medianKeyToConnectionMs?: number;
+    medianConnectionToEvidenceMs?: number;
+    medianProjectToEvidenceMs?: number;
+  };
+  feedback: {
+    total: number;
+    friction: number;
+    completedOrSuggestion: number;
+    byOutcome: Record<PilotFeedbackOutcome, number>;
+    topReasons: Array<{ reasonCode: string; count: number; stage: PilotFeedbackStage; category: PilotFeedbackCategory }>;
+  };
+  projects: Array<{
+    projectId: string;
+    name: string;
+    slug: string;
+    createdAt: string;
+    stage: "project_created" | "key_created" | "cli_connected" | "first_evidence";
+    firstKeyAt?: string;
+    firstConnectionAt?: string;
+    firstEvidenceAt?: string;
+    totalDurationMs?: number;
+    frictionCount: number;
+  }>;
+}
+
 export interface AgentRecord {
   id: string;
   projectId: string;

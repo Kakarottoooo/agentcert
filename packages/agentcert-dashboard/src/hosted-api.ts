@@ -42,6 +42,44 @@ export interface HostedOnboardingStatus {
   connection: { baseUrl: string; projectId: string; command: string };
 }
 
+export interface HostedPilotFunnelReport {
+  schemaVersion: "agentcert.pilot_funnel.v0.1";
+  periodDays: 7 | 30 | 90;
+  since: string;
+  generatedAt: string;
+  stages: Array<{
+    id: "project_created" | "key_created" | "cli_connected" | "first_evidence";
+    count: number;
+    conversionFromPrevious: number;
+    conversionFromStart: number;
+  }>;
+  timing: {
+    medianProjectToKeyMs?: number;
+    medianKeyToConnectionMs?: number;
+    medianConnectionToEvidenceMs?: number;
+    medianProjectToEvidenceMs?: number;
+  };
+  feedback: {
+    total: number;
+    friction: number;
+    completedOrSuggestion: number;
+    byOutcome: Record<"blocked" | "confusing" | "failed" | "completed" | "suggestion", number>;
+    topReasons: Array<{ reasonCode: string; count: number; stage: string; category: string }>;
+  };
+  projects: Array<{
+    projectId: string;
+    name: string;
+    slug: string;
+    createdAt: string;
+    stage: "project_created" | "key_created" | "cli_connected" | "first_evidence";
+    firstKeyAt?: string;
+    firstConnectionAt?: string;
+    firstEvidenceAt?: string;
+    totalDurationMs?: number;
+    frictionCount: number;
+  }>;
+}
+
 export class HostedApiError extends Error {
   constructor(
     message: string,
@@ -674,6 +712,15 @@ export async function createHostedTestWebhook(session: HostedSession, projectId:
 
 export async function loadAdminLegalHolds(session: HostedSession): Promise<HostedLegalHoldRequest[]> {
   return (await apiRequest<{ requests: HostedLegalHoldRequest[] }>(session, "/v1/admin/legal-hold-requests")).requests;
+}
+
+export async function loadAdminPilotReport(session: HostedSession, days: 7 | 30 | 90): Promise<HostedPilotFunnelReport> {
+  return apiRequest(session, `/v1/admin/pilot-report?days=${days}`);
+}
+
+export async function downloadAdminPilotReport(session: HostedSession, days: 7 | 30 | 90): Promise<void> {
+  const report = await loadAdminPilotReport(session, days);
+  downloadJson(report, `agentcert-pilot-report-${days}d.json`);
 }
 
 export async function reviewAdminLegalHold(session: HostedSession, requestId: string, decision: "approve" | "reject" | "release", reviewNote: string): Promise<HostedLegalHoldRequest> {

@@ -12,7 +12,7 @@ const user: AuthContext = { kind: "user", userId: "00000000-0000-4000-8000-00000
 
 describe("control-plane migrations", () => {
   it("loads the latest production migration during startup", () => {
-    expect(CONTROL_PLANE_MIGRATIONS.at(-1)).toBe("011_hosted_onboarding_v02.sql");
+    expect(CONTROL_PLANE_MIGRATIONS.at(-1)).toBe("012_pilot_funnel_indexes.sql");
   });
 });
 
