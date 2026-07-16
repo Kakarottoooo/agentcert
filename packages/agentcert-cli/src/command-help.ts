@@ -1,5 +1,18 @@
 export function renderCommandHelp(command: string): string | undefined {
   if (command === "sandbox") return undefined;
+  if (command === "init") return `Usage:
+  agentcert init --template <browser|coding|mcp|workflow|data> [--subject <name>]
+  agentcert init --template browser --github-action
+
+Options:
+  --template <type>       External agent boundary (default: browser)
+  --subject <name>        Agent identity (default: my-<template>-agent)
+  --out <path>            Profile output (default: agentcert.config.json)
+  --adapter-out <path>    Envelope adapter for coding/workflow/data
+  --github-action         Write the browser Tripwire workflow
+  --force                 Replace existing starter files
+  --help, -h              Show this help without writing files
+`;
   if (command === "conformance") return `Usage:
   agentcert conformance <evidence.json> --artifact-root <directory> [--implementation <name>] [--out <report.json>]
 

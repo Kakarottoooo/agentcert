@@ -7,6 +7,8 @@ describe("control-plane error boundary", () => {
     expect(publicHttpError(new ControlPlaneError("Project access denied.", 403))).toEqual({
       status: 403,
       message: "Project access denied.",
+      code: "control_plane_error",
+      recovery: undefined,
     });
   });
 
@@ -14,6 +16,8 @@ describe("control-plane error boundary", () => {
     expect(publicHttpError(new Error("password authentication failed for postgres at internal-host"))).toEqual({
       status: 500,
       message: "Internal server error.",
+      code: "internal_error",
+      recovery: "Retry once. If the error persists, provide the request ID to AgentCert support.",
     });
   });
 });

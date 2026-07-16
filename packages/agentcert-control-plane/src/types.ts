@@ -53,6 +53,47 @@ export interface Project {
   createdAt: string;
 }
 
+export type OnboardingStepId = "create_key" | "connect_cli" | "upload_evidence";
+
+export interface ProjectOnboardingStatus {
+  projectId: string;
+  complete: boolean;
+  completedSteps: number;
+  totalSteps: 3;
+  steps: Array<{
+    id: OnboardingStepId;
+    status: "pending" | "complete";
+    completedAt?: string;
+    diagnosis?: {
+      code: string;
+      message: string;
+      recovery: string;
+    };
+  }>;
+  connection: {
+    baseUrl: string;
+    projectId: string;
+    command: string;
+  };
+}
+
+export type PilotFeedbackStage = "project" | "api_key" | "cli_connect" | "first_run" | "evidence_upload" | "dashboard_review";
+export type PilotFeedbackCategory = "install" | "authentication" | "configuration" | "execution" | "evidence" | "dashboard" | "other";
+export type PilotFeedbackOutcome = "blocked" | "confusing" | "failed" | "completed" | "suggestion";
+
+export interface PilotFeedbackRecord {
+  id: string;
+  projectId: string;
+  userId: string;
+  stage: PilotFeedbackStage;
+  category: PilotFeedbackCategory;
+  outcome: PilotFeedbackOutcome;
+  reasonCode: string;
+  message?: string;
+  context: Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface AgentRecord {
   id: string;
   projectId: string;

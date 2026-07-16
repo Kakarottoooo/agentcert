@@ -64,7 +64,7 @@ $server | Stop-Process
 External projects start here:
 
 ```bash
-npx agentcert init --subject my-browser-agent
+npx agentcert init --template browser --subject my-browser-agent
 ```
 
 This writes:
@@ -163,6 +163,9 @@ than silent partial evidence. Use `--artifact-root <directory>` to set the
 allowed root, or `--no-artifacts` to upload only the evidence bundle.
 
 External evaluation protocol: [docs/external-pilot.md](docs/external-pilot.md).
+Five external agent templates: [examples/external-agents](examples/external-agents/).
+Threat model: [docs/threat-model.md](docs/threat-model.md).
+Backup/restore drill: [docs/backup-restore-runbook.md](docs/backup-restore-runbook.md).
 
 ## Sandbox Certification
 

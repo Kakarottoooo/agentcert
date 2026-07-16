@@ -28,6 +28,33 @@ export interface HostedProject {
   createdAt: string;
 }
 
+export interface HostedOnboardingStatus {
+  projectId: string;
+  complete: boolean;
+  completedSteps: number;
+  totalSteps: 3;
+  steps: Array<{
+    id: "create_key" | "connect_cli" | "upload_evidence";
+    status: "pending" | "complete";
+    completedAt?: string;
+    diagnosis?: { code: string; message: string; recovery: string };
+  }>;
+  connection: { baseUrl: string; projectId: string; command: string };
+}
+
+export class HostedApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string,
+    readonly requestId?: string,
+    readonly recovery?: string,
+  ) {
+    super(recovery ? `${message} ${recovery}` : message);
+    this.name = "HostedApiError";
+  }
+}
+
 export interface HostedAgent {
   id: string;
   projectId: string;
@@ -506,6 +533,26 @@ export async function loadProjects(session: HostedSession): Promise<HostedProjec
   return (await apiRequest<{ projects: HostedProject[] }>(session, "/v1/projects")).projects;
 }
 
+export async function createHostedProject(session: HostedSession, name: string): Promise<HostedProject> {
+  return apiRequest(session, "/v1/projects", { method: "POST", body: JSON.stringify({ name }) });
+}
+
+export async function renameHostedProject(session: HostedSession, projectId: string, name: string): Promise<HostedProject> {
+  return apiRequest(session, `/v1/projects/${encodeURIComponent(projectId)}`, { method: "PATCH", body: JSON.stringify({ name }) });
+}
+
+export async function loadHostedOnboarding(session: HostedSession, projectId: string): Promise<HostedOnboardingStatus> {
+  return apiRequest(session, path(projectId, "onboarding"));
+}
+
+export async function submitHostedPilotFeedback(
+  session: HostedSession,
+  projectId: string,
+  input: { stage: string; category: string; outcome: string; reasonCode: string; message?: string; context?: Record<string, unknown> },
+) {
+  return apiRequest(session, path(projectId, "pilot-feedback"), { method: "POST", body: JSON.stringify(input) });
+}
+
 export async function loadHostedCapabilities(session: HostedSession): Promise<HostedCapabilities> {
   return apiRequest(session, "/v1/me/capabilities");
 }
@@ -684,7 +731,13 @@ async function apiRequest<T>(session: HostedSession, url: string, init: RequestI
   const response = await authenticatedFetch(session, url, init);
   const value = await response.json().catch(() => ({}));
   if (response.status === 401) saveHostedSession(undefined);
-  if (!response.ok) throw new Error(value.error ?? `AgentCert API request failed (${response.status}).`);
+  if (!response.ok) {
+    const error = value as { error?: string; code?: string; requestId?: string; recovery?: string };
+    throw new HostedApiError(
+      error.error ?? `AgentCert API request failed (${response.status}).`, response.status,
+      error.code ?? `http_${response.status}`, error.requestId ?? response.headers.get("x-request-id") ?? undefined, error.recovery,
+    );
+  }
   return value as T;
 }
 

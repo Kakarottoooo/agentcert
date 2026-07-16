@@ -26,6 +26,49 @@ describe("AgentCertControlPlane", () => {
     expect(result.project).toMatchObject({ name: "Agent assurance project", slug: "agent-assurance" });
   });
 
+  it("creates, renames, and isolates projects without changing stable slugs", async () => {
+    const { service, projectId } = await setup();
+    const created = await service.createProject(user, { name: "Browser agents" });
+    const renamed = await service.renameProject(user, created.id, { name: "Browser reliability" });
+
+    expect(created).toMatchObject({ name: "Browser agents", slug: "browser-agents" });
+    expect(renamed).toMatchObject({ name: "Browser reliability", slug: "browser-agents" });
+    expect((await service.projects(user)).map((project) => project.id)).toEqual([projectId, created.id]);
+
+    const outsider: AuthContext = { kind: "user", userId: "00000000-0000-4000-8000-000000000099", email: "outsider@example.com" };
+    await service.bootstrap(outsider);
+    await expect(service.renameProject(outsider, created.id, { name: "Hijacked" }))
+      .rejects.toMatchObject<Partial<ControlPlaneError>>({ status: 403 });
+  });
+
+  it("computes onboarding from real key use and uploaded evidence", async () => {
+    const { service, store, projectId } = await setup();
+    expect(await service.onboardingStatus(user, projectId)).toMatchObject({ completedSteps: 0, complete: false });
+
+    const key = await service.createApiKey(user, projectId, { name: "Onboarding" });
+    expect(await service.onboardingStatus(user, projectId)).toMatchObject({ completedSteps: 1, complete: false });
+
+    await store.touchApiKey(key.apiKey.id, new Date().toISOString());
+    expect(await service.onboardingStatus(user, projectId)).toMatchObject({ completedSteps: 2, complete: false });
+
+    await service.uploadEvidence(user, projectId, Buffer.from("{}"), {
+      fileName: "agentcert-evidence.json", contentType: "application/json", kind: "evidence_bundle",
+      schemaVersion: "agentcert.evidence.v0.1",
+    });
+    expect(await service.onboardingStatus(user, projectId)).toMatchObject({ completedSteps: 3, complete: true });
+  });
+
+  it("stores bounded pilot friction without accepting arbitrary context", async () => {
+    const { service, projectId } = await setup();
+    const feedback = await service.submitPilotFeedback(user, projectId, {
+      stage: "cli_connect", category: "authentication", outcome: "blocked", reasonCode: "invalid_api_key",
+      message: "The first key belonged to another project.",
+      context: { agentType: "browser", cliVersion: "0.5.1", accessToken: "must-not-be-stored" },
+    });
+    expect(feedback.context).toEqual({ agentType: "browser", cliVersion: "0.5.1" });
+    expect(await service.listPilotFeedback(user, projectId)).toEqual([feedback]);
+  });
+
   it("requires approval, prevents agent self-approval, verifies the outcome, and retains audit state", async () => {
     const { service, projectId } = await setup();
     const agent = await service.createAgent(user, projectId, {
