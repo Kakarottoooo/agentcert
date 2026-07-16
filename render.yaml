@@ -52,6 +52,10 @@ services:
         sync: false
       - key: AGENTCERT_PUBLIC_URL
         sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: AGENTCERT_ALERT_FROM_EMAIL
+        sync: false
       - key: DATABASE_URL
         sync: false
       - key: SUPABASE_URL

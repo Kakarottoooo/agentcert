@@ -27,6 +27,11 @@ fail.
 Production operators should use the
 [Trust Operations incident runbook](docs/trust-operations-runbook.md) for
 scheduled-smoke, Redis, signing-key, webhook retry, and dead-letter alerts.
+Trust Operations v0.4 keeps production incidents in an auditable
+`open -> investigating -> recovered -> resolved` lifecycle, requires two
+consecutive passing smokes for recovery, and exposes 30/90-day SLO and error
+budget status. Verified recipients can subscribe to incident alerts without
+providing SMTP credentials.
 
 ## 5-Minute Quickstart
 

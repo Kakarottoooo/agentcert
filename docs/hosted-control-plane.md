@@ -90,6 +90,9 @@ AGENTCERT_RATE_LIMIT_REQUESTS=300
 AGENTCERT_RATE_LIMIT_WINDOW_MS=60000
 AGENTCERT_WEBHOOK_WORKER_INTERVAL_MS=2000
 AGENTCERT_WEBHOOK_WORKER_BATCH=20
+# Optional platform-owned email delivery. Users never provide SMTP credentials.
+RESEND_API_KEY=re_...
+AGENTCERT_ALERT_FROM_EMAIL=AgentCert <alerts@your-verified-domain.com>
 ```
 
 Never expose `DATABASE_URL` or `SUPABASE_SECRET_KEY` to the browser,
@@ -352,7 +355,7 @@ stable 32-byte base64url or 64-hex key:
 AGENTCERT_WEBHOOK_ENCRYPTION_KEY=<32 byte key>
 ```
 
-Trust Operations v0.3 writes each event to a Postgres queue before returning to
+Trust Operations v0.4 writes each event to a Postgres queue before returning to
 the caller. Workers claim jobs with leases and `FOR UPDATE SKIP LOCKED`, record
 every delivery attempt, retry failed requests with bounded exponential backoff,
 and move exhausted jobs to a dead-letter queue after five attempts. Expired
@@ -364,6 +367,24 @@ server signing, scheduled smoke, and webhook delivery each expose a separate
 operator-facing alert with a concrete reason. Delivery is at least once;
 receivers must deduplicate using
 `X-AgentCert-Event-Id`.
+
+Production-smoke failures are deduplicated by project and fingerprint. The
+incident lifecycle is `open -> investigating -> recovered -> resolved`.
+Owners/admins acknowledge an open incident with a rationale. One passing smoke
+records progress but does not recover it; two consecutive passing smokes append
+recovery evidence. An owner/admin must then review that evidence and explicitly
+resolve the incident.
+
+The operations response includes 30- and 90-day 99% SLO attainment, remaining
+error budget, and burn rate. These figures use completed scheduled production
+smokes only. Missing or stale schedules remain a separate alert, so absence of
+data cannot look healthy.
+
+Owners/admins can add recipients in **Integrations -> Email alerts** and choose
+opened, regressed, recovered, and resolved notifications. AgentCert sends a
+24-hour ownership-verification link before activation. Provider credentials
+remain platform-side; users configure only recipient addresses and alert types.
+Delivery failures are retained and never roll back an incident transition.
 
 For production acceptance without a third-party endpoint, owners can open
 **Integrations -> Trust operations** and select **Enable self-test receiver**.
@@ -384,7 +405,9 @@ self-test receiver, and the Trust Operations status.
 Each run persists a sanitized pass/fail health sample before the final status
 check. A failed workflow creates one GitHub issue titled
 `[AgentCert] Production trust smoke failure`; subsequent failures append to the
-same open issue. Operators close it only after following the
+same open issue. A recovery comment is added only after two consecutive passing
+smokes. The issue remains open until the AgentCert incident is explicitly
+resolved; the next smoke reconciliation then closes it. Operators follow the
 [Trust Operations incident runbook](trust-operations-runbook.md).
 
 Configure these GitHub repository Actions secrets:

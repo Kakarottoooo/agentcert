@@ -105,6 +105,13 @@ async function handleRequest(
     sendJson(response, 200, await options.service.signingKeys());
     return;
   }
+  if (request.method === "GET" && url.pathname === "/v1/notification-destinations/verify") {
+    sendJson(response, 200, {
+      verified: true,
+      destination: await options.service.verifyNotificationDestination(url.searchParams.get("token") ?? ""),
+    });
+    return;
+  }
   if (request.method === "GET" && url.pathname.startsWith("/v1/signing-keys/")) {
     sendJson(response, 200, await options.service.signingKeyById(decodeURIComponent(url.pathname.slice("/v1/signing-keys/".length))));
     return;
@@ -174,6 +181,25 @@ async function handleRequest(
   }
   if (collection === "operations" && request.method === "GET" && !entityId) {
     sendJson(response, 200, await options.service.operationsOverview(auth, projectId, options.coordinationHealth?.()));
+    return;
+  }
+  if (collection === "operational-incidents" && entityId && child === "acknowledge" && request.method === "POST") {
+    sendJson(response, 200, await options.service.acknowledgeOperationalIncident(auth, projectId, entityId, await readJson(request)));
+    return;
+  }
+  if (collection === "operational-incidents" && entityId && child === "resolve" && request.method === "POST") {
+    sendJson(response, 200, await options.service.resolveOperationalIncident(auth, projectId, entityId, await readJson(request)));
+    return;
+  }
+  if (collection === "operational-incidents" && entityId && child === "github" && request.method === "POST") {
+    sendJson(response, 200, await options.service.linkOperationalIncidentGitHub(auth, projectId, entityId, await readJson(request)));
+    return;
+  }
+  if (collection === "notification-destinations") {
+    if (request.method === "GET" && !entityId) sendJson(response, 200, { destinations: await options.service.listNotificationDestinations(auth, projectId) });
+    else if (request.method === "POST" && !entityId) sendJson(response, 201, await options.service.createNotificationDestination(auth, projectId, await readJson(request)));
+    else if (request.method === "DELETE" && entityId) sendJson(response, 200, await options.service.disableNotificationDestination(auth, projectId, entityId));
+    else throw new ControlPlaneError("Notification destination route was not found.", 404);
     return;
   }
   if (collection === "agents") {

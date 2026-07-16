@@ -36,6 +36,7 @@ jobs:
           test -n "$AGENTCERT_PROJECT_ID" || { echo "::error::AGENTCERT_PROJECT_ID repository secret is missing"; exit 1; }
           test -n "$AGENTCERT_API_KEY" || { echo "::error::AGENTCERT_API_KEY repository secret is missing"; exit 1; }
       - name: Run production trust acceptance
+        id: production_smoke
         run: node scripts/production-smoke.mjs
       - name: Upload sanitized smoke result
         if: always()
@@ -46,7 +47,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
       - name: Create or update production incident
-        if: failure()
+        if: always()
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          AGENTCERT_SMOKE_OUTCOME: ${{ steps.production_smoke.outcome }}
         run: node scripts/production-smoke-incident.mjs
