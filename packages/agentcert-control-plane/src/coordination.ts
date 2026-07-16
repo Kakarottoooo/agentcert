@@ -96,7 +96,18 @@ export async function createRedisCoordination(
   windowMs: number,
   onError: (error: Error) => void = () => undefined,
 ): Promise<CoordinationRuntime> {
-  const client = createClient({ url });
+  const normalizedUrl = url.trim();
+  let protocol: string;
+  try {
+    protocol = new URL(normalizedUrl).protocol;
+  } catch {
+    throw new Error("REDIS_URL must be a valid redis:// or rediss:// connection URL.");
+  }
+  if (protocol !== "redis:" && protocol !== "rediss:") {
+    throw new Error("REDIS_URL must be a valid redis:// or rediss:// connection URL.");
+  }
+
+  const client = createClient({ url: normalizedUrl });
   client.on("error", onError);
   await client.connect();
   return {
