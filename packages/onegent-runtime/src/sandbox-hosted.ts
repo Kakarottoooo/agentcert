@@ -150,6 +150,15 @@ export async function uploadSandboxCertificationReport(
   const digest = createHash("sha256").update(bytes).digest("hex");
   const operationId = `sandbox-upload-${digest.slice(0, 32)}`;
   const externalId = options.externalId?.trim() || `${report.kind}:${report.implementation}:${report.generatedAt}`;
+  const vendorMetadata = report.kind === "agentcert.sandbox_vendor_egress"
+    ? {
+        vendor: report.vendor,
+        environment: report.environment,
+        policySha256: createHash("sha256").update(canonicalJson(report.policy)).digest("hex"),
+        requestDurationMs: report.audit.find((entry) => entry.outcome === "allowed")?.durationMs,
+        acceptanceType: externalId.startsWith("vendor-acceptance:stripe:") ? "real_vendor_sandbox" : "vendor_sandbox",
+      }
+    : {};
 
   const run = await jsonRequest(requestFetch, `${projectUrl}/runs`, apiKey, {
     method: "POST",
@@ -164,6 +173,7 @@ export async function uploadSandboxCertificationReport(
         evidenceType: report.kind,
         implementation: report.implementation,
         sandboxOnly: true,
+        ...vendorMetadata,
       },
     }),
   });
@@ -219,4 +229,13 @@ function required(value: string, name: string): string {
   const normalized = value.trim();
   if (!normalized) throw new Error(`Sandbox hosted upload ${name} is required.`);
   return normalized;
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }

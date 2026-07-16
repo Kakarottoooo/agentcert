@@ -1,0 +1,110 @@
+name: Real Stripe sandbox acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Why this real vendor sandbox acceptance is being run
+        required: true
+        default: Manual release acceptance
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agentcert-real-stripe-sandbox
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: vendor-sandbox
+    env:
+      AGENTCERT_BASE_URL: https://agentcert-control-plane.onrender.com
+      AGENTCERT_PROJECT_ID: ${{ secrets.AGENTCERT_PROJECT_ID }}
+      AGENTCERT_API_KEY: ${{ secrets.AGENTCERT_API_KEY }}
+      STRIPE_RESTRICTED_TEST_KEY: ${{ secrets.STRIPE_RESTRICTED_TEST_KEY }}
+      STRIPE_PAYMENT_INTENT_ID: ${{ secrets.STRIPE_PAYMENT_INTENT_ID }}
+      AGENTCERT_VENDOR_EXTERNAL_ID: vendor-acceptance:stripe:${{ github.run_id }}:${{ github.run_attempt }}
+      AGENTCERT_VENDOR_REPORT: .agentcert/vendor-sandbox/current-report.json
+      AGENTCERT_VENDOR_SCAN: .agentcert/vendor-sandbox/redaction-scan.json
+      AGENTCERT_VENDOR_HISTORY: .agentcert/vendor-sandbox/history.json
+      AGENTCERT_VENDOR_ARTIFACT_SCAN: .agentcert/vendor-sandbox/artifact-scan.json
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22.14.0"
+          package-manager-cache: false
+
+      - name: Verify protected environment secrets
+        shell: bash
+        run: |
+          test -n "$STRIPE_RESTRICTED_TEST_KEY" || { echo "::error::STRIPE_RESTRICTED_TEST_KEY is missing from the vendor-sandbox environment"; exit 1; }
+          test -n "$STRIPE_PAYMENT_INTENT_ID" || { echo "::error::STRIPE_PAYMENT_INTENT_ID is missing from the vendor-sandbox environment"; exit 1; }
+          test -n "$AGENTCERT_PROJECT_ID" || { echo "::error::AGENTCERT_PROJECT_ID is missing from the vendor-sandbox environment"; exit 1; }
+          test -n "$AGENTCERT_API_KEY" || { echo "::error::AGENTCERT_API_KEY is missing from the vendor-sandbox environment"; exit 1; }
+          echo "::add-mask::$STRIPE_RESTRICTED_TEST_KEY"
+          echo "::add-mask::$AGENTCERT_API_KEY"
+          [[ "$STRIPE_RESTRICTED_TEST_KEY" == rk_test_* ]] || { echo "::error::Stripe key must be an rk_test_ restricted test key"; exit 1; }
+          [[ "$STRIPE_PAYMENT_INTENT_ID" =~ ^pi_[A-Za-z0-9]{8,128}$ ]] || { echo "::error::STRIPE_PAYMENT_INTENT_ID is invalid"; exit 1; }
+
+      - name: Run bounded real Stripe sandbox read
+        id: vendor_read
+        shell: bash
+        run: |
+          set +e
+          npx --yes agentcert@0.5.0 sandbox stripe-readonly \
+            --payment-intent "$STRIPE_PAYMENT_INTENT_ID" \
+            --out "$AGENTCERT_VENDOR_REPORT"
+          status=$?
+          set -e
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Run independent pre-upload redaction gate
+        id: redaction_scan
+        run: node scripts/vendor-sandbox-acceptance.mjs scan
+
+      - name: Upload validated v0.4 evidence to production
+        id: hosted_upload
+        run: |
+          npx --yes agentcert@0.5.0 sandbox upload-report \
+            --report "$AGENTCERT_VENDOR_REPORT" \
+            --external-id "$AGENTCERT_VENDOR_EXTERNAL_ID"
+
+      - name: Compare production acceptance history
+        id: history
+        run: node scripts/vendor-sandbox-acceptance.mjs history
+
+      - name: Scan every retained artifact again
+        id: artifact_scan
+        if: always() && steps.redaction_scan.outcome == 'success'
+        run: node scripts/vendor-sandbox-acceptance.mjs artifact-scan
+
+      - name: Upload sanitized acceptance artifacts
+        if: always() && steps.artifact_scan.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: agentcert-vendor-sandbox-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .agentcert/vendor-sandbox/*.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Enforce final acceptance verdict
+        if: always()
+        shell: bash
+        env:
+          VENDOR_EXIT_CODE: ${{ steps.vendor_read.outputs.exit_code }}
+          SCAN_OUTCOME: ${{ steps.redaction_scan.outcome }}
+          UPLOAD_OUTCOME: ${{ steps.hosted_upload.outcome }}
+          HISTORY_OUTCOME: ${{ steps.history.outcome }}
+          ARTIFACT_SCAN_OUTCOME: ${{ steps.artifact_scan.outcome }}
+        run: |
+          test "$VENDOR_EXIT_CODE" = "0" || { echo "::error::Bounded Stripe sandbox read failed"; exit 1; }
+          test "$SCAN_OUTCOME" = "success" || { echo "::error::Pre-upload redaction gate failed"; exit 1; }
+          test "$UPLOAD_OUTCOME" = "success" || { echo "::error::Hosted evidence upload failed"; exit 1; }
+          test "$HISTORY_OUTCOME" = "success" || { echo "::error::Vendor acceptance regression check failed"; exit 1; }
+          test "$ARTIFACT_SCAN_OUTCOME" = "success" || { echo "::error::Final artifact scan failed"; exit 1; }

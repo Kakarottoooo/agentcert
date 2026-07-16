@@ -1311,6 +1311,41 @@ button {
   gap: 18px;
 }
 
+.vendor-acceptance-health {
+  border-top: 3px solid var(--teal);
+  border-bottom: 1px solid var(--line);
+  padding: 20px 0;
+}
+
+.vendor-acceptance-heading {
+  align-items: start;
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+}
+
+.vendor-acceptance-heading h2 {
+  font-size: 22px;
+  margin: 5px 0 7px;
+}
+
+.vendor-acceptance-heading p {
+  color: #5d655f;
+  margin: 0;
+  max-width: 720px;
+}
+
+.vendor-acceptance-health dl {
+  display: grid;
+  gap: 20px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 18px 0 0;
+}
+
+.vendor-acceptance-health dl div { min-width: 0; }
+.vendor-acceptance-health dt { color: #717871; font-size: 12px; }
+.vendor-acceptance-health dd { font-weight: 700; margin: 5px 0 0; overflow-wrap: anywhere; }
+
 .sandbox-certification-layout {
   display: grid;
   grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
@@ -1451,6 +1486,10 @@ button {
 .sandbox-empty-state pre { margin: 0; overflow-x: auto; }
 
 @media (max-width: 980px) {
+  .vendor-acceptance-heading { align-items: flex-start; flex-direction: column; }
+  .vendor-acceptance-health dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sandbox-certification-summary { grid-template-columns: minmax(0, 1fr); }
+  .sandbox-score { justify-content: start; }
   .sandbox-certification-layout,
   .sandbox-empty-state { grid-template-columns: 1fr; }
   .sandbox-certification-summary dl,
@@ -1965,7 +2004,9 @@ button {
 .hosted-status.healthy,
 .hosted-status.delivered,
 .hosted-status.ready,
-.hosted-status.active {
+.hosted-status.active,
+.hosted-status.baseline,
+.hosted-status.stable {
   color: var(--teal);
   background: var(--teal-soft);
 }
@@ -1975,7 +2016,8 @@ button {
 .hosted-status.rejected,
 .hosted-status.verification-failed,
 .hosted-status.high,
-.hosted-status.critical {
+.hosted-status.critical,
+.hosted-status.regressed {
   color: var(--red);
   background: var(--red-soft);
 }
@@ -1990,7 +2032,8 @@ button {
 .hosted-status.needs-evidence,
 .hosted-status.manual-review,
 .hosted-status.partial,
-.hosted-status.medium {
+.hosted-status.medium,
+.hosted-status.waiting {
   color: var(--amber);
   background: var(--amber-soft);
 }

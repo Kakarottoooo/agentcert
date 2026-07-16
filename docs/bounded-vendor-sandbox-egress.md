@@ -100,3 +100,7 @@ contract is published as
 Key permission review remains a human setup step. AgentCert deliberately does
 not probe unrelated endpoints to infer permissions because that would broaden
 the boundary it is meant to constrain.
+
+For the protected GitHub environment, independent pre-upload scan, production
+retention, and historical regression gate, continue with
+[Real Vendor Acceptance v0.5](real-vendor-acceptance.md).

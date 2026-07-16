@@ -186,6 +186,14 @@ audit. Credentials, Authorization headers, raw responses, `client_secret`, and
 metadata never enter evidence. See
 [Bounded Vendor Sandbox Egress v0.4](docs/bounded-vendor-sandbox-egress.md).
 
+Maintainers can also run the protected, manual
+`Real Stripe sandbox acceptance` workflow. The real sandbox response is
+reduced to the v0.4 report, scanned before upload, validated again by the CLI,
+stored in the production Control Plane, and compared with prior protected runs.
+The Hosted **Sandbox certifications** page shows pass rate, latest run, trend,
+and policy/schema regressions. Setup and security boundary:
+[Real Vendor Acceptance v0.5](docs/real-vendor-acceptance.md).
+
 ## GitHub Action
 
 ```yaml

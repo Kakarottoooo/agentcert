@@ -194,4 +194,63 @@ describe("Hosted sandbox certification upload", () => {
     await expect(failure).rejects.toThrow("requires runs:write");
     await failure.catch((error: Error) => expect(error.message).not.toContain("must-not-appear-in-error"));
   });
+
+  it("marks protected vendor acceptance runs with safe comparison metadata", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const requestFetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      requests.push({ url, init });
+      if (url.endsWith("/runs")) return Response.json({ id: "vendor-run-1" }, { status: 201 });
+      if (url.includes("/evidence?")) return Response.json({ id: "evidence-1", sha256: "a".repeat(64) }, { status: 201 });
+      return Response.json({ id: "vendor-run-1", status: "passed" });
+    });
+    const vendorReport = {
+      schemaVersion: "agentcert.sandbox_vendor_egress.v0.4" as const,
+      kind: "agentcert.sandbox_vendor_egress" as const,
+      implementation: "stripe-payment-intent-readonly" as const,
+      vendor: "stripe" as const,
+      environment: "sandbox" as const,
+      generatedAt: "2030-01-01T00:00:00.000Z",
+      verdict: { passed: true, score: 100 },
+      summary: { passed: 5, failed: 0, total: 5 },
+      checks: [],
+      policy: {
+        allowedOrigins: [STRIPE_TEST_API_ORIGIN] as const,
+        allowedMethods: ["GET"] as const,
+        allowedResources: ["stripe.payment_intent.retrieve", "stripe.payment_intent.list"] as const,
+        timeoutMs: 5000,
+        maxRequestsPerMinute: 10,
+      },
+      audit: [{
+        requestId: "stripe-1",
+        timestamp: "2030-01-01T00:00:00.000Z",
+        vendor: "stripe",
+        resource: "stripe.payment_intent.retrieve",
+        method: "GET" as const,
+        origin: STRIPE_TEST_API_ORIGIN,
+        outcome: "allowed" as const,
+        durationMs: 84,
+        status: 200,
+      }],
+      disclaimer: "Sandbox only.",
+    };
+
+    await uploadSandboxCertificationReport(vendorReport, {
+      baseUrl: "https://agentcert.example",
+      projectId: "project-1",
+      apiKey: "ac_test_key",
+      externalId: "vendor-acceptance:stripe:123:1",
+      fetch: requestFetch as typeof fetch,
+    });
+
+    const body = JSON.parse(String(requests[0].init?.body));
+    expect(body.metadata).toMatchObject({
+      vendor: "stripe",
+      environment: "sandbox",
+      acceptanceType: "real_vendor_sandbox",
+      requestDurationMs: 84,
+      policySha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(JSON.stringify(body)).not.toContain("authorization");
+  });
 });

@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { resolveConnection } from "./credentials.js";
@@ -89,6 +89,7 @@ export async function runSandboxCommand(args: string[]): Promise<SandboxCommandR
   if (action === "certify") return certifySandboxAdapter(args.slice(1));
   if (action === "push") return pushSandboxCertification(args.slice(1));
   if (action === "stripe-readonly") return runStripeSandboxReadOnly(args.slice(1));
+  if (action === "upload-report") return uploadSandboxReport(args.slice(1));
   throw new Error(`Unknown sandbox command ${JSON.stringify(action)}. Run \`npx agentcert sandbox --help\`.`);
 }
 
@@ -186,6 +187,60 @@ export async function runStripeSandboxReadOnly(
   return { exitCode: report.verdict.passed ? 0 : 1, reportPath, report };
 }
 
+export async function uploadSandboxReport(
+  args: string[],
+  runtimeOverride?: SandboxRuntimeModule,
+): Promise<SandboxCommandResult> {
+  const requestedPath = flag(args, "--report");
+  if (!requestedPath) throw new Error("Sandbox report upload requires --report <report.json>.");
+  const reportPath = resolve(requestedPath);
+  const report = parseUploadableSandboxReport(await readFile(reportPath, "utf8"));
+  const runtime = runtimeOverride ?? await loadSandboxRuntime();
+  const connection = await resolveConnection({
+    name: flag(args, "--connection"),
+    server: flag(args, "--server"),
+    projectId: flag(args, "--project"),
+    apiKey: flag(args, "--api-key"),
+  });
+  const uploaded = await runtime.uploadSandboxCertificationReport(report, {
+    baseUrl: connection.server,
+    projectId: connection.projectId,
+    apiKey: connection.apiKey,
+    externalId: flag(args, "--external-id"),
+  });
+  process.stdout.write(`Uploaded validated sandbox report: ${reportPath}\n`);
+  process.stdout.write(`Hosted sandbox run: ${String(uploaded.run.id ?? "created")}\n`);
+  process.stdout.write(`Hosted evidence: ${String(uploaded.evidence.id ?? "created")}\n`);
+  return { exitCode: report.verdict.passed ? 0 : 1, reportPath, report };
+}
+
+export function parseUploadableSandboxReport(rawText: string): SandboxReport {
+  let value: unknown;
+  try {
+    value = JSON.parse(rawText);
+  } catch {
+    throw new Error("Sandbox report is not valid JSON.");
+  }
+  if (!isRecord(value)) throw new Error("Sandbox report must be a JSON object.");
+  const supported = (value.kind === "agentcert.sandbox_adapter_conformance"
+    && value.schemaVersion === "agentcert.sandbox_adapter_conformance.v0.2")
+    || (value.kind === "agentcert.sandbox_vendor_egress"
+    && value.schemaVersion === "agentcert.sandbox_vendor_egress.v0.4");
+  if (!supported) throw new Error("Sandbox report kind or schema version is not supported for upload.");
+  if (typeof value.implementation !== "string" || !value.implementation.trim()
+    || typeof value.generatedAt !== "string" || !Number.isFinite(Date.parse(value.generatedAt))
+    || !isRecord(value.verdict) || typeof value.verdict.passed !== "boolean"
+    || typeof value.verdict.score !== "number" || value.verdict.score < 0 || value.verdict.score > 100
+    || !Array.isArray(value.checks)) {
+    throw new Error("Sandbox report is missing required conformance fields.");
+  }
+  const findings = sensitiveReportFindings(value, rawText);
+  if (findings.length > 0) {
+    throw new Error(`Sandbox report contains forbidden credential material: ${findings.join(", ")}.`);
+  }
+  return value as unknown as SandboxReport;
+}
+
 export async function loadSandboxAdapter(adapterPath: string): Promise<SandboxSystem> {
   let module: Record<string, unknown>;
   try {
@@ -228,17 +283,26 @@ Reads one Stripe sandbox PaymentIntent through a fixed GET/resource allowlist,
 writes a redacted evidence report, and optionally uploads it to AgentCert Hosted.
 The Stripe key is read only from STRIPE_RESTRICTED_TEST_KEY.
 `;
+  if (action === "upload-report") return `Usage:
+  agentcert sandbox upload-report --report .agentcert/vendor-sandbox/current-report.json --external-id <id>
+
+Validates a recognized AgentCert sandbox report, rejects credential material,
+and uploads it through the saved AgentCert connection. This command never
+executes a vendor request.
+`;
   return `Usage:
   agentcert sandbox init [--adapter agentcert.sandbox.mjs]
   agentcert sandbox certify --adapter ./my-sandbox-adapter.js
   agentcert sandbox push --adapter ./my-sandbox-adapter.js
   agentcert sandbox stripe-readonly --payment-intent pi_... [--push]
+  agentcert sandbox upload-report --report <report.json>
 
 Commands:
   init      Write one dependency-free adapter template
   certify   Run deterministic local conformance checks
   push      Certify and upload the report to AgentCert Hosted
   stripe-readonly  Run one bounded Stripe sandbox read and write evidence
+  upload-report    Validate and upload an existing sandbox report
 
 Common options:
   --adapter <path>        Adapter module (default: agentcert.sandbox.mjs)
@@ -279,6 +343,31 @@ function isSandboxSystem(value: unknown): value is SandboxSystem {
     && Array.isArray(safety.allowedTargetSystems)
     && ["createTenant", "deleteTenant", "resetTenant", "seedTenant", "hasTenant", "snapshotTenant", "adapterForTenant"]
       .every((method) => typeof system[method as keyof SandboxSystem] === "function");
+}
+
+function sensitiveReportFindings(value: unknown, rawText: string): string[] {
+  const findings = new Set<string>();
+  const forbiddenFields = new Set(["authorization", "headers", "apikey", "restrictedapikey", "secretkey", "clientsecret", "metadata", "rawresponse", "responsebody"]);
+  const inspect = (entry: unknown): void => {
+    if (Array.isArray(entry)) { entry.forEach(inspect); return; }
+    if (!isRecord(entry)) return;
+    for (const [key, nested] of Object.entries(entry)) {
+      if (forbiddenFields.has(key.replace(/[^a-z]/gi, "").toLowerCase())) findings.add(`field:${key}`);
+      inspect(nested);
+    }
+  };
+  inspect(value);
+  if (/\b(?:rk|sk)_(?:test|live)_[A-Za-z0-9_]{8,}\b/.test(rawText)) findings.add("stripe-key");
+  if (/\bac_live_[A-Za-z0-9_-]{8,}\b/.test(rawText)) findings.add("agentcert-key");
+  if (/\bBearer\s+\S+/i.test(rawText)) findings.add("authorization-value");
+  for (const secret of [process.env.STRIPE_RESTRICTED_TEST_KEY, process.env.AGENTCERT_API_KEY]) {
+    if (secret && secret.length >= 8 && rawText.includes(secret)) findings.add("exact-secret");
+  }
+  return [...findings].sort();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function flag(args: string[], name: string): string | undefined {

@@ -7,7 +7,9 @@ import {
   initializeSandboxAdapter,
   loadSandboxAdapter,
   pushSandboxCertification,
+  parseUploadableSandboxReport,
   runStripeSandboxReadOnly,
+  uploadSandboxReport,
 } from "../src/sandbox.js";
 
 const temporaryDirectories: string[] = [];
@@ -138,6 +140,65 @@ describe("unified sandbox onboarding", () => {
       "--payment-intent", "pi_12345678",
       "--stripe-key", "rk_test_flag_key_123",
     ])).rejects.toThrow("only through STRIPE_RESTRICTED_TEST_KEY");
+  });
+
+  it("uploads an independently scanned sandbox report without rerunning the vendor request", async () => {
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const directory = await temporaryDirectory();
+    const reportPath = join(directory, "stripe-report.json");
+    process.env.AGENTCERT_BASE_URL = "https://agentcert.example.com";
+    process.env.AGENTCERT_PROJECT_ID = "project-1";
+    process.env.AGENTCERT_API_KEY = "ac_live_test-key";
+    const report = {
+      schemaVersion: "agentcert.sandbox_vendor_egress.v0.4" as const,
+      kind: "agentcert.sandbox_vendor_egress" as const,
+      implementation: "stripe-payment-intent-readonly" as const,
+      vendor: "stripe" as const,
+      environment: "sandbox" as const,
+      generatedAt: "2030-01-01T00:00:00.000Z",
+      verdict: { passed: true, score: 100 },
+      summary: { passed: 5, failed: 0, total: 5 },
+      checks: [],
+      policy: { allowedOrigins: ["https://api.stripe.com"] },
+      audit: [],
+      disclaimer: "Sandbox only.",
+    };
+    await writeFile(reportPath, JSON.stringify(report));
+    const upload = vi.fn().mockResolvedValue({ run: { id: "run-1" }, evidence: { id: "evidence-1" } });
+    const runtime = {
+      runSandboxAdapterConformanceSuite,
+      writeSandboxAdapterConformanceReport: vi.fn(),
+      uploadSandboxCertificationReport: upload,
+    };
+
+    const result = await uploadSandboxReport([
+      "--report", reportPath,
+      "--external-id", "vendor-acceptance:stripe:1",
+    ], runtime);
+
+    expect(result.exitCode).toBe(0);
+    expect(upload).toHaveBeenCalledWith(report, expect.objectContaining({
+      externalId: "vendor-acceptance:stripe:1",
+      projectId: "project-1",
+    }));
+  });
+
+  it("blocks report upload when credential fields or values are present", () => {
+    const leaked = JSON.stringify({
+      schemaVersion: "agentcert.sandbox_vendor_egress.v0.4",
+      kind: "agentcert.sandbox_vendor_egress",
+      implementation: "stripe-payment-intent-readonly",
+      generatedAt: "2030-01-01T00:00:00.000Z",
+      verdict: { passed: true, score: 100 },
+      checks: [],
+      authorization: "Bearer rk_test_leaked_value_123",
+    });
+    expect(() => parseUploadableSandboxReport(leaked)).toThrow("forbidden credential material");
+    try {
+      parseUploadableSandboxReport(leaked);
+    } catch (error) {
+      expect(String(error)).not.toContain("rk_test_leaked_value_123");
+    }
   });
 });
 
