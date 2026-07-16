@@ -6,6 +6,17 @@ AgentCert Hosted Control Plane without granting production write access.
 
 ## Run the reference conformance suite
 
+External teams should start with the single-package onboarding path:
+
+```bash
+npx agentcert sandbox init
+npx agentcert sandbox certify --adapter ./agentcert.sandbox.mjs
+```
+
+This writes one dependency-free adapter template and runs the v0.2 conformance
+suite bundled inside `agentcert`. It does not require the unpublished
+`@agentcert/onegent-runtime` package or an AgentCert source checkout.
+
 ```bash
 npm run onegent:sandbox-conformance
 ```
@@ -107,6 +118,13 @@ export AGENTCERT_API_KEY="your-scoped-api-key"
 export AGENTCERT_BASE_URL="https://agentcert-control-plane.onrender.com"
 
 onegent-runtime sandbox-conformance --push
+```
+
+For external users, the supported public command is:
+
+```bash
+npx agentcert connect --server https://agentcert-control-plane.onrender.com --project your-project-id
+npx agentcert sandbox push --adapter ./agentcert.sandbox.mjs
 ```
 
 The API key needs `runs:write` and `evidence:write`. The key is read only from

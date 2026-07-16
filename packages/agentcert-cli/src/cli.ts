@@ -53,6 +53,7 @@ import {
 } from "./runner.js";
 import { buildRobustnessLabSnapshot, readRobustnessLabConfig, renderRobustnessLabSummary, writeRobustnessLabSnapshot } from "./lab.js";
 import { renderCommandHelp } from "./command-help.js";
+import { runSandboxCommand } from "./sandbox.js";
 import type { AgentCertBundle, AgentCertConfig, AgentCertResult } from "./types.js";
 
 process.on("uncaughtException", reportFatalError);
@@ -151,6 +152,9 @@ Saved connections are reused by agentcert push and agentcert run --push.
     process.stdout.write(`Project: ${verified.projectId} (${verified.runs} runs, ${verified.evidence} evidence objects)\n`);
     process.stdout.write(`Credentials: ${path}\n`);
   }
+} else if (command === "sandbox") {
+  const result = await runSandboxCommand(process.argv.slice(3));
+  process.exitCode = result.exitCode;
 } else if (command === "report") {
   const config = await loadConfig(readFlag("--config"));
   const subject = readFlag("--subject") ?? config?.subject.name ?? "agentcert-subject";
@@ -552,6 +556,9 @@ Saved connections are reused by agentcert push and agentcert run --push.
   process.stdout.write(`Usage:
   agentcert init --subject my-browser-agent
   agentcert connect --server https://agentcert-control-plane.onrender.com --project <project-id>
+  agentcert sandbox init
+  agentcert sandbox certify --adapter ./agentcert.sandbox.mjs
+  agentcert sandbox push --adapter ./agentcert.sandbox.mjs
   agentcert init --out agentcert.config.json --tripwire-config tripwire.yml --force
   agentcert init --subject my-browser-agent --github-action
   agentcert report --mcpbench .mcpbench/latest/results.json --tripwire .tripwire/latest/tripwire-result.json --onegent .onegent/procurement/audit-packet.json --out .agentcert/latest --subject my-agent
