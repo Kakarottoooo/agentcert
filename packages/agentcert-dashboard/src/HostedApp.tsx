@@ -14,6 +14,7 @@ import {
   loadHostedApiKeys,
   loadHostedAgents,
   loadHostedEvidence,
+  loadHostedAssuranceCases,
   loadHostedIncidents,
   loadHostedRuns,
   loadHostedCapabilities,
@@ -42,6 +43,7 @@ import {
   type HostedConfig,
   type HostedCapabilities,
   type HostedEvidence,
+  type HostedAssuranceCase,
   type HostedIncident,
   type HostedOverview,
   type HostedOperations,
@@ -58,9 +60,10 @@ import HostedSandboxView from "./HostedSandboxView";
 import HostedOnboarding from "./HostedOnboarding";
 import HostedProjectSwitcher from "./HostedProjectSwitcher";
 import HostedPilotReport from "./HostedPilotReport";
+import HostedAssuranceView from "./HostedAssuranceView";
 import { isSandboxCertificationRun } from "./sandbox-certifications";
 
-type HostedView = "overview" | "agents" | "runs" | "sandbox" | "gates" | "actions" | "incidents" | "evidence" | "integrations" | "governance";
+type HostedView = "overview" | "agents" | "runs" | "assurance" | "sandbox" | "gates" | "actions" | "incidents" | "evidence" | "integrations" | "governance";
 
 interface ConsoleData {
   overview: HostedOverview;
@@ -70,6 +73,7 @@ interface ConsoleData {
   actions: HostedAction[];
   incidents: HostedIncident[];
   evidence: HostedEvidence[];
+  assuranceCases: HostedAssuranceCase[];
 }
 
 export default function HostedApp({ config }: { config: HostedConfig }) {
@@ -162,12 +166,12 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
     if (!project) return;
     setLoading(true); setError(undefined);
     try {
-      const [overview, operations, agents, runs, actions, incidents, evidence, nextOnboarding] = await Promise.all([
+      const [overview, operations, agents, runs, actions, incidents, evidence, assuranceCases, nextOnboarding] = await Promise.all([
         loadOverview(session, project.id), loadHostedOperations(session, project.id), loadHostedAgents(session, project.id), loadHostedRuns(session, project.id),
-        loadHostedActions(session, project.id), loadHostedIncidents(session, project.id), loadHostedEvidence(session, project.id),
+        loadHostedActions(session, project.id), loadHostedIncidents(session, project.id), loadHostedEvidence(session, project.id), loadHostedAssuranceCases(session, project.id),
         loadHostedOnboarding(session, project.id),
       ]);
-      setData({ overview, operations, agents, runs, actions, incidents, evidence });
+      setData({ overview, operations, agents, runs, actions, incidents, evidence, assuranceCases });
       setOnboarding(nextOnboarding);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setLoading(false); }
@@ -196,6 +200,7 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
 
   const navigation: Array<[HostedView, string, number?]> = [
     ["overview", "Overview"], ["agents", "Agents", data?.agents.length], ["runs", "Runs", data?.runs.length],
+    ["assurance", "Assurance cases", data?.assuranceCases.filter((item) => item.status === "review_required").length],
     ["sandbox", "Sandbox certifications", data?.runs.filter(isSandboxCertificationRun).length],
     ["gates", "Release gates", data?.runs.filter((run) => run.kind === "release_gate").length],
     ["actions", "Runtime actions", data?.actions.filter((action) => action.status === "PENDING_APPROVAL").length],
@@ -227,6 +232,7 @@ function HostedViewContent({ view, data, project, session, onboarding, refresh, 
   if (view === "overview") return <HostedOverviewView data={data} project={project} session={session} onboarding={onboarding} refresh={refresh} onNavigate={onNavigate} />;
   if (view === "agents") return <AgentsView agents={data.agents} project={project} session={session} refresh={refresh} />;
   if (view === "runs") return <HostedRunsView runs={data.runs} project={project} session={session} />;
+  if (view === "assurance") return <HostedAssuranceView cases={data.assuranceCases} evidence={data.evidence} project={project} session={session} refresh={refresh} />;
   if (view === "sandbox") return <HostedSandboxView runs={data.runs.filter(isSandboxCertificationRun)} project={project} session={session} />;
   if (view === "gates") return <RunsTable runs={data.runs.filter((run) => run.kind === "release_gate")} empty="No release-gate runs have been ingested." />;
   if (view === "actions") return <ActionsView actions={data.actions} project={project} session={session} refresh={refresh} />;
@@ -462,7 +468,7 @@ function OperationsTrends({ operations }: { operations: HostedOperations }) {
 function SectionTitle({ title, caption }: { title: string; caption: string }) { return <div className="section-title"><h2>{title}</h2><p>{caption}</p></div>; }
 function Status({ value }: { value: string }) { return <span className={`hosted-status ${value.toLowerCase().replace(/_/g, "-")}`}>{value.replace(/_/g, " ")}</span>; }
 function EmptyHosted({ text }: { text: string }) { return <div className="hosted-empty">{text}</div>; }
-function viewTitle(view: HostedView): string { return ({ overview: "Operational overview", agents: "Agent registry", runs: "Assurance runs", sandbox: "Sandbox certifications", gates: "Release gates", actions: "Runtime actions", incidents: "Incident ledger", evidence: "Evidence registry", integrations: "Integrations", governance: "Governance administration" })[view]; }
+function viewTitle(view: HostedView): string { return ({ overview: "Operational overview", agents: "Agent registry", runs: "Assurance runs", assurance: "Assurance lifecycle", sandbox: "Sandbox certifications", gates: "Release gates", actions: "Runtime actions", incidents: "Incident ledger", evidence: "Evidence registry", integrations: "Integrations", governance: "Governance administration" })[view]; }
 function compactTime(value: string): string { return new Intl.DateTimeFormat("en", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
 function compactBytes(value: number): string { return value < 1024 ? `${value} B` : value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / 1024 / 1024).toFixed(1)} MB`; }
 function percent(value: number): string { return `${Math.round(value * 100)}%`; }

@@ -200,9 +200,41 @@
     "metadata": {
       "type": "object",
       "additionalProperties": true
+    },
+    "governance": {
+      "$ref": "#/$defs/governance"
     }
   },
   "$defs": {
+    "governance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "consent", "consentSource", "consentRecordedAt", "provenance", "redaction"],
+      "properties": {
+        "schemaVersion": { "const": "agentcert.corpus_governance.v0.1" },
+        "consent": { "enum": ["private", "anonymous", "public", "denied"] },
+        "consentSource": { "type": "string", "minLength": 1 },
+        "consentRecordedAt": { "type": "string", "format": "date-time" },
+        "provenance": {
+          "type": "object", "additionalProperties": false,
+          "required": ["sourcePath", "sourceRecordSha256", "collectedAt"],
+          "properties": {
+            "sourcePath": { "type": "string" },
+            "sourceRecordSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "collectedAt": { "type": "string", "format": "date-time" }
+          }
+        },
+        "redaction": {
+          "type": "object", "additionalProperties": false,
+          "required": ["policyVersion", "replacements", "secretScanPassed"],
+          "properties": {
+            "policyVersion": { "const": "agentcert.redaction.v0.1" },
+            "replacements": { "type": "integer", "minimum": 0 },
+            "secretScanPassed": { "const": true }
+          }
+        }
+      }
+    },
     "reviewEvidenceContext": {
       "type": "object",
       "additionalProperties": false,

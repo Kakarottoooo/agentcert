@@ -52,6 +52,15 @@ paths:
       responses:
         "200": {description: Historical public signing key}
         "404": {description: Signing key not found}
+  /v1/public/assurance-reports/{publicId}:
+    get:
+      security: []
+      summary: Verify an explicitly published, scoped assurance report and its lifecycle history
+      parameters:
+        - {in: path, name: publicId, required: true, schema: {type: string}}
+      responses:
+        "200": {description: Published assurance report with signed payload and sanitized decision history}
+        "404": {description: Report is private, absent, or no longer has a published record}
   /v1/notification-destinations/verify:
     get:
       security: []
@@ -98,6 +107,42 @@ paths:
       parameters: [{$ref: "#/components/parameters/ProjectId"}]
       responses:
         "200": { description: Pilot feedback records }
+  /v1/projects/{projectId}/assurance-cases:
+    get:
+      summary: List scoped assurance cases visible to the project
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses: {"200": {description: Assurance case list}}
+    post:
+      summary: Create and cryptographically lock an assurance evaluation plan
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/AssuranceCaseInput"}}}
+      responses:
+        "201": {description: Draft assurance case and immutable creation decision}
+        "422": {description: Evaluation plan is incomplete or invalid}
+  /v1/projects/{projectId}/assurance-cases/{caseId}:
+    get:
+      summary: Read an assurance case and its immutable decision ledger
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: path, name: caseId, required: true, schema: {type: string, format: uuid}}
+      responses: {"200": {description: Assurance case detail}, "404": {description: Case not found}}
+  /v1/projects/{projectId}/assurance-cases/{caseId}/{transition}:
+    post:
+      summary: Apply an authorized assurance lifecycle transition
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: path, name: caseId, required: true, schema: {type: string, format: uuid}}
+        - {in: path, name: transition, required: true, schema: {enum: [start, submit, return, issue, suspend, revoke, expire, resume]}}
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/AssuranceTransitionInput"}}}
+      responses:
+        "200": {description: Updated case and appended decision}
+        "403": {description: Human role or independent reviewer separation required}
+        "409": {description: Invalid or concurrent lifecycle transition}
+        "422": {description: Required project evidence is missing}
     post:
       summary: Record a project member's onboarding friction or completion signal
       parameters: [{$ref: "#/components/parameters/ProjectId"}]
@@ -492,6 +537,37 @@ components:
     ApiKeyId: {in: path, name: apiKeyId, required: true, schema: {type: string, format: uuid}}
     IdempotencyKey: {in: header, name: Idempotency-Key, required: false, schema: {type: string, minLength: 1, maxLength: 200}}
   schemas:
+    AssuranceCaseInput:
+      type: object
+      required: [name, subject, policyPackVersion, evaluationPlan]
+      properties:
+        name: {type: string}
+        subject:
+          type: object
+          required: [id, name, kind]
+          properties: {id: {type: string}, name: {type: string}, version: {type: string}, kind: {type: string}}
+        policyPackVersion: {type: string}
+        evaluationPlan:
+          type: object
+          required: [controls]
+          properties:
+            requiredEvidenceKinds: {type: array, items: {type: string}}
+            limitations: {type: array, items: {type: string}}
+            controls:
+              type: array
+              minItems: 1
+              items:
+                type: object
+                required: [id, title, mode]
+                properties: {id: {type: string}, title: {type: string}, mode: {enum: [automated, evidence_required, manual]}}
+    AssuranceTransitionInput:
+      type: object
+      required: [reason]
+      properties:
+        reason: {type: string}
+        evidenceIds: {type: array, uniqueItems: true, items: {type: string, format: uuid}}
+        expiresAt: {type: string, format: date-time}
+        publish: {type: boolean, default: false}
     TrustHealthSampleInput:
       type: object
       required: [externalId, source, status, startedAt, completedAt]

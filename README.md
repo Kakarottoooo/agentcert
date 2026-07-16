@@ -15,6 +15,11 @@ and portable evidence. Untested or manually owned controls remain visibly
 `needs-evidence` or `manual-review`; AgentCert never turns them into a silent
 pass.
 
+Assurance Case Lifecycle v0.1 locks a scoped evaluation plan, requires declared
+evidence, separates case creation from issuance review, signs issued reports,
+and keeps suspension, revocation, and expiry observable. It is an auditable
+assurance decision, not an official certification.
+
 **Use AgentCert:** [Public assurance demo](https://agentcert-control-plane.onrender.com/demo) |
 [Private workspace](https://agentcert-control-plane.onrender.com/app) |
 [GitHub source](https://github.com/Kakarottoooo/agentcert) |
@@ -149,6 +154,10 @@ Production deployment: [docs/hosted-control-plane.md](docs/hosted-control-plane.
 API contract: [docs/openapi/control-plane-v1.yaml](docs/openapi/control-plane-v1.yaml).
 Envelope contract and adapters: [docs/universal-envelope.md](docs/universal-envelope.md).
 Evidence verification chain: [docs/evidence-trust-chain.md](docs/evidence-trust-chain.md).
+Assurance lifecycle: [docs/assurance-lifecycle.md](docs/assurance-lifecycle.md).
+Production Acceptance Lab: [docs/production-acceptance-lab.md](docs/production-acceptance-lab.md).
+Corpus governance: [docs/corpus-governance.md](docs/corpus-governance.md).
+Adapter compatibility: [docs/adapter-compatibility.md](docs/adapter-compatibility.md).
 Sandbox Adapter Kit: [docs/sandbox-adapter-kit.md](docs/sandbox-adapter-kit.md).
 Public demo: [agentcert-control-plane.onrender.com/demo](https://agentcert-control-plane.onrender.com/demo).
 Authenticated workspace: [agentcert-control-plane.onrender.com/app](https://agentcert-control-plane.onrender.com/app).

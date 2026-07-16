@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -24,8 +24,14 @@ export interface ControlPlaneServerOptions {
 }
 
 export async function startControlPlaneServer(options: ControlPlaneServerOptions): Promise<void> {
+  const server = createControlPlaneHttpServer(options);
+  await new Promise<void>((resolveListen) => server.listen(options.port, options.host, resolveListen));
+  process.stdout.write(`AgentCert Control Plane listening at http://${options.host}:${options.port}\n`);
+}
+
+export function createControlPlaneHttpServer(options: ControlPlaneServerOptions): Server {
   const staticRoot = resolve(options.dashboardDir);
-  const server = createServer(async (request, response) => {
+  return createServer(async (request, response) => {
     const requestId = request.headers["x-request-id"]?.toString().slice(0, 128) || randomUUID();
     const startedAt = Date.now();
     response.setHeader("x-request-id", requestId);
@@ -58,8 +64,6 @@ export async function startControlPlaneServer(options: ControlPlaneServerOptions
       sendJson(response, status, { error: message, code, recovery, requestId });
     }
   });
-  await new Promise<void>((resolveListen) => server.listen(options.port, options.host, resolveListen));
-  process.stdout.write(`AgentCert Control Plane listening at http://${options.host}:${options.port}\n`);
 }
 
 async function handleRequest(
@@ -114,6 +118,11 @@ async function handleRequest(
   }
   if (request.method === "GET" && url.pathname.startsWith("/v1/signing-keys/")) {
     sendJson(response, 200, await options.service.signingKeyById(decodeURIComponent(url.pathname.slice("/v1/signing-keys/".length))));
+    return;
+  }
+  const publicAssuranceReport = url.pathname.match(/^\/v1\/public\/assurance-reports\/([^/]+)$/);
+  if (request.method === "GET" && publicAssuranceReport) {
+    sendJson(response, 200, await options.service.publicAssuranceReport(decodeURIComponent(publicAssuranceReport[1]!)));
     return;
   }
   if (!url.pathname.startsWith("/v1/")) {
@@ -187,6 +196,14 @@ async function handleRequest(
     if (request.method === "GET") sendJson(response, 200, { feedback: await options.service.listPilotFeedback(auth, projectId) });
     else if (request.method === "POST") sendJson(response, 201, await options.service.submitPilotFeedback(auth, projectId, await readJson(request)));
     else throw new ControlPlaneError("Pilot feedback route was not found.", 404, "route_not_found");
+    return;
+  }
+  if (collection === "assurance-cases") {
+    if (request.method === "GET" && !entityId) sendJson(response, 200, { assuranceCases: await options.service.listAssuranceCases(auth, projectId) });
+    else if (request.method === "POST" && !entityId) sendJson(response, 201, await options.service.createAssuranceCase(auth, projectId, await readJson(request)));
+    else if (request.method === "GET" && entityId && !child) sendJson(response, 200, await options.service.getAssuranceCase(auth, projectId, entityId));
+    else if (request.method === "POST" && entityId && child) sendJson(response, 200, await options.service.transitionAssuranceCase(auth, projectId, entityId, child, await readJson(request)));
+    else throw new ControlPlaneError("Assurance case route was not found.", 404);
     return;
   }
 

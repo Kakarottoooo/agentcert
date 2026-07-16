@@ -1,1 +1,3 @@
 examples/conformance/artifacts/** binary
+packages/agentcert-dashboard/index.html text eol=lf
+public-demo/agentcert-monitor/index.html text eol=lf

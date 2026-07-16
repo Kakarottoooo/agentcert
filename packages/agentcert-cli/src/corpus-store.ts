@@ -93,11 +93,9 @@ async function createSqliteCorpusStore(path: string, tableNameInput?: string): P
     kind: "sqlite",
     description: `SQLite corpus at ${outPath}`,
     append: async (records, options) => {
-      if (options?.replace) {
-        db.exec(`DELETE FROM ${table}`);
-      }
       db.exec("BEGIN");
       try {
+        if (options?.replace) db.exec(`DELETE FROM ${table}`);
         for (const record of records) {
           insert.run(...recordSqlValues(record, "sqlite"), JSON.stringify(record));
         }
@@ -130,11 +128,9 @@ async function createPostgresCorpusStore(databaseUrl: string, tableNameInput?: s
     kind: "postgres",
     description: `Postgres corpus table ${tableName}`,
     append: async (records, options) => {
-      if (options?.replace) {
-        await client.query(`DELETE FROM ${table}`);
-      }
       await client.query("BEGIN");
       try {
+        if (options?.replace) await client.query(`DELETE FROM ${table}`);
         for (const record of records) {
           await client.query(insertSql(table, "$"), [...recordSqlValues(record, "postgres"), JSON.stringify(record)]);
         }

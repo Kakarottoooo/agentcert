@@ -33,6 +33,8 @@ import type {
   NotificationJobCounts,
   PilotFeedbackRecord,
   PilotFunnelSource,
+  AssuranceCaseRecord,
+  AssuranceCaseDecisionRecord,
 } from "./types.js";
 
 export const CONTROL_PLANE_MIGRATIONS = [
@@ -48,6 +50,7 @@ export const CONTROL_PLANE_MIGRATIONS = [
   "010_default_project_name.sql",
   "011_hosted_onboarding_v02.sql",
   "012_pilot_funnel_indexes.sql",
+  "013_assurance_cases.sql",
 ] as const;
 
 const DEFAULT_PROJECT_NAME = "Agent assurance project";
@@ -82,6 +85,15 @@ export interface ControlPlaneStore {
   insertPilotFeedback(feedback: PilotFeedbackRecord): Promise<PilotFeedbackRecord>;
   listPilotFeedback(projectId: string, limit?: number): Promise<PilotFeedbackRecord[]>;
   pilotFunnelSource(since: string): Promise<PilotFunnelSource>;
+  insertAssuranceCase(record: AssuranceCaseRecord): Promise<AssuranceCaseRecord>;
+  insertAssuranceCaseWithDecision(record: AssuranceCaseRecord, decision: AssuranceCaseDecisionRecord): Promise<AssuranceCaseRecord>;
+  updateAssuranceCase(record: AssuranceCaseRecord, expectedStatus: AssuranceCaseRecord["status"]): Promise<AssuranceCaseRecord | undefined>;
+  transitionAssuranceCase(record: AssuranceCaseRecord, decision: AssuranceCaseDecisionRecord, expectedStatus: AssuranceCaseRecord["status"]): Promise<AssuranceCaseRecord | undefined>;
+  getAssuranceCase(projectId: string, caseId: string): Promise<AssuranceCaseRecord | undefined>;
+  getAssuranceCaseByPublicId(publicId: string): Promise<AssuranceCaseRecord | undefined>;
+  listAssuranceCases(projectId: string, limit?: number): Promise<AssuranceCaseRecord[]>;
+  insertAssuranceCaseDecision(record: AssuranceCaseDecisionRecord): Promise<AssuranceCaseDecisionRecord>;
+  listAssuranceCaseDecisions(projectId: string, caseId: string): Promise<AssuranceCaseDecisionRecord[]>;
   upsertAgent(agent: AgentRecord): Promise<AgentRecord>;
   getAgent(projectId: string, agentId: string): Promise<AgentRecord | undefined>;
   listAgents(projectId: string): Promise<AgentRecord[]>;
@@ -194,6 +206,8 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   private notificationJobs = new Map<string, NotificationJobRecord>();
   private signingKeys = new Map<string, SigningKeyRecord>();
   private pilotFeedback = new Map<string, PilotFeedbackRecord>();
+  private assuranceCases = new Map<string, AssuranceCaseRecord>();
+  private assuranceCaseDecisions = new Map<string, AssuranceCaseDecisionRecord>();
   private retentionLocks = new Map<string, Promise<void>>();
 
   async migrate(): Promise<void> {}
@@ -277,6 +291,55 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
       }),
       feedback: [...this.pilotFeedback.values()].filter((item) => projectIds.has(item.projectId)),
     };
+  }
+
+  async insertAssuranceCase(record: AssuranceCaseRecord): Promise<AssuranceCaseRecord> {
+    this.assuranceCases.set(record.id, structuredClone(record));
+    return structuredClone(record);
+  }
+
+  async insertAssuranceCaseWithDecision(record: AssuranceCaseRecord, decision: AssuranceCaseDecisionRecord): Promise<AssuranceCaseRecord> {
+    this.assuranceCases.set(record.id, structuredClone(record));
+    this.assuranceCaseDecisions.set(decision.id, structuredClone(decision));
+    return structuredClone(record);
+  }
+
+  async updateAssuranceCase(record: AssuranceCaseRecord, expectedStatus: AssuranceCaseRecord["status"]): Promise<AssuranceCaseRecord | undefined> {
+    const current = this.assuranceCases.get(record.id);
+    if (!current || current.projectId !== record.projectId || current.status !== expectedStatus) return undefined;
+    this.assuranceCases.set(record.id, structuredClone(record));
+    return structuredClone(record);
+  }
+
+  async transitionAssuranceCase(record: AssuranceCaseRecord, decision: AssuranceCaseDecisionRecord, expectedStatus: AssuranceCaseRecord["status"]): Promise<AssuranceCaseRecord | undefined> {
+    const updated = await this.updateAssuranceCase(record, expectedStatus);
+    if (!updated) return undefined;
+    this.assuranceCaseDecisions.set(decision.id, structuredClone(decision));
+    return updated;
+  }
+
+  async getAssuranceCase(projectId: string, caseId: string): Promise<AssuranceCaseRecord | undefined> {
+    const record = this.assuranceCases.get(caseId);
+    return record?.projectId === projectId ? structuredClone(record) : undefined;
+  }
+
+  async getAssuranceCaseByPublicId(publicId: string): Promise<AssuranceCaseRecord | undefined> {
+    const record = [...this.assuranceCases.values()].find((item) => item.publicVerificationId === publicId);
+    return record ? structuredClone(record) : undefined;
+  }
+
+  async listAssuranceCases(projectId: string, limit = 100): Promise<AssuranceCaseRecord[]> {
+    return newest([...this.assuranceCases.values()].filter((item) => item.projectId === projectId), "createdAt").slice(0, limit).map((item) => structuredClone(item));
+  }
+
+  async insertAssuranceCaseDecision(record: AssuranceCaseDecisionRecord): Promise<AssuranceCaseDecisionRecord> {
+    this.assuranceCaseDecisions.set(record.id, structuredClone(record));
+    return structuredClone(record);
+  }
+
+  async listAssuranceCaseDecisions(projectId: string, caseId: string): Promise<AssuranceCaseDecisionRecord[]> {
+    return [...this.assuranceCaseDecisions.values()].filter((item) => item.projectId === projectId && item.assuranceCaseId === caseId)
+      .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt)).map((item) => structuredClone(item));
   }
 
   async roleForProject(userId: string, projectId: string): Promise<MemberRole | undefined> {
@@ -968,6 +1031,101 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
       pilotFeedbackFromRow,
     );
     return { projects, feedback };
+  }
+
+  async insertAssuranceCase(record: AssuranceCaseRecord): Promise<AssuranceCaseRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_assurance_cases
+       (id,project_id,name,subject,status,policy_pack_version,evaluation_plan,evaluation_plan_sha256,evidence_ids,created_by,reviewer_id,report,public_verification_id,expires_at,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+      assuranceCaseValues(record),
+    );
+    return assuranceCaseFromRow(result.rows[0]);
+  }
+
+  async insertAssuranceCaseWithDecision(record: AssuranceCaseRecord, decision: AssuranceCaseDecisionRecord): Promise<AssuranceCaseRecord> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const inserted = await client.query(
+        `INSERT INTO agentcert_assurance_cases
+         (id,project_id,name,subject,status,policy_pack_version,evaluation_plan,evaluation_plan_sha256,evidence_ids,created_by,reviewer_id,report,public_verification_id,expires_at,created_at,updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`, assuranceCaseValues(record));
+      await client.query(
+        `INSERT INTO agentcert_assurance_case_decisions
+         (id,project_id,assurance_case_id,from_status,to_status,actor_id,actor_email,reason,evidence_ids,occurred_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, assuranceDecisionValues(decision));
+      await client.query("COMMIT");
+      return assuranceCaseFromRow(inserted.rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally { client.release(); }
+  }
+
+  async updateAssuranceCase(record: AssuranceCaseRecord, expectedStatus: AssuranceCaseRecord["status"]): Promise<AssuranceCaseRecord | undefined> {
+    return one(this.pool.query(
+      `UPDATE agentcert_assurance_cases SET name=$3,subject=$4,status=$5,policy_pack_version=$6,evaluation_plan=$7,
+       evaluation_plan_sha256=$8,evidence_ids=$9,reviewer_id=$10,report=$11,public_verification_id=$12,expires_at=$13,updated_at=$14
+       WHERE project_id=$1 AND id=$2 AND status=$15 RETURNING *`,
+      [record.projectId, record.id, record.name, JSON.stringify(record.subject), record.status, record.policyPackVersion,
+        JSON.stringify(record.evaluationPlan), record.evaluationPlanSha256, JSON.stringify(record.evidenceIds), record.reviewerId ?? null,
+        jsonOrNull(record.report), record.publicVerificationId ?? null, record.expiresAt ?? null, record.updatedAt, expectedStatus],
+    ), assuranceCaseFromRow);
+  }
+
+  async transitionAssuranceCase(record: AssuranceCaseRecord, decision: AssuranceCaseDecisionRecord, expectedStatus: AssuranceCaseRecord["status"]): Promise<AssuranceCaseRecord | undefined> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query(
+        `UPDATE agentcert_assurance_cases SET name=$3,subject=$4,status=$5,policy_pack_version=$6,evaluation_plan=$7,
+         evaluation_plan_sha256=$8,evidence_ids=$9,reviewer_id=$10,report=$11,public_verification_id=$12,expires_at=$13,updated_at=$14
+         WHERE project_id=$1 AND id=$2 AND status=$15 RETURNING *`,
+        [record.projectId, record.id, record.name, JSON.stringify(record.subject), record.status, record.policyPackVersion,
+          JSON.stringify(record.evaluationPlan), record.evaluationPlanSha256, JSON.stringify(record.evidenceIds), record.reviewerId ?? null,
+          jsonOrNull(record.report), record.publicVerificationId ?? null, record.expiresAt ?? null, record.updatedAt, expectedStatus]);
+      if (!result.rows[0]) { await client.query("ROLLBACK"); return undefined; }
+      await client.query(
+        `INSERT INTO agentcert_assurance_case_decisions
+         (id,project_id,assurance_case_id,from_status,to_status,actor_id,actor_email,reason,evidence_ids,occurred_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, assuranceDecisionValues(decision));
+      await client.query("COMMIT");
+      return assuranceCaseFromRow(result.rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally { client.release(); }
+  }
+
+  async getAssuranceCase(projectId: string, caseId: string): Promise<AssuranceCaseRecord | undefined> {
+    return one(this.pool.query("SELECT * FROM agentcert_assurance_cases WHERE project_id=$1 AND id=$2", [projectId, caseId]), assuranceCaseFromRow);
+  }
+
+  async getAssuranceCaseByPublicId(publicId: string): Promise<AssuranceCaseRecord | undefined> {
+    return one(this.pool.query("SELECT * FROM agentcert_assurance_cases WHERE public_verification_id=$1", [publicId]), assuranceCaseFromRow);
+  }
+
+  async listAssuranceCases(projectId: string, limit = 100): Promise<AssuranceCaseRecord[]> {
+    return many(this.pool.query("SELECT * FROM agentcert_assurance_cases WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2", [projectId, limit]), assuranceCaseFromRow);
+  }
+
+  async insertAssuranceCaseDecision(record: AssuranceCaseDecisionRecord): Promise<AssuranceCaseDecisionRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_assurance_case_decisions
+       (id,project_id,assurance_case_id,from_status,to_status,actor_id,actor_email,reason,evidence_ids,occurred_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [record.id, record.projectId, record.assuranceCaseId, record.fromStatus ?? null, record.toStatus, record.actorId,
+        record.actorEmail ?? null, record.reason, JSON.stringify(record.evidenceIds), record.occurredAt],
+    );
+    return assuranceCaseDecisionFromRow(result.rows[0]);
+  }
+
+  async listAssuranceCaseDecisions(projectId: string, caseId: string): Promise<AssuranceCaseDecisionRecord[]> {
+    return many(this.pool.query(
+      "SELECT * FROM agentcert_assurance_case_decisions WHERE project_id=$1 AND assurance_case_id=$2 ORDER BY occurred_at ASC",
+      [projectId, caseId],
+    ), assuranceCaseDecisionFromRow);
   }
 
   async roleForProject(userId: string, projectId: string): Promise<MemberRole | undefined> {
@@ -1932,6 +2090,39 @@ function evidenceFromRow(row: Record<string, unknown>): EvidenceRecord {
   return { id: text(row.id), projectId: text(row.project_id), runId: optionalText(row.run_id), actionId: optionalText(row.action_id), kind: text(row.kind),
     schemaVersion: text(row.schema_version), objectKey: text(row.object_key), fileName: text(row.file_name), contentType: text(row.content_type), sha256: text(row.sha256),
     sizeBytes: number(row.size_bytes), metadata: object(row.metadata), createdAt: iso(row.created_at) };
+}
+
+function assuranceCaseValues(record: AssuranceCaseRecord): unknown[] {
+  return [record.id, record.projectId, record.name, JSON.stringify(record.subject), record.status, record.policyPackVersion,
+    JSON.stringify(record.evaluationPlan), record.evaluationPlanSha256, JSON.stringify(record.evidenceIds), record.createdBy,
+    record.reviewerId ?? null, jsonOrNull(record.report), record.publicVerificationId ?? null, record.expiresAt ?? null,
+    record.createdAt, record.updatedAt];
+}
+
+function assuranceDecisionValues(record: AssuranceCaseDecisionRecord): unknown[] {
+  return [record.id, record.projectId, record.assuranceCaseId, record.fromStatus ?? null, record.toStatus, record.actorId,
+    record.actorEmail ?? null, record.reason, JSON.stringify(record.evidenceIds), record.occurredAt];
+}
+
+function assuranceCaseFromRow(row: Record<string, unknown>): AssuranceCaseRecord {
+  return {
+    id: text(row.id), projectId: text(row.project_id), name: text(row.name), subject: object(row.subject) as unknown as AssuranceCaseRecord["subject"],
+    status: text(row.status) as AssuranceCaseRecord["status"], policyPackVersion: text(row.policy_pack_version),
+    evaluationPlan: object(row.evaluation_plan) as unknown as AssuranceCaseRecord["evaluationPlan"],
+    evaluationPlanSha256: text(row.evaluation_plan_sha256), evidenceIds: stringArray(row.evidence_ids), createdBy: text(row.created_by),
+    reviewerId: optionalText(row.reviewer_id), report: optionalObject(row.report) as unknown as AssuranceCaseRecord["report"],
+    publicVerificationId: optionalText(row.public_verification_id), expiresAt: optionalIso(row.expires_at),
+    createdAt: iso(row.created_at), updatedAt: iso(row.updated_at),
+  };
+}
+
+function assuranceCaseDecisionFromRow(row: Record<string, unknown>): AssuranceCaseDecisionRecord {
+  return {
+    id: text(row.id), projectId: text(row.project_id), assuranceCaseId: text(row.assurance_case_id),
+    fromStatus: optionalText(row.from_status) as AssuranceCaseDecisionRecord["fromStatus"],
+    toStatus: text(row.to_status) as AssuranceCaseDecisionRecord["toStatus"], actorId: text(row.actor_id),
+    actorEmail: optionalText(row.actor_email), reason: text(row.reason), evidenceIds: stringArray(row.evidence_ids), occurredAt: iso(row.occurred_at),
+  };
 }
 
 export class LegalHoldStateConflictError extends Error {

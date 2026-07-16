@@ -35,6 +35,10 @@ export class EvidenceSigner {
   }
 
   attest(payload: EvidenceAttestationPayload, signedAt = new Date().toISOString()): ServerAttestation {
+    return this.attestCanonical(payload, signedAt);
+  }
+
+  attestCanonical(payload: unknown, signedAt = new Date().toISOString()): ServerAttestation {
     const bytes = Buffer.from(canonicalJson(payload));
     return {
       schemaVersion: SERVER_ATTESTATION_VERSION,
@@ -47,7 +51,7 @@ export class EvidenceSigner {
   }
 }
 
-export function verifyEvidenceAttestation(payload: EvidenceAttestationPayload, attestation: ServerAttestation, publicKeyPem: string): boolean {
+export function verifyCanonicalAttestation(payload: unknown, attestation: ServerAttestation, publicKeyPem: string): boolean {
   if (attestation.schemaVersion !== SERVER_ATTESTATION_VERSION || attestation.algorithm !== "Ed25519") return false;
   const bytes = Buffer.from(canonicalJson(payload));
   if (sha256(bytes) !== attestation.payloadSha256) return false;
@@ -56,6 +60,10 @@ export function verifyEvidenceAttestation(payload: EvidenceAttestationPayload, a
   } catch {
     return false;
   }
+}
+
+export function verifyEvidenceAttestation(payload: EvidenceAttestationPayload, attestation: ServerAttestation, publicKeyPem: string): boolean {
+  return verifyCanonicalAttestation(payload, attestation, publicKeyPem);
 }
 
 export function canonicalJson(value: unknown): string {

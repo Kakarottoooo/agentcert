@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { validateEvidenceArtifacts } from "./artifact-validation.js";
@@ -14,6 +14,7 @@ import {
   writeReviewedFailureDataset,
 } from "./corpus.js";
 import { openCorpusStore, parseCorpusStoreKind, type CorpusStoreOptions } from "./corpus-store.js";
+import { deleteCorpusRecords, exportGovernedCorpus, governCorpusRecords, parseCorpusConsent } from "./corpus-governance.js";
 import { pushEvidenceToControlPlane, verifyControlPlaneConnection } from "./control-plane.js";
 import { runEvidenceConformance } from "./conformance.js";
 import { DEFAULT_AGENTCERT_SERVER, resolveConnection, saveConnection } from "./credentials.js";
@@ -164,10 +165,10 @@ Saved connections are reused by agentcert push and agentcert run --push.
     }
 
     const reviews = await readFailureReviews(readReviewsPath());
-    const records = applyFailureReviews(
+    const records = governCorpusRecords(applyFailureReviews(
       loaded.flatMap(({ result, path, raw }) => recordsFromAgentCertResult(result, path, subject, raw)),
       reviews,
-    );
+    ), { consent: parseCorpusConsent(readFlag("--consent")), consentSource: readFlag("--consent-source") ?? "local-default" });
     const store = await openCorpusStore(storeOptions);
     try {
       await store.append(records, { replace });
@@ -204,6 +205,29 @@ Saved connections are reused by agentcert push and agentcert run --push.
     } finally {
       await store.close();
     }
+  } else if (action === "export") {
+    const outPath = readFlag("--out") ?? ".agentcert/latest/governed-corpus.jsonl";
+    const allowed = (readFlag("--consent") ?? "public,anonymous").split(",").map((item) => parseCorpusConsent(item.trim()));
+    const store = await openCorpusStore(readCorpusStoreOptions(".agentcert/corpus/corpus.jsonl"));
+    try {
+      const records = exportGovernedCorpus(await store.readAll(), allowed);
+      await mkdir(dirname(resolve(outPath)), { recursive: true });
+      await writeFile(outPath, records.map((record) => JSON.stringify(record)).join("\n") + (records.length ? "\n" : ""));
+      process.stdout.write(`Exported ${records.length} consented corpus records to ${resolve(outPath)}\n`);
+    } finally { await store.close(); }
+  } else if (action === "delete") {
+    const ids = requiredFlag("--record-id").split(",").map((item) => item.trim()).filter(Boolean);
+    const reason = requiredFlag("--reason");
+    const journalPath = readFlag("--journal") ?? ".agentcert/corpus/deletion-journal.jsonl";
+    const store = await openCorpusStore(readCorpusStoreOptions(".agentcert/corpus/corpus.jsonl"));
+    try {
+      const result = deleteCorpusRecords(await store.readAll(), ids, reason);
+      if (!result.tombstones.length) throw new Error("No corpus records matched --record-id; nothing was deleted.");
+      await store.append(result.retained, { replace: true });
+      await mkdir(dirname(resolve(journalPath)), { recursive: true });
+      await appendFile(journalPath, result.tombstones.map((item) => JSON.stringify(item)).join("\n") + "\n");
+      process.stdout.write(`Deleted ${result.tombstones.length} corpus records and wrote non-identifying tombstones to ${resolve(journalPath)}\n`);
+    } finally { await store.close(); }
   } else if (action === "classifier-eval") {
     const outPath = readFlag("--out");
     const store = await openCorpusStore(readCorpusStoreOptions(".agentcert/corpus/corpus.jsonl"));
@@ -261,9 +285,12 @@ Saved connections are reused by agentcert push and agentcert run --push.
     process.stdout.write(`Usage:
   agentcert corpus ingest --tripwire .tripwire/latest/tripwire-result.json --out .agentcert/corpus/corpus.jsonl --subject my-agent
   agentcert corpus ingest --store sqlite --sqlite .agentcert/corpus/agentcert.sqlite --tripwire .tripwire/latest/tripwire-result.json --subject my-agent
+  agentcert corpus ingest --tripwire result.json --consent anonymous --consent-source "pilot agreement 2026-07"
   agentcert corpus review --corpus .agentcert/corpus/corpus.jsonl --reviews .agentcert/corpus/failure-reviews.jsonl --pattern-key tripwire:ui_drift:modal-overlay:url_contains --type ui_drift --status confirmed --reviewer you@example.com --confidence 0.8 --why "Visible evidence supports the ui_drift label."
   agentcert corpus metrics --corpus .agentcert/corpus/corpus.jsonl
   agentcert corpus export-reviewed --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/latest/reviewed-failure-dataset.jsonl
+  agentcert corpus export --corpus .agentcert/corpus/corpus.jsonl --consent public,anonymous --out .agentcert/latest/governed-corpus.jsonl
+  agentcert corpus delete --corpus .agentcert/corpus/corpus.jsonl --record-id <id> --reason "participant withdrawal"
   agentcert corpus classifier-eval --corpus .agentcert/corpus/corpus.jsonl --out .agentcert/latest/failure-classifier-evaluation.json
   agentcert corpus summary --corpus .agentcert/corpus/corpus.jsonl
   agentcert corpus summary --store postgres --database-url "$DATABASE_URL"
@@ -471,6 +498,7 @@ Saved connections are reused by agentcert push and agentcert run --push.
   agentcert schema validate --schema corpus-record --file examples/agentcert/corpus-record.example.json
   agentcert schema validate --schema classifier-eval --file examples/agentcert/classifier-eval.example.json
   agentcert schema validate --schema release-gate --file .agentcert/latest/agentcert-release-gate.json
+  agentcert schema validate --schema assurance-report --file assurance-report.json
   agentcert schema validate --schema evidence-signature --file .agentcert/latest/agentcert-evidence.json.sig.json
 `);
   }

@@ -2126,6 +2126,24 @@ button {
   border: 1px solid var(--border);
 }
 
+.assurance-layout { display: grid; grid-template-columns: minmax(340px, .9fr) minmax(460px, 1.1fr); gap: 16px; align-items: start; }
+.assurance-layout.empty { grid-template-columns: minmax(0, 820px); }
+.assurance-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.assurance-form textarea { min-height: 86px; resize: vertical; }
+.assurance-form > button { grid-column: 1 / -1; width: auto; justify-self: start; }
+.assurance-case-row { width: 100%; display: grid; grid-template-columns: 1fr auto; gap: 16px; padding: 14px; text-align: left; border: 1px solid var(--hosted-border, #dfe3e8); background: transparent; }
+.assurance-case-row.active { border-color: #1f6f5f; box-shadow: inset 3px 0 #1f6f5f; }
+.assurance-case-row span { display: grid; gap: 4px; }
+.assurance-case-row small { color: #687078; }
+.assurance-detail dl { display: grid; gap: 10px; }
+.assurance-detail dl div { display: grid; grid-template-columns: 120px 1fr; gap: 12px; }
+.assurance-detail dt { color: #687078; }
+.assurance-detail dd { margin: 0; overflow-wrap: anywhere; }
+.assurance-detail li { margin: 8px 0; }
+.assurance-detail li span { color: #687078; margin-left: 8px; }
+@media (max-width: 1050px) { .assurance-layout, .assurance-layout.empty { grid-template-columns: 1fr; } }
+@media (max-width: 650px) { .assurance-form { grid-template-columns: 1fr; } }
+
 .section-title h2 {
   margin: 0;
   font-size: 17px;

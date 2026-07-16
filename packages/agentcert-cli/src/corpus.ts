@@ -78,6 +78,7 @@ export interface AgentCertCorpusRecord {
   artifacts: Record<string, string>;
   sourcePath: string;
   metadata?: Record<string, unknown>;
+  governance?: import("./corpus-governance.js").CorpusGovernance;
 }
 
 export interface CorpusSummary {

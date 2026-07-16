@@ -11,6 +11,7 @@ export type AgentCertSchemaId =
   | "monitor-snapshot"
   | "robustness-lab"
   | "release-gate"
+  | "assurance-report"
   | "evidence-signature";
 
 export interface SchemaValidationResult {
@@ -30,12 +31,13 @@ export function parseSchemaId(input: string | undefined): AgentCertSchemaId {
     value === "monitor-snapshot" ||
     value === "robustness-lab" ||
     value === "release-gate" ||
+    value === "assurance-report" ||
     value === "evidence-signature"
   ) {
     return value;
   }
   throw new Error(
-    `Unsupported schema "${value}". Use evidence-bundle, result, corpus-record, failure-review, classifier-eval, monitor-snapshot, robustness-lab, release-gate, or evidence-signature.`
+    `Unsupported schema "${value}". Use evidence-bundle, result, corpus-record, failure-review, classifier-eval, monitor-snapshot, robustness-lab, release-gate, assurance-report, or evidence-signature.`
   );
 }
 
@@ -58,6 +60,7 @@ export function validateAgentCertSchema(schema: AgentCertSchemaId, input: unknow
     if (schema === "classifier-eval") validateClassifierEval(value, errors);
     if (schema === "monitor-snapshot") validateMonitorSnapshot(value, errors);
     if (schema === "robustness-lab") validateRobustnessLab(value, errors);
+    if (schema === "assurance-report") validateAssuranceReport(value, errors);
   }
   return { schema, valid: errors.length === 0, errors };
 }
@@ -173,6 +176,30 @@ function validateCorpusRecord(value: Record<string, unknown>, errors: string[]):
   requiredString(value, "runId", errors);
   requiredBoolean(value, "passed", errors);
   requiredArray(value, "failurePatterns", errors);
+  if (value.governance !== undefined) {
+    const governance = recordValue(value.governance);
+    if (!governance) errors.push("governance must be an object.");
+    else {
+      requiredConst(governance, "schemaVersion", "agentcert.corpus_governance.v0.1", errors);
+      requiredEnum(governance, "consent", ["private", "anonymous", "public", "denied"], errors);
+      requiredString(governance, "consentSource", errors);
+      requiredString(governance, "consentRecordedAt", errors);
+      requiredObject(governance, "provenance", errors);
+      requiredObject(governance, "redaction", errors);
+    }
+  }
+}
+
+function validateAssuranceReport(value: Record<string, unknown>, errors: string[]): void {
+  requiredConst(value, "schemaVersion", "agentcert.assurance_report.v0.1", errors);
+  for (const key of ["assuranceCaseId", "projectId", "policyPackVersion", "evaluationPlanSha256", "reviewerId", "issuedAt", "expiresAt", "statement"]) requiredString(value, key, errors);
+  requiredObject(value, "subject", errors);
+  requiredArray(value, "evidence", errors);
+  requiredConst(value, "decision", "issued", errors);
+  requiredArray(value, "limitations", errors);
+  if (!/^[0-9a-f]{64}$/.test(String(value.evaluationPlanSha256 ?? ""))) errors.push("evaluationPlanSha256 must be a lowercase SHA-256 digest.");
+  validateTimestamp(value.issuedAt, "issuedAt", errors);
+  validateTimestamp(value.expiresAt, "expiresAt", errors);
 }
 
 function validateFailureReview(value: Record<string, unknown>, errors: string[]): void {

@@ -6,6 +6,7 @@ export type ActionStatus = "ALLOWED" | "DENIED" | "PENDING_APPROVAL" | "APPROVED
 export type IncidentSeverity = "low" | "medium" | "high" | "critical";
 export type FailureReviewStatus = "confirmed" | "corrected";
 export type EvidenceCompletenessStatus = "complete" | "partial" | "rejected";
+export type AssuranceCaseStatus = "draft" | "evaluating" | "review_required" | "issued" | "suspended" | "revoked" | "expired";
 export type LegalHoldStatus = "requested" | "approved" | "rejected" | "released";
 export type ApiKeyScope =
   | "agents:read"
@@ -235,6 +236,62 @@ export interface EvidenceRecord {
   sizeBytes: number;
   metadata: Record<string, unknown>;
   createdAt: string;
+}
+
+export interface AssuranceCaseRecord {
+  id: string;
+  projectId: string;
+  name: string;
+  subject: { id: string; name: string; version?: string; kind: string };
+  status: AssuranceCaseStatus;
+  policyPackVersion: string;
+  evaluationPlan: {
+    requiredEvidenceKinds: string[];
+    controls: Array<{ id: string; title: string; mode: "automated" | "evidence_required" | "manual" }>;
+    limitations: string[];
+  };
+  evaluationPlanSha256: string;
+  evidenceIds: string[];
+  createdBy: string;
+  reviewerId?: string;
+  report?: AssuranceReport;
+  publicVerificationId?: string;
+  expiresAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AssuranceCaseDecisionRecord {
+  id: string;
+  projectId: string;
+  assuranceCaseId: string;
+  fromStatus?: AssuranceCaseStatus;
+  toStatus: AssuranceCaseStatus;
+  actorId: string;
+  actorEmail?: string;
+  reason: string;
+  evidenceIds: string[];
+  occurredAt: string;
+}
+
+export interface AssuranceReportPayload {
+  schemaVersion: "agentcert.assurance_report.v0.1";
+  assuranceCaseId: string;
+  projectId: string;
+  subject: AssuranceCaseRecord["subject"];
+  policyPackVersion: string;
+  evaluationPlanSha256: string;
+  evidence: Array<{ id: string; kind: string; schemaVersion: string; sha256: string; sizeBytes: number }>;
+  decision: "issued";
+  reviewerId: string;
+  issuedAt: string;
+  expiresAt: string;
+  limitations: string[];
+  statement: string;
+}
+
+export interface AssuranceReport extends AssuranceReportPayload {
+  attestation?: import("./signing.js").ServerAttestation;
 }
 
 export interface EvidenceStorageUsage {

@@ -1,0 +1,30 @@
+name: Adapter compatibility
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "11 9 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          package-manager-cache: false
+      - run: node scripts/adapter-compatibility.mjs
+        env:
+          AGENTCERT_COMPAT_VERSIONS: 0.5.1,latest
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: adapter-compatibility-${{ github.run_id }}
+          path: .agentcert/compatibility/adapter-matrix.json
+          if-no-files-found: error
+          retention-days: 90
