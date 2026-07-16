@@ -1,7 +1,7 @@
 {
   "name": "@agentcert/onegent-runtime",
-  "version": "0.1.0",
-  "description": "Local Action Gateway MVP for policy, approval, verification, and audit demos.",
+  "version": "0.2.0",
+  "description": "Action assurance runtime and sandbox adapter certification kit for policy, approval, verification, and audit workflows.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,7 +10,8 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./sandbox-certification.schema.json": "./sandbox-certification.schema.json"
+    "./sandbox-certification.schema.json": "./sandbox-certification.schema.json",
+    "./sandbox-adapter-conformance.schema.json": "./sandbox-adapter-conformance.schema.json"
   },
   "bin": {
     "onegent-runtime": "dist/cli.js"
@@ -20,6 +21,7 @@
     "README.md",
     "onegent.policy.json",
     "sandbox-certification.schema.json",
+    "sandbox-adapter-conformance.schema.json",
     "package.json"
   ],
   "scripts": {
@@ -28,6 +30,7 @@
     "test": "vitest run tests",
     "demo:procurement": "node dist/cli.js procurement-demo --out .onegent/procurement",
     "demo:sandbox": "node dist/cli.js sandbox-certify --out .onegent/sandbox-certification",
+    "demo:sandbox-conformance": "node dist/cli.js sandbox-conformance --out .onegent/sandbox-conformance",
     "serve": "node dist/cli.js serve --port 3310"
   },
   "engines": {

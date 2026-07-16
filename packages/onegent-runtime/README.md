@@ -120,6 +120,30 @@ Programmatic entry points:
 
 See [the full harness guide](../../docs/sandbox-certification-harness.md).
 
+## Sandbox Adapter Kit v0.2
+
+```powershell
+npm run build
+node dist/cli.js sandbox-conformance --out .onegent/sandbox-conformance
+```
+
+`createSandboxSystemAdapter()` provides the guarded callback template for
+third-party systems. `runSandboxAdapterConformanceSuite()` verifies the adapter,
+the ten v0.1 controls, tenant lifecycle, and tenant TTL cleanup. Harness tenants
+expire after one hour by default and are deleted on expiry or `close()`.
+
+Use `createStripeTestModeReadOnlyAdapter()` for the vendor reference boundary.
+It accepts only a restricted `rk_test_` key and exposes bounded PaymentIntent
+GET operations; it cannot execute a payment mutation.
+
+Add `--push` to either sandbox command to create a Hosted Control Plane run and
+upload the report as complete evidence. Configure `AGENTCERT_PROJECT_ID`,
+`AGENTCERT_API_KEY`, and optionally `AGENTCERT_BASE_URL`; the API key needs
+`runs:write` and `evidence:write`.
+
+See [the Adapter Kit guide](../../docs/sandbox-adapter-kit.md) and the
+[runnable third-party template](../../examples/onegent/sandbox-system-adapter-template.mjs).
+
 ## Demo
 
 ```powershell

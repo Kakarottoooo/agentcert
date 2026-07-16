@@ -131,6 +131,7 @@ Production deployment: [docs/hosted-control-plane.md](docs/hosted-control-plane.
 API contract: [docs/openapi/control-plane-v1.yaml](docs/openapi/control-plane-v1.yaml).
 Envelope contract and adapters: [docs/universal-envelope.md](docs/universal-envelope.md).
 Evidence verification chain: [docs/evidence-trust-chain.md](docs/evidence-trust-chain.md).
+Sandbox Adapter Kit: [docs/sandbox-adapter-kit.md](docs/sandbox-adapter-kit.md).
 Public control plane: [agentcert-control-plane.onrender.com](https://agentcert-control-plane.onrender.com/).
 
 Once a project API key is created in **Integrations**, connect the CLI once and

@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createInMemorySandboxSystem,
   createSandboxCertificationHarness,
@@ -14,7 +14,10 @@ import type { CreateActionIntentInput } from "../src/types.js";
 const tempPaths: string[] = [];
 
 beforeEach(resetActionGatewayStore);
-afterEach(async () => Promise.all(tempPaths.splice(0).map((path) => rm(path, { recursive: true, force: true }))));
+afterEach(async () => {
+  vi.useRealTimers();
+  await Promise.all(tempPaths.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+});
 
 describe("Sandbox Certification Harness v0.1", () => {
   it("isolates tenant state and restores deterministic synthetic seeds", async () => {
@@ -31,6 +34,32 @@ describe("Sandbox Certification Harness v0.1", () => {
     await harness.resetTenant("tenant-a");
     expect(await harness.snapshotTenant("tenant-a")).toEqual({ account: { tier: "standard" } });
     await expect(harness.seedTenant("tenant-a", { account: { apiKey: "not-allowed" } })).rejects.toThrow("Credential-like field");
+  });
+
+  it("leases temporary tenants, supports bounded renewal, and cleans them automatically", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2030-01-01T00:00:00.000Z"));
+    const system = createInMemorySandboxSystem({ allowedTargetSystems: ["SandboxCRM"] });
+    const harness = createSandboxCertificationHarness({
+      system,
+      tenantTtlMs: 200,
+      maxTenantTtlMs: 1_000,
+      cleanupIntervalMs: 50,
+    });
+    const lease = await harness.createTenant({ id: "temporary", synthetic: true });
+    expect(lease).toMatchObject({ tenantId: "temporary", expiresAt: "2030-01-01T00:00:00.200Z" });
+
+    await vi.advanceTimersByTimeAsync(100);
+    const renewed = await harness.renewTenant("temporary", 300);
+    expect(renewed.expiresAt).toBe("2030-01-01T00:00:00.400Z");
+    await expect(harness.renewTenant("temporary", 1_001)).rejects.toThrow("cannot exceed 1000");
+
+    await vi.advanceTimersByTimeAsync(301);
+    expect(await system.hasTenant("temporary")).toBe(false);
+    expect(harness.tenantLease("temporary")).toBeUndefined();
+    await expect(harness.startRun({ tenantId: "temporary" })).rejects.toThrow("lease expired");
+    await harness.close();
+    await expect(harness.createTenant({ id: "closed", synthetic: true })).rejects.toThrow("closed");
   });
 
   it("fails closed for production, network, target, and approval violations", async () => {
@@ -159,6 +188,26 @@ describe("Sandbox Certification Harness v0.1", () => {
     const system = createInMemorySandboxSystem({ allowedTargetSystems: ["SandboxCRM"] });
     const unsafe = { ...system, safety: { ...system.safety, networkAccess: true } };
     expect(() => createSandboxCertificationHarness({ system: unsafe as never })).toThrow("accepts only synthetic, network-denied");
+  });
+
+  it("cleans an already-created certification tenant when adapter setup fails", async () => {
+    const backing = createInMemorySandboxSystem({ allowedTargetSystems: ["SandboxCRM"] });
+    let creates = 0;
+    let deletes = 0;
+    const system = {
+      ...backing,
+      createTenant: async (input: Parameters<typeof backing.createTenant>[0]) => {
+        creates += 1;
+        if (creates === 2) throw new Error("adapter setup failed");
+        await backing.createTenant(input);
+      },
+      deleteTenant: async (tenantId: string) => {
+        deletes += 1;
+        await backing.deleteTenant(tenantId);
+      },
+    };
+    await expect(runSandboxCertificationSuite({ system })).rejects.toThrow("adapter setup failed");
+    expect(deletes).toBe(1);
   });
 });
 
