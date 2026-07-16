@@ -91,6 +91,9 @@ It:
 - accepts only an `rk_test_` restricted test-mode key;
 - fixes egress to `https://api.stripe.com`;
 - exposes only bounded GET operations for PaymentIntents;
+- enforces resource route patterns before network access;
+- times out after 5 seconds and caps the process at 10 reads per minute;
+- emits a credential-free request audit and redacted v0.4 evidence report;
 - rejects responses unless `livemode` is explicitly `false`;
 - returns a narrow snapshot without `client_secret` or metadata.
 
@@ -106,6 +109,9 @@ This adapter does not create, confirm, capture, cancel, or refund payments. The
 restricted key must grant only the Stripe read permission required by the
 selected method. See Stripe's official [API key guidance](https://docs.stripe.com/keys)
 and [PaymentIntent retrieval API](https://docs.stripe.com/api/payment_intents/retrieve).
+The public `npx agentcert sandbox stripe-readonly` workflow and its evidence
+boundary are documented in
+[Bounded Vendor Sandbox Egress v0.4](bounded-vendor-sandbox-egress.md).
 
 ## Publish certification evidence
 

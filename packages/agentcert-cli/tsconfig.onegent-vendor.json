@@ -7,7 +7,9 @@
   },
   "include": [
     "../onegent-runtime/src/sandbox-adapter-kit.ts",
-    "../onegent-runtime/src/sandbox-hosted.ts"
+    "../onegent-runtime/src/sandbox-hosted.ts",
+    "../onegent-runtime/src/stripe-test-readonly.ts",
+    "../onegent-runtime/src/vendor-sandbox-egress.ts"
   ],
   "exclude": ["../onegent-runtime/tests", "../onegent-runtime/dist"]
 }

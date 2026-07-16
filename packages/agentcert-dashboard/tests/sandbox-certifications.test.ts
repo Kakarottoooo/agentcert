@@ -69,4 +69,58 @@ describe("hosted sandbox certification", () => {
       ],
     }));
   });
+
+  it("extracts bounded vendor policy and request audit without raw request data", () => {
+    const bundle: EvidenceBundleDocument = {
+      schemaName: "agentcert.evidence_bundle",
+      schemaVersion: "agentcert.evidence.v0.1",
+      runId: "stripe-sandbox-run",
+      generatedAt: "2030-01-01T00:00:00.000Z",
+      subject: { name: "stripe-payment-intent-readonly", type: "application" },
+      verdict: { passed: true, score: 100, level: "Sandbox conformant" },
+      summary: { products: ["onegent-runtime"], criticalEvidence: 0, highEvidence: 0, totalEvidence: 1 },
+      results: [],
+      evidence: [{
+        id: "stripe-report",
+        kind: "sandbox_vendor_egress",
+        severity: "info",
+        message: "passed",
+        metadata: { report: {
+          schemaVersion: "agentcert.sandbox_vendor_egress.v0.4",
+          kind: "agentcert.sandbox_vendor_egress",
+          implementation: "stripe-payment-intent-readonly",
+          vendor: "stripe",
+          environment: "sandbox",
+          generatedAt: "2030-01-01T00:00:00.000Z",
+          verdict: { passed: true, score: 100 },
+          checks: [{ id: "bounded-read", status: "passed", message: "Bounded read passed." }],
+          policy: {
+            allowedOrigins: ["https://api.stripe.com"],
+            allowedMethods: ["GET"],
+            allowedResources: ["stripe.payment_intent.retrieve"],
+            timeoutMs: 5000,
+            maxRequestsPerMinute: 10,
+          },
+          audit: [{ requestId: "stripe-1", resource: "stripe.payment_intent.retrieve", method: "GET", outcome: "allowed", status: 200, durationMs: 24 }],
+        } },
+      }],
+      artifacts: {},
+      standards: [],
+    };
+
+    expect(sandboxCertificationFromBundle(bundle)).toMatchObject({
+      implementation: "stripe-payment-intent-readonly",
+      checks: [expect.objectContaining({ id: "bounded-read", layer: "egress" })],
+      egressPolicy: {
+        vendor: "stripe",
+        environment: "sandbox",
+        allowedOrigins: ["https://api.stripe.com"],
+        allowedMethods: ["GET"],
+        allowedResources: ["stripe.payment_intent.retrieve"],
+        timeoutMs: 5000,
+        maxRequestsPerMinute: 10,
+      },
+      requestAudit: [expect.objectContaining({ requestId: "stripe-1", outcome: "allowed", status: 200 })],
+    });
+  });
 });

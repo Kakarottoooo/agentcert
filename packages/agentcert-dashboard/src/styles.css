@@ -1426,6 +1426,21 @@ button {
   margin: 18px 0 0;
 }
 
+.sandbox-egress-policy dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 18px 0;
+}
+
+.sandbox-egress-policy dl div { min-width: 0; }
+.sandbox-egress-policy dt { color: #717871; font-size: 12px; }
+.sandbox-egress-policy dd {
+  margin: 4px 0 0;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
 .sandbox-empty-state {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 520px);
@@ -1439,7 +1454,8 @@ button {
   .sandbox-certification-layout,
   .sandbox-empty-state { grid-template-columns: 1fr; }
   .sandbox-certification-summary dl,
-  .sandbox-provenance dl { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  .sandbox-provenance dl,
+  .sandbox-egress-policy dl { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 }
 
 .account-block {

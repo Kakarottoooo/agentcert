@@ -5,6 +5,7 @@ import { resolveConnection } from "./credentials.js";
 
 const DEFAULT_ADAPTER_PATH = "agentcert.sandbox.mjs";
 const DEFAULT_REPORT_PATH = ".agentcert/sandbox/sandbox-adapter-conformance.json";
+const DEFAULT_STRIPE_REPORT_PATH = ".agentcert/sandbox/stripe-readonly-report.json";
 
 interface SandboxSafety {
   mode: "sandbox";
@@ -35,6 +36,24 @@ interface SandboxConformanceReport {
   checks: Array<{ id: string; status: "passed" | "failed"; message: string }>;
 }
 
+interface StripeSandboxReadOnlyReport {
+  schemaVersion: "agentcert.sandbox_vendor_egress.v0.4";
+  kind: "agentcert.sandbox_vendor_egress";
+  implementation: "stripe-payment-intent-readonly";
+  vendor: "stripe";
+  environment: "sandbox";
+  generatedAt: string;
+  verdict: { passed: boolean; score: number };
+  summary: { passed: number; failed: number; total: number };
+  checks: Array<{ id: string; status: "passed" | "failed"; message: string }>;
+  policy: Record<string, unknown>;
+  audit: Array<Record<string, unknown>>;
+  observation?: Record<string, unknown>;
+  disclaimer: string;
+}
+
+type SandboxReport = SandboxConformanceReport | StripeSandboxReadOnlyReport;
+
 interface SandboxRuntimeModule {
   runSandboxAdapterConformanceSuite(options: {
     system: SandboxSystem;
@@ -42,7 +61,11 @@ interface SandboxRuntimeModule {
     targetSystem?: string;
   }): Promise<SandboxConformanceReport>;
   writeSandboxAdapterConformanceReport(report: SandboxConformanceReport, filePath: string): Promise<string>;
-  uploadSandboxCertificationReport(report: SandboxConformanceReport, options: {
+  runStripeSandboxReadOnlyCertification?(options: {
+    restrictedApiKey: string;
+    paymentIntentId: string;
+  }): Promise<StripeSandboxReadOnlyReport>;
+  uploadSandboxCertificationReport(report: SandboxReport, options: {
     baseUrl: string;
     projectId: string;
     apiKey: string;
@@ -53,7 +76,7 @@ interface SandboxRuntimeModule {
 export interface SandboxCommandResult {
   exitCode: number;
   reportPath?: string;
-  report?: SandboxConformanceReport;
+  report?: SandboxReport;
 }
 
 export async function runSandboxCommand(args: string[]): Promise<SandboxCommandResult> {
@@ -65,6 +88,7 @@ export async function runSandboxCommand(args: string[]): Promise<SandboxCommandR
   if (action === "init") return initializeSandboxAdapter(args.slice(1));
   if (action === "certify") return certifySandboxAdapter(args.slice(1));
   if (action === "push") return pushSandboxCertification(args.slice(1));
+  if (action === "stripe-readonly") return runStripeSandboxReadOnly(args.slice(1));
   throw new Error(`Unknown sandbox command ${JSON.stringify(action)}. Run \`npx agentcert sandbox --help\`.`);
 }
 
@@ -120,6 +144,48 @@ export async function pushSandboxCertification(
   return certified;
 }
 
+export async function runStripeSandboxReadOnly(
+  args: string[],
+  runtimeOverride?: SandboxRuntimeModule,
+): Promise<SandboxCommandResult> {
+  if (args.includes("--stripe-key") || args.includes("--restricted-key")) {
+    throw new Error("Stripe credentials are accepted only through STRIPE_RESTRICTED_TEST_KEY, never a CLI flag.");
+  }
+  const paymentIntentId = flag(args, "--payment-intent");
+  if (!paymentIntentId) throw new Error("Stripe sandbox read requires --payment-intent <pi_...>.");
+  const restrictedApiKey = process.env.STRIPE_RESTRICTED_TEST_KEY?.trim();
+  if (!restrictedApiKey) {
+    throw new Error("Set STRIPE_RESTRICTED_TEST_KEY to a read-only Stripe rk_test_ restricted key.");
+  }
+  const runtime = runtimeOverride ?? await loadSandboxRuntime();
+  if (!runtime.runStripeSandboxReadOnlyCertification) {
+    throw new Error("AgentCert Stripe sandbox runtime is missing. Reinstall the agentcert package and retry.");
+  }
+  const report = await runtime.runStripeSandboxReadOnlyCertification({ restrictedApiKey, paymentIntentId });
+  const reportPath = resolve(flag(args, "--out") ?? DEFAULT_STRIPE_REPORT_PATH);
+  await mkdir(dirname(reportPath), { recursive: true });
+  await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  renderVendorReadResult(report, reportPath);
+
+  if (args.includes("--push")) {
+    const connection = await resolveConnection({
+      name: flag(args, "--connection"),
+      server: flag(args, "--server"),
+      projectId: flag(args, "--project"),
+      apiKey: flag(args, "--api-key"),
+    });
+    const uploaded = await runtime.uploadSandboxCertificationReport(report, {
+      baseUrl: connection.server,
+      projectId: connection.projectId,
+      apiKey: connection.apiKey,
+      externalId: flag(args, "--external-id"),
+    });
+    process.stdout.write(`Hosted sandbox run: ${String(uploaded.run.id ?? "created")}\n`);
+    process.stdout.write(`Hosted evidence: ${String(uploaded.evidence.id ?? "created")}\n`);
+  }
+  return { exitCode: report.verdict.passed ? 0 : 1, reportPath, report };
+}
+
 export async function loadSandboxAdapter(adapterPath: string): Promise<SandboxSystem> {
   let module: Record<string, unknown>;
   try {
@@ -154,15 +220,25 @@ Runs the deterministic sandbox adapter conformance suite locally.
 Runs certification, writes the local report, and uploads it through the saved AgentCert connection.
 Use \`agentcert connect\` first, or pass --server, --project, and --api-key.
 `;
+  if (action === "stripe-readonly") return `Usage:
+  STRIPE_RESTRICTED_TEST_KEY=rk_test_... agentcert sandbox stripe-readonly --payment-intent pi_...
+  agentcert sandbox stripe-readonly --payment-intent pi_... --push
+
+Reads one Stripe sandbox PaymentIntent through a fixed GET/resource allowlist,
+writes a redacted evidence report, and optionally uploads it to AgentCert Hosted.
+The Stripe key is read only from STRIPE_RESTRICTED_TEST_KEY.
+`;
   return `Usage:
   agentcert sandbox init [--adapter agentcert.sandbox.mjs]
   agentcert sandbox certify --adapter ./my-sandbox-adapter.js
   agentcert sandbox push --adapter ./my-sandbox-adapter.js
+  agentcert sandbox stripe-readonly --payment-intent pi_... [--push]
 
 Commands:
   init      Write one dependency-free adapter template
   certify   Run deterministic local conformance checks
   push      Certify and upload the report to AgentCert Hosted
+  stripe-readonly  Run one bounded Stripe sandbox read and write evidence
 
 Common options:
   --adapter <path>        Adapter module (default: agentcert.sandbox.mjs)
@@ -175,9 +251,14 @@ Common options:
 async function loadSandboxRuntime(): Promise<SandboxRuntimeModule> {
   const adapterKitUrl = new URL("./vendor/onegent-runtime/sandbox-adapter-kit.js", import.meta.url);
   const hostedUrl = new URL("./vendor/onegent-runtime/sandbox-hosted.js", import.meta.url);
+  const stripeUrl = new URL("./vendor/onegent-runtime/stripe-test-readonly.js", import.meta.url);
   try {
-    const [adapterKit, hosted] = await Promise.all([import(adapterKitUrl.href), import(hostedUrl.href)]);
-    return { ...adapterKit, ...hosted } as SandboxRuntimeModule;
+    const [adapterKit, hosted, stripe] = await Promise.all([
+      import(adapterKitUrl.href),
+      import(hostedUrl.href),
+      import(stripeUrl.href),
+    ]);
+    return { ...adapterKit, ...hosted, ...stripe } as SandboxRuntimeModule;
   } catch (error) {
     const code = error && typeof error === "object" && "code" in error ? String(error.code) : undefined;
     if (code === "ERR_MODULE_NOT_FOUND") {
@@ -222,6 +303,15 @@ function renderCertificationResult(report: SandboxConformanceReport, reportPath:
   for (const check of report.checks) {
     process.stdout.write(`- ${check.status === "passed" ? "PASS" : "FAIL"} ${check.id}: ${check.message}\n`);
   }
+  process.stdout.write(`Report: ${reportPath}\n`);
+}
+
+function renderVendorReadResult(report: StripeSandboxReadOnlyReport, reportPath: string): void {
+  process.stdout.write(`${report.verdict.passed ? "PASS" : "FAIL"} ${report.verdict.score}/100 Stripe sandbox bounded read\n`);
+  for (const check of report.checks) {
+    process.stdout.write(`- ${check.status === "passed" ? "PASS" : "FAIL"} ${check.id}: ${check.message}\n`);
+  }
+  process.stdout.write(`Requests audited: ${report.audit.length}\n`);
   process.stdout.write(`Report: ${reportPath}\n`);
 }
 
