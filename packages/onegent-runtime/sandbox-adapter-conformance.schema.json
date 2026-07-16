@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.dev/schemas/sandbox-adapter-conformance.v0.2.json",
+  "title": "AgentCert Sandbox Adapter Conformance v0.2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "implementation", "generatedAt", "verdict", "summary", "checks", "disclaimer"],
+  "properties": {
+    "schemaVersion": { "const": "agentcert.sandbox_adapter_conformance.v0.2" },
+    "kind": { "const": "agentcert.sandbox_adapter_conformance" },
+    "implementation": { "type": "string", "minLength": 1 },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "score"],
+      "properties": {
+        "passed": { "type": "boolean" },
+        "score": { "type": "integer", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "failed", "total"],
+      "properties": {
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "message"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["passed", "failed"] },
+          "message": { "type": "string", "minLength": 1 },
+          "evidence": { "type": "object" }
+        }
+      }
+    },
+    "certification": {
+      "type": "object",
+      "required": ["schemaVersion", "kind", "verdict", "checks"],
+      "properties": {
+        "schemaVersion": { "const": "agentcert.sandbox_certification.v0.1" },
+        "kind": { "const": "agentcert.sandbox_certification" },
+        "verdict": { "type": "object" },
+        "checks": { "type": "array" }
+      }
+    },
+    "disclaimer": { "type": "string", "minLength": 1 }
+  }
+}

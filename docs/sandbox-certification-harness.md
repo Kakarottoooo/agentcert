@@ -109,3 +109,12 @@ account, short-lived least-privilege credentials, explicit egress allowlists,
 deterministic reset, independent read-after-write verification, and a kill
 switch. Real payment or broad production write access is not a valid first
 integration.
+
+## Adapter Kit v0.2
+
+Third-party implementations should use `createSandboxSystemAdapter()` and run
+`runSandboxAdapterConformanceSuite()`. The v0.2 layer adds bounded tenant
+leases, automatic cleanup, a Stripe Test Mode read-only reference, and Hosted
+Control Plane evidence upload without changing the v0.1 ten-control report.
+
+See [Sandbox Adapter Kit v0.2](sandbox-adapter-kit.md).

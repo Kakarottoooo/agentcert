@@ -22,6 +22,13 @@ export interface SandboxTenantInput {
   synthetic: true;
   displayName?: string;
   seed?: SandboxSeed;
+  ttlMs?: number;
+}
+
+export interface SandboxTenantLease {
+  tenantId: string;
+  createdAt: string;
+  expiresAt: string;
 }
 
 export interface SandboxSystemSafety {
@@ -142,19 +149,27 @@ export interface SandboxHarnessOptions {
   system?: SandboxSystem;
   allowedTargetSystems?: string[];
   limits?: Partial<SandboxExecutionLimits>;
+  tenantTtlMs?: number;
+  maxTenantTtlMs?: number;
+  cleanupIntervalMs?: number;
+  autoCleanup?: boolean;
   now?: () => Date;
 }
 
 export interface SandboxCertificationHarness {
   readonly limits: SandboxExecutionLimits;
-  createTenant(input: SandboxTenantInput): Promise<void>;
+  createTenant(input: SandboxTenantInput): Promise<SandboxTenantLease>;
   deleteTenant(tenantId: string): Promise<void>;
+  tenantLease(tenantId: string): SandboxTenantLease | undefined;
+  renewTenant(tenantId: string, ttlMs?: number): Promise<SandboxTenantLease>;
+  cleanupExpiredTenants(): Promise<string[]>;
   seedTenant(tenantId: string, seed: SandboxSeed): Promise<void>;
   resetTenant(tenantId: string): Promise<void>;
   snapshotTenant(tenantId: string): Promise<SandboxSeed>;
   startRun(input: { tenantId: string; runId?: string }): Promise<SandboxRun>;
   setGlobalKillSwitch(enabled: boolean, reason?: string): SandboxKillSwitchState;
   setTenantKillSwitch(tenantId: string, enabled: boolean, reason?: string): SandboxKillSwitchState;
+  close(): Promise<void>;
 }
 
 export interface SandboxCertificationCheck {
@@ -188,6 +203,10 @@ const DEFAULT_LIMITS: SandboxExecutionLimits = {
   maxAmountPerAction: 10_000,
   maxTotalAmountPerRun: 25_000,
 };
+
+const DEFAULT_TENANT_TTL_MS = 60 * 60 * 1_000;
+const DEFAULT_MAX_TENANT_TTL_MS = 24 * 60 * 60 * 1_000;
+const DEFAULT_CLEANUP_INTERVAL_MS = 60 * 1_000;
 
 const REQUIRE_SANDBOX_APPROVAL: PolicyRule = {
   id: "sandbox-all-actions-require-approval",
@@ -298,6 +317,9 @@ export function createSandboxCertificationHarness(options: SandboxHarnessOptions
   const allowedTargetSystems = Object.freeze(normalizedTargets([...system.safety.allowedTargetSystems]));
   const limits = Object.freeze(normalizeLimits(options.limits));
   const now = options.now ?? (() => new Date());
+  const maxTenantTtlMs = positiveInteger(options.maxTenantTtlMs ?? DEFAULT_MAX_TENANT_TTL_MS, "maxTenantTtlMs");
+  const tenantTtlMs = boundedTenantTtl(options.tenantTtlMs ?? DEFAULT_TENANT_TTL_MS, maxTenantTtlMs);
+  const cleanupIntervalMs = positiveInteger(options.cleanupIntervalMs ?? DEFAULT_CLEANUP_INTERVAL_MS, "cleanupIntervalMs");
   const runtime = createOnegentRuntime({
     policyRules: [REQUIRE_SANDBOX_APPROVAL],
     authorizationPolicy: {
@@ -314,20 +336,90 @@ export function createSandboxCertificationHarness(options: SandboxHarnessOptions
   });
   const runs = new Set<string>();
   const tenantSwitches = new Map<string, SandboxKillSwitchState>();
+  const tenantLeases = new Map<string, SandboxTenantLease>();
+  let cleanupTimer: ReturnType<typeof setInterval> | undefined;
+  let cleanupInFlight: Promise<string[]> | undefined;
+  let closed = false;
   let globalSwitch: SandboxKillSwitchState = { enabled: false, changedAt: now().toISOString() };
+
+  const assertOpen = () => {
+    if (closed) throw new Error("Sandbox certification harness is closed.");
+  };
+  const removeTenant = async (tenantId: string) => {
+    if (await system.hasTenant(tenantId)) await system.deleteTenant(tenantId);
+    tenantLeases.delete(tenantId);
+    tenantSwitches.delete(tenantId);
+  };
+  const cleanupExpiredTenants = (): Promise<string[]> => {
+    if (cleanupInFlight) return cleanupInFlight;
+    cleanupInFlight = (async () => {
+      const cutoff = now().getTime();
+      const expired = [...tenantLeases.values()]
+        .filter((lease) => Date.parse(lease.expiresAt) <= cutoff)
+        .map((lease) => lease.tenantId);
+      const removed: string[] = [];
+      for (const tenantId of expired) {
+        await removeTenant(tenantId);
+        removed.push(tenantId);
+      }
+      return removed;
+    })().finally(() => { cleanupInFlight = undefined; });
+    return cleanupInFlight;
+  };
+  const assertActiveTenant = async (tenantId: string) => {
+    const lease = tenantLeases.get(tenantId);
+    if (lease && Date.parse(lease.expiresAt) <= now().getTime()) await cleanupExpiredTenants();
+    if (!tenantLeases.has(tenantId) || !(await system.hasTenant(tenantId))) {
+      throw new Error(`Sandbox tenant ${tenantId} was not found or its lease expired.`);
+    }
+  };
+  if (options.autoCleanup !== false) {
+    cleanupTimer = setInterval(() => { void cleanupExpiredTenants().catch(() => undefined); }, cleanupIntervalMs);
+    cleanupTimer.unref?.();
+  }
 
   return {
     limits,
-    createTenant: async (input) => { await system.createTenant(input); },
-    deleteTenant: async (tenantId) => {
-      await system.deleteTenant(tenantId);
-      tenantSwitches.delete(tenantId);
+    createTenant: async (input) => {
+      assertOpen();
+      const effectiveTtlMs = boundedTenantTtl(input.ttlMs ?? tenantTtlMs, maxTenantTtlMs);
+      await system.createTenant(input);
+      const createdAt = now();
+      const lease = {
+        tenantId: input.id,
+        createdAt: createdAt.toISOString(),
+        expiresAt: new Date(createdAt.getTime() + effectiveTtlMs).toISOString(),
+      };
+      tenantLeases.set(input.id, lease);
+      return { ...lease };
     },
-    seedTenant: async (tenantId, seed) => { await system.seedTenant(tenantId, seed); },
-    resetTenant: async (tenantId) => { await system.resetTenant(tenantId); },
-    snapshotTenant: async (tenantId) => system.snapshotTenant(tenantId),
+    deleteTenant: async (tenantId) => {
+      assertOpen();
+      if (!tenantLeases.has(tenantId) && !(await system.hasTenant(tenantId))) {
+        throw new Error(`Sandbox tenant ${tenantId} was not found.`);
+      }
+      await removeTenant(tenantId);
+    },
+    tenantLease: (tenantId) => {
+      const lease = tenantLeases.get(tenantId);
+      return lease ? { ...lease } : undefined;
+    },
+    renewTenant: async (tenantId, ttlMs) => {
+      assertOpen();
+      await assertActiveTenant(tenantId);
+      const effectiveTtlMs = boundedTenantTtl(ttlMs ?? tenantTtlMs, maxTenantTtlMs);
+      const previous = tenantLeases.get(tenantId)!;
+      const lease = { ...previous, expiresAt: new Date(now().getTime() + effectiveTtlMs).toISOString() };
+      tenantLeases.set(tenantId, lease);
+      return { ...lease };
+    },
+    cleanupExpiredTenants,
+    seedTenant: async (tenantId, seed) => { assertOpen(); await assertActiveTenant(tenantId); await system.seedTenant(tenantId, seed); },
+    resetTenant: async (tenantId) => { assertOpen(); await assertActiveTenant(tenantId); await system.resetTenant(tenantId); },
+    snapshotTenant: async (tenantId) => { assertOpen(); await assertActiveTenant(tenantId); return system.snapshotTenant(tenantId); },
     startRun: async ({ tenantId, runId }) => {
-      if (!(await system.hasTenant(tenantId))) throw new Error(`Sandbox tenant ${tenantId} was not found.`);
+      assertOpen();
+      await assertActiveTenant(tenantId);
       const effectiveRunId = runId?.trim() || `sandbox-run-${randomUUID()}`;
       if (runs.has(effectiveRunId)) throw new Error(`Sandbox run ${effectiveRunId} already exists.`);
       runs.add(effectiveRunId);
@@ -351,6 +443,13 @@ export function createSandboxCertificationHarness(options: SandboxHarnessOptions
       const next = killSwitch(enabled, reason, now);
       tenantSwitches.set(tenantId, next);
       return { ...next };
+    },
+    close: async () => {
+      if (closed) return;
+      closed = true;
+      if (cleanupTimer) clearInterval(cleanupTimer);
+      await cleanupInFlight?.catch(() => undefined);
+      for (const tenantId of [...tenantLeases.keys()]) await removeTenant(tenantId);
     },
   };
 }
@@ -561,8 +660,13 @@ export async function runSandboxCertificationSuite(
   const checks: SandboxCertificationCheck[] = [];
   const runIds: string[] = [];
   const seed = { "account-1": { tier: "standard", owner: "Synthetic Customer" } };
-  await harness.createTenant({ id: tenantA, synthetic: true, seed });
-  await harness.createTenant({ id: tenantB, synthetic: true, seed: { "account-1": { tier: "restricted" } } });
+  try {
+    await harness.createTenant({ id: tenantA, synthetic: true, seed });
+    await harness.createTenant({ id: tenantB, synthetic: true, seed: { "account-1": { tier: "restricted" } } });
+  } catch (error) {
+    await harness.close();
+    throw error;
+  }
 
   const check = async (id: string, message: string, operation: () => Promise<Record<string, unknown> | void>) => {
     try {
@@ -666,7 +770,7 @@ export async function runSandboxCertificationSuite(
 
   const passed = checks.filter((item) => item.status === "passed").length;
   const failed = checks.length - passed;
-  return {
+  const report: SandboxCertificationReport = {
     schemaVersion: SANDBOX_CERTIFICATION_SCHEMA_VERSION,
     kind: "agentcert.sandbox_certification",
     implementation: options.implementation ?? system.name,
@@ -677,6 +781,8 @@ export async function runSandboxCertificationSuite(
     runIds,
     disclaimer: "This certification covers the synthetic sandbox contract only. It does not certify production systems, credentials, payments, email delivery, or vendor portals.",
   };
+  await harness.close();
+  return report;
 }
 
 export async function writeSandboxReport(report: SandboxRunReport | SandboxCertificationReport, filePath: string): Promise<string> {
@@ -745,6 +851,17 @@ function normalizeLimits(input: Partial<SandboxExecutionLimits> | undefined): Sa
   return limits;
 }
 
+function positiveInteger(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`Sandbox ${name} must be a positive integer.`);
+  return value;
+}
+
+function boundedTenantTtl(value: number, maxTenantTtlMs: number): number {
+  const ttlMs = positiveInteger(value, "tenant ttlMs");
+  if (ttlMs > maxTenantTtlMs) throw new Error(`Sandbox tenant ttlMs cannot exceed ${maxTenantTtlMs}.`);
+  return ttlMs;
+}
+
 function normalizedTargets(input: readonly string[]): string[] {
   const targets = [...new Set(input.map((item) => item.trim()).filter(Boolean))];
   if (targets.length === 0) throw new Error("Sandbox systems require at least one allowed target system.");
@@ -767,6 +884,10 @@ function assertTenantId(tenantId: string): void {
 function validatedSeed(input: SandboxSeed): SandboxSeed {
   assertSyntheticValue(input, "seed", new Set<object>());
   return structuredClone(input);
+}
+
+export function validateSyntheticSandboxSeed(input: SandboxSeed): SandboxSeed {
+  return validatedSeed(input);
 }
 
 function assertSyntheticValue(value: unknown, path: string, seen: Set<object>): void {
