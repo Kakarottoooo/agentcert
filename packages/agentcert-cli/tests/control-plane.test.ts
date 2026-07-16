@@ -55,6 +55,17 @@ describe("hosted evidence push", () => {
     })).rejects.toThrow("cannot access project project-2");
   });
 
+  it("preserves hosted recovery guidance and request IDs in push failures", async () => {
+    const request = vi.fn(async () => jsonResponse(403, {
+      error: "API key is not scoped to this project.", code: "api_key_project_mismatch",
+      recovery: "Create a key in the selected project.", requestId: "req-42",
+    }));
+    await expect(pushEvidenceToControlPlane({
+      baseUrl: "https://agentcert.example.com", projectId: "wrong-project", apiKey: "ac_live_secret",
+      bundle, evidenceBytes: new TextEncoder().encode("{}"), fetch: request as typeof fetch,
+    })).rejects.toThrow("Create a key in the selected project. Request ID: req-42");
+  });
+
   it("creates a run, records provenance, uploads the exact bytes, and completes visibly as failed", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const request = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {

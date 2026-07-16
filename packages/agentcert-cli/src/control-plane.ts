@@ -42,7 +42,13 @@ export interface VerifiedControlPlaneConnection {
 }
 
 export class ControlPlaneRequestError extends Error {
-  constructor(message: string, readonly status?: number) {
+  constructor(
+    message: string,
+    readonly status?: number,
+    readonly code?: string,
+    readonly requestId?: string,
+    readonly recovery?: string,
+  ) {
     super(message);
     this.name = "ControlPlaneRequestError";
   }
@@ -250,8 +256,13 @@ async function requestJson<T extends Record<string, unknown>>(
   }
   if (!response.ok) {
     throw new ControlPlaneRequestError(
-      typeof value.error === "string" ? value.error : `AgentCert control plane returned HTTP ${response.status}.`,
+      [typeof value.error === "string" ? value.error : `AgentCert control plane returned HTTP ${response.status}.`,
+        typeof value.recovery === "string" ? value.recovery : undefined,
+        typeof value.requestId === "string" ? `Request ID: ${value.requestId}.` : undefined].filter(Boolean).join(" "),
       response.status,
+      typeof value.code === "string" ? value.code : undefined,
+      typeof value.requestId === "string" ? value.requestId : response.headers.get("x-request-id") ?? undefined,
+      typeof value.recovery === "string" ? value.recovery : undefined,
     );
   }
   return value as T;

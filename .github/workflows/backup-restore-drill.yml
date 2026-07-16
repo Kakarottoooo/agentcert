@@ -1,0 +1,29 @@
+name: Backup restore drill
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  restore-drill:
+    runs-on: ubuntu-latest
+    environment: backup-restore
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Restore and compare control-plane data
+        env:
+          DATABASE_URL: ${{ secrets.AGENTCERT_BACKUP_SOURCE_DATABASE_URL }}
+          AGENTCERT_RESTORE_DATABASE_URL: ${{ secrets.AGENTCERT_RESTORE_DATABASE_URL }}
+          AGENTCERT_RESTORE_CONFIRM: ${{ vars.AGENTCERT_RESTORE_CONFIRM }}
+          AGENTCERT_RESTORE_REPORT: .agentcert/drills/backup-restore.json
+        run: node scripts/backup-restore-drill.mjs
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: backup-restore-drill-report
+          path: .agentcert/drills/backup-restore.json
+          if-no-files-found: error

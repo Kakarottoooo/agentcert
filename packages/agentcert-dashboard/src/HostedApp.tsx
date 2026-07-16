@@ -17,6 +17,8 @@ import {
   loadHostedIncidents,
   loadHostedRuns,
   loadHostedCapabilities,
+  loadHostedOnboarding,
+  loadProjects,
   loadAdminLegalHolds,
   loadRetentionReport,
   loadOverview,
@@ -43,6 +45,7 @@ import {
   type HostedIncident,
   type HostedOverview,
   type HostedOperations,
+  type HostedOnboardingStatus,
   type HostedProject,
   type HostedRun,
   type HostedSession,
@@ -52,6 +55,8 @@ import {
 } from "./hosted-api";
 import HostedRunsView from "./HostedRunsView";
 import HostedSandboxView from "./HostedSandboxView";
+import HostedOnboarding from "./HostedOnboarding";
+import HostedProjectSwitcher from "./HostedProjectSwitcher";
 import { isSandboxCertificationRun } from "./sandbox-certifications";
 
 type HostedView = "overview" | "agents" | "runs" | "sandbox" | "gates" | "actions" | "incidents" | "evidence" | "integrations" | "governance";
@@ -145,6 +150,8 @@ function AuthScreen({ config, onAuthenticated }: { config: HostedConfig; onAuthe
 function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; session: HostedSession; onSignOut: () => void }) {
   const [view, setView] = useState<HostedView>("overview");
   const [project, setProject] = useState<HostedProject>();
+  const [projects, setProjects] = useState<HostedProject[]>([]);
+  const [onboarding, setOnboarding] = useState<HostedOnboardingStatus>();
   const [data, setData] = useState<ConsoleData>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
@@ -154,21 +161,37 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
     if (!project) return;
     setLoading(true); setError(undefined);
     try {
-      const [overview, operations, agents, runs, actions, incidents, evidence] = await Promise.all([
+      const [overview, operations, agents, runs, actions, incidents, evidence, nextOnboarding] = await Promise.all([
         loadOverview(session, project.id), loadHostedOperations(session, project.id), loadHostedAgents(session, project.id), loadHostedRuns(session, project.id),
         loadHostedActions(session, project.id), loadHostedIncidents(session, project.id), loadHostedEvidence(session, project.id),
+        loadHostedOnboarding(session, project.id),
       ]);
       setData({ overview, operations, agents, runs, actions, incidents, evidence });
+      setOnboarding(nextOnboarding);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setLoading(false); }
   }, [project, session]);
 
   useEffect(() => {
-    Promise.all([bootstrap(session), loadHostedCapabilities(session)])
-      .then(([result, nextCapabilities]) => { setProject(result.project); setCapabilities(nextCapabilities); })
+    Promise.all([bootstrap(session), loadHostedCapabilities(session), loadProjects(session)])
+      .then(([result, nextCapabilities, nextProjects]) => {
+        setProjects(nextProjects);
+        setProject(nextProjects.find((item) => item.id === result.project.id) ?? nextProjects[0] ?? result.project);
+        setCapabilities(nextCapabilities);
+      })
       .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
   }, [session]);
-  useEffect(() => { if (project) void refresh(); }, [project, refresh]);
+  useEffect(() => { if (project) { setData(undefined); setOnboarding(undefined); void refresh(); } }, [project, refresh]);
+  useEffect(() => {
+    if (!project || onboarding?.complete) return;
+    const timer = window.setInterval(() => {
+      void loadHostedOnboarding(session, project.id).then(setOnboarding).catch(() => undefined);
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [onboarding?.complete, project, session]);
+  useEffect(() => {
+    if (onboarding?.complete && data && data.overview.summary.evidence === 0) void refresh();
+  }, [data, onboarding?.complete, refresh]);
 
   const navigation: Array<[HostedView, string, number?]> = [
     ["overview", "Overview"], ["agents", "Agents", data?.agents.length], ["runs", "Runs", data?.runs.length],
@@ -184,7 +207,7 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
     <div className="hosted-shell">
       <aside className="hosted-sidebar">
         <div className="hosted-brand">AgentCert</div>
-        <div className="project-switcher"><span>Project</span><strong>{project?.name ?? "Loading..."}</strong></div>
+        <HostedProjectSwitcher session={session} projects={projects} current={project} onSelect={setProject} onChange={(nextProjects, selected) => { setProjects(nextProjects); setProject(selected); }} />
         <nav>{navigation.map(([id, label, count]) => <button key={id} className={view === id ? "active" : ""} onClick={() => setView(id)}><span>{label}</span>{count ? <em>{count}</em> : null}</button>)}</nav>
         <div className="account-block"><span>{session.email ?? config.auth.provider}</span><button onClick={onSignOut}>Sign out</button></div>
       </aside>
@@ -192,15 +215,15 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
         <header className="hosted-header"><div><span className="eyebrow">{project?.slug ?? "workspace"}</span><h1>{viewTitle(view)}</h1></div><button onClick={() => void refresh()} disabled={loading}>Refresh</button></header>
         {error ? <div className="console-error">{error}</div> : null}
         {!data || !project ? <div className="loading">Loading control plane...</div> : (
-          <HostedViewContent view={view} data={data} project={project} session={session} refresh={refresh} onNavigate={setView} />
+          <HostedViewContent view={view} data={data} project={project} session={session} onboarding={onboarding} refresh={refresh} onNavigate={setView} />
         )}
       </main>
     </div>
   );
 }
 
-function HostedViewContent({ view, data, project, session, refresh, onNavigate }: { view: HostedView; data: ConsoleData; project: HostedProject; session: HostedSession; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
-  if (view === "overview") return <HostedOverviewView data={data} project={project} onNavigate={onNavigate} />;
+function HostedViewContent({ view, data, project, session, onboarding, refresh, onNavigate }: { view: HostedView; data: ConsoleData; project: HostedProject; session: HostedSession; onboarding?: HostedOnboardingStatus; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
+  if (view === "overview") return <HostedOverviewView data={data} project={project} session={session} onboarding={onboarding} refresh={refresh} onNavigate={onNavigate} />;
   if (view === "agents") return <AgentsView agents={data.agents} project={project} session={session} refresh={refresh} />;
   if (view === "runs") return <HostedRunsView runs={data.runs} project={project} session={session} />;
   if (view === "sandbox") return <HostedSandboxView runs={data.runs.filter(isSandboxCertificationRun)} project={project} session={session} />;
@@ -212,23 +235,10 @@ function HostedViewContent({ view, data, project, session, refresh, onNavigate }
   return <IntegrationsView project={project} session={session} operations={data.operations} refresh={refresh} />;
 }
 
-function HostedOverviewView({ data, project, onNavigate }: { data: ConsoleData; project: HostedProject; onNavigate: (view: HostedView) => void }) {
+function HostedOverviewView({ data, project, session, onboarding, refresh, onNavigate }: { data: ConsoleData; project: HostedProject; session: HostedSession; onboarding?: HostedOnboardingStatus; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
   const summary = data.overview.summary;
-  const firstEvidenceReady = summary.runs > 0 && summary.evidence > 0;
   return <>
-    <section className={`onboarding-band ${firstEvidenceReady ? "complete" : ""}`}>
-      <div className="onboarding-copy">
-        <span className="eyebrow">{firstEvidenceReady ? "Connection verified" : "First evidence"}</span>
-        <h2>{firstEvidenceReady ? "This project is receiving AgentCert evidence." : "Connect an external agent in three steps."}</h2>
-        <p>{firstEvidenceReady ? `${summary.runs} runs and ${summary.evidence} evidence objects are available for review.` : "Create a project key, connect the CLI, then push one deterministic run. The API key remains project-scoped and cannot approve runtime actions."}</p>
-      </div>
-      {firstEvidenceReady ? <button onClick={() => onNavigate("runs")}>Review runs</button> : <button className="primary-action compact" onClick={() => onNavigate("integrations")}>Open integrations</button>}
-      <ol>
-        <li className="done"><b>1</b><span><strong>Workspace ready</strong><small>{project.name}</small></span></li>
-        <li className={firstEvidenceReady ? "done" : ""}><b>2</b><span><strong>CLI connected</strong><small>Validated project credentials</small></span></li>
-        <li className={firstEvidenceReady ? "done" : ""}><b>3</b><span><strong>Evidence received</strong><small>Run, report, and provenance</small></span></li>
-      </ol>
-    </section>
+    {onboarding ? <HostedOnboarding status={onboarding} project={project} session={session} refresh={refresh} onOpenIntegrations={() => onNavigate("integrations")} onReviewRuns={() => onNavigate("runs")} /> : null}
     <section className="trust-operations-band">
       <AlertSummary label="Production health" alert={{ status: data.operations.status, message: `Checked ${compactTime(data.operations.generatedAt)}` }} />
       <AlertSummary label="Shared coordination" alert={data.operations.alerts.redis} />
@@ -357,7 +367,18 @@ function IntegrationsView({ project, session, operations, refresh }: { project: 
   const [testReceiverBusy, setTestReceiverBusy] = useState(false);
   const refreshKeys = useCallback(async () => { try { setKeys(await loadHostedApiKeys(session, project.id)); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }, [project.id, session]);
   useEffect(() => { void refreshKeys(); }, [refreshKeys]);
-  async function createKey() { try { const scopes = keyMode === "read-only" ? ["agents:read", "runs:read", "actions:read", "evidence:read"] : ["agents:read", "runs:read", "runs:write", "events:write", "actions:read", "actions:write", "evidence:read", "evidence:write"]; const result = await createHostedApiKey(session, project.id, keyMode === "read-only" ? "Read-only integration" : "Ingest integration", scopes); setSecret(result.secret); await refreshKeys(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }
+  async function createKey() {
+    try {
+      const scopes = keyMode === "read-only"
+        ? ["agents:read", "runs:read", "actions:read", "evidence:read"]
+        : ["agents:read", "runs:read", "runs:write", "events:write", "actions:read", "actions:write", "evidence:read", "evidence:write"];
+      const result = await createHostedApiKey(session, project.id, keyMode === "read-only" ? "Read-only integration" : "Ingest integration", scopes);
+      setSecret(result.secret);
+      await Promise.all([refreshKeys(), refresh()]);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+  }
   async function revokeKey(id: string) { try { await revokeHostedApiKey(session, project.id, id); setPendingRevoke(undefined); await refreshKeys(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }
   async function retryWebhook(jobId: string) { try { await retryHostedWebhookJob(session, project.id, jobId); await refresh(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }
   async function retryNotification(jobId: string) { try { await retryHostedNotificationJob(session, project.id, jobId); await refresh(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }

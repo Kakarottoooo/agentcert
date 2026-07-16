@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   loadHostedRunAnalysis,
+  createHostedProject,
+  loadHostedOnboarding,
+  HostedApiError,
   readHostedAuthCallbackError,
   requestHostedLegalHold,
   resendSignUpConfirmation,
@@ -72,6 +75,30 @@ describe("hosted signup recovery", () => {
 });
 
 describe("hosted run analysis", () => {
+  it("creates projects and loads computed onboarding status", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "project-2", name: "Coding agents" }), { status: 201, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ projectId: "project-2", completedSteps: 0, totalSteps: 3, complete: false, steps: [], connection: {} }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createHostedProject({ accessToken: "user-token" }, "Coding agents");
+    await loadHostedOnboarding({ accessToken: "user-token" }, "project-2");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/v1/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ name: "Coding agents" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/v1/projects/project-2/onboarding", expect.any(Object));
+  });
+
+  it("preserves structured diagnosis and request IDs from hosted errors", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: "API key is not scoped to this project.", code: "project_scope_mismatch",
+      recovery: "Create a key in the selected project.", requestId: "request-123",
+    }), { status: 403, headers: { "content-type": "application/json" } })));
+
+    await expect(loadHostedOnboarding({ accessToken: "wrong-key" }, "project-2")).rejects.toMatchObject<Partial<HostedApiError>>({
+      status: 403, code: "project_scope_mismatch", requestId: "request-123", recovery: "Create a key in the selected project.",
+    });
+  });
+
   it("loads the unified analysis endpoint with the human session", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       run: { id: "run-1" }, events: [], evidence: [], incidents: [], reviews: [],

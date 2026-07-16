@@ -13,11 +13,23 @@ outcome. It writes portable reports and accumulates a local failure corpus.
 ## 5-minute local path
 
 ```bash
-npx agentcert init --subject my-browser-agent
+npx agentcert init --template browser --subject my-browser-agent
 ```
 
 This writes `agentcert.config.json` and `tripwire.yml`. Add `--github-action`
 when you also want `.github/workflows/agentcert-tripwire.yml`.
+
+Use the same entry point for other agent boundaries:
+
+```bash
+npx agentcert init --template coding
+npx agentcert init --template mcp
+npx agentcert init --template workflow
+npx agentcert init --template data
+```
+
+Coding, workflow, and data templates write a dependency-free Universal
+Event/Action Envelope adapter. MCP writes an MCPBench artifact profile.
 
 Edit `tripwire.yml` so `startUrl` and `agent.command` point at your app and
 browser agent. After Tripwire has produced `.tripwire/latest/tripwire-result.json`,

@@ -46,7 +46,7 @@ export async function startControlPlaneServer(options: ControlPlaneServerOptions
       await handleRequest(request, response, options, staticRoot);
     } catch (error) {
       const internalMessage = error instanceof Error ? error.message : "Unknown control plane error.";
-      const { status, message } = publicHttpError(error);
+      const { status, message, code, recovery } = publicHttpError(error);
       process.stderr.write(`${JSON.stringify({
         timestamp: new Date().toISOString(),
         level: status >= 500 ? "error" : "warn",
@@ -55,7 +55,7 @@ export async function startControlPlaneServer(options: ControlPlaneServerOptions
         status,
         message: internalMessage,
       })}\n`);
-      sendJson(response, status, { error: message });
+      sendJson(response, status, { error: message, code, recovery, requestId });
     }
   });
   await new Promise<void>((resolveListen) => server.listen(options.port, options.host, resolveListen));
@@ -122,7 +122,7 @@ async function handleRequest(
   }
 
   const auth = await options.authenticator.authenticate(request.headers.authorization);
-  if (!auth) throw new ControlPlaneError("Authentication required.", 401);
+  if (!auth) throw new ControlPlaneError("Authentication required.", 401, "authentication_required", "Sign in again or replace the revoked/invalid project API key.");
   if (options.rateLimiter) {
     const limit = await options.rateLimiter.consume(rateLimitIdentity(request, auth.apiKeyId ?? auth.userId));
     setRateLimitHeaders(response, limit);
@@ -136,6 +136,10 @@ async function handleRequest(
   }
   if (request.method === "GET" && url.pathname === "/v1/projects") {
     sendJson(response, 200, { projects: await options.service.projects(auth) });
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/v1/projects") {
+    sendJson(response, 201, await options.service.createProject(auth, await readJson(request)));
     return;
   }
   if (request.method === "GET" && url.pathname === "/v1/me/capabilities") {
@@ -165,6 +169,21 @@ async function handleRequest(
   const collection = segments[3];
   const entityId = segments[4];
   const child = segments[5];
+
+  if (!collection && request.method === "PATCH") {
+    sendJson(response, 200, await options.service.renameProject(auth, projectId, await readJson(request)));
+    return;
+  }
+  if (collection === "onboarding" && request.method === "GET" && !entityId) {
+    sendJson(response, 200, await options.service.onboardingStatus(auth, projectId));
+    return;
+  }
+  if (collection === "pilot-feedback" && !entityId) {
+    if (request.method === "GET") sendJson(response, 200, { feedback: await options.service.listPilotFeedback(auth, projectId) });
+    else if (request.method === "POST") sendJson(response, 201, await options.service.submitPilotFeedback(auth, projectId, await readJson(request)));
+    else throw new ControlPlaneError("Pilot feedback route was not found.", 404, "route_not_found");
+    return;
+  }
 
   if (collection === "envelopes" && request.method === "POST" && !entityId) {
     await sendIdempotentJson(request, response, options.service, projectId, "envelopes.create", 202,
@@ -408,9 +427,11 @@ function requiredQuery(url: URL, name: string): string {
   if (!value) throw new ControlPlaneError(`${name} query parameter is required.`);
   return value;
 }
-export function publicHttpError(error: unknown): { status: number; message: string } {
-  if (error instanceof ControlPlaneError) return { status: error.status, message: error.message };
-  return { status: 500, message: "Internal server error." };
+export function publicHttpError(error: unknown): { status: number; message: string; code: string; recovery?: string } {
+  if (error instanceof ControlPlaneError) {
+    return { status: error.status, message: error.message, code: error.code, recovery: error.recovery };
+  }
+  return { status: 500, message: "Internal server error.", code: "internal_error", recovery: "Retry once. If the error persists, provide the request ID to AgentCert support." };
 }
 
 function setSecurityHeaders(request: IncomingMessage, response: ServerResponse): void {

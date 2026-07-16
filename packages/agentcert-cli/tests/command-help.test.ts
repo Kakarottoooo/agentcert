@@ -12,4 +12,10 @@ describe("CLI command help", () => {
   it("leaves existing command handlers responsible for other help", () => {
     expect(renderCommandHelp("connect")).toBeUndefined();
   });
+
+  it("documents all external agent templates before init writes files", () => {
+    const help = renderCommandHelp("init");
+    expect(help).toContain("browser|coding|mcp|workflow|data");
+    expect(help).toContain("--adapter-out");
+  });
 });

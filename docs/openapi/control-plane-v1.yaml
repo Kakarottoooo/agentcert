@@ -75,6 +75,34 @@ paths:
       summary: List projects visible to the signed-in user
       responses:
         "200": { description: Project list }
+    post:
+      summary: Create an isolated project in the signed-in user's organization
+      responses:
+        "201": { description: Created project }
+        "409": { description: Organization project limit reached }
+  /v1/projects/{projectId}:
+    patch:
+      summary: Rename a project while preserving its stable slug and ID
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses:
+        "200": { description: Renamed project }
+  /v1/projects/{projectId}/onboarding:
+    get:
+      summary: Compute key creation, CLI authentication, and first-evidence progress
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses:
+        "200": { description: Three-step onboarding status with recovery guidance }
+  /v1/projects/{projectId}/pilot-feedback:
+    get:
+      summary: List bounded onboarding feedback for project owners and admins
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses:
+        "200": { description: Pilot feedback records }
+    post:
+      summary: Record a project member's onboarding friction or completion signal
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses:
+        "201": { description: Feedback recorded }
   /v1/projects/{projectId}/overview:
     get:
       summary: Read operational counts and recent activity

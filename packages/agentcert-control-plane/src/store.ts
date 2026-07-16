@@ -31,6 +31,7 @@ import type {
   NotificationDeliveryRecord,
   NotificationJobRecord,
   NotificationJobCounts,
+  PilotFeedbackRecord,
 } from "./types.js";
 
 export const CONTROL_PLANE_MIGRATIONS = [
@@ -44,6 +45,7 @@ export const CONTROL_PLANE_MIGRATIONS = [
   "008_trust_operations_v04.sql",
   "009_trust_operations_v05.sql",
   "010_default_project_name.sql",
+  "011_hosted_onboarding_v02.sql",
 ] as const;
 
 const DEFAULT_PROJECT_NAME = "Agent assurance project";
@@ -71,7 +73,12 @@ export interface ControlPlaneStore {
   migrate(): Promise<void>;
   bootstrapUser(userId: string, email?: string): Promise<BootstrapResult>;
   listProjectsForUser(userId: string): Promise<Project[]>;
+  insertProject(project: Project): Promise<Project>;
+  getProject(projectId: string): Promise<Project | undefined>;
+  updateProject(project: Project): Promise<Project>;
   roleForProject(userId: string, projectId: string): Promise<MemberRole | undefined>;
+  insertPilotFeedback(feedback: PilotFeedbackRecord): Promise<PilotFeedbackRecord>;
+  listPilotFeedback(projectId: string, limit?: number): Promise<PilotFeedbackRecord[]>;
   upsertAgent(agent: AgentRecord): Promise<AgentRecord>;
   getAgent(projectId: string, agentId: string): Promise<AgentRecord | undefined>;
   listAgents(projectId: string): Promise<AgentRecord[]>;
@@ -183,6 +190,7 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   private notificationDeliveries = new Map<string, NotificationDeliveryRecord>();
   private notificationJobs = new Map<string, NotificationJobRecord>();
   private signingKeys = new Map<string, SigningKeyRecord>();
+  private pilotFeedback = new Map<string, PilotFeedbackRecord>();
   private retentionLocks = new Map<string, Promise<void>>();
 
   async migrate(): Promise<void> {}
@@ -224,6 +232,30 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
       [...this.memberships.values()].filter((item) => item.userId === userId).map((item) => item.organizationId),
     );
     return [...this.projects.values()].filter((item) => organizationIds.has(item.organizationId));
+  }
+
+  async insertProject(project: Project): Promise<Project> {
+    this.projects.set(project.id, project);
+    return project;
+  }
+
+  async getProject(projectId: string): Promise<Project | undefined> {
+    return this.projects.get(projectId);
+  }
+
+  async updateProject(project: Project): Promise<Project> {
+    if (!this.projects.has(project.id)) throw new Error("Project was not found.");
+    this.projects.set(project.id, project);
+    return project;
+  }
+
+  async insertPilotFeedback(feedback: PilotFeedbackRecord): Promise<PilotFeedbackRecord> {
+    this.pilotFeedback.set(feedback.id, feedback);
+    return feedback;
+  }
+
+  async listPilotFeedback(projectId: string, limit = 100): Promise<PilotFeedbackRecord[]> {
+    return newest([...this.pilotFeedback.values()].filter((item) => item.projectId === projectId), "createdAt").slice(0, limit);
   }
 
   async roleForProject(userId: string, projectId: string): Promise<MemberRole | undefined> {
@@ -842,6 +874,44 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
       [userId],
     );
     return result.rows.map(projectFromRow);
+  }
+
+  async insertProject(project: Project): Promise<Project> {
+    const result = await this.pool.query(
+      "INSERT INTO agentcert_projects (id,organization_id,name,slug,created_at) VALUES ($1,$2,$3,$4,$5) RETURNING *",
+      [project.id, project.organizationId, project.name, project.slug, project.createdAt],
+    );
+    return projectFromRow(result.rows[0]);
+  }
+
+  async getProject(projectId: string): Promise<Project | undefined> {
+    return one(this.pool.query("SELECT * FROM agentcert_projects WHERE id=$1", [projectId]), projectFromRow);
+  }
+
+  async updateProject(project: Project): Promise<Project> {
+    const updated = await one(
+      this.pool.query("UPDATE agentcert_projects SET name=$2 WHERE id=$1 RETURNING *", [project.id, project.name]),
+      projectFromRow,
+    );
+    return required(updated, "project");
+  }
+
+  async insertPilotFeedback(feedback: PilotFeedbackRecord): Promise<PilotFeedbackRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_pilot_feedback
+       (id,project_id,user_id,stage,category,outcome,reason_code,message,context,created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [feedback.id, feedback.projectId, feedback.userId, feedback.stage, feedback.category, feedback.outcome,
+        feedback.reasonCode, feedback.message ?? null, JSON.stringify(feedback.context), feedback.createdAt],
+    );
+    return pilotFeedbackFromRow(result.rows[0]);
+  }
+
+  async listPilotFeedback(projectId: string, limit = 100): Promise<PilotFeedbackRecord[]> {
+    return many(
+      this.pool.query("SELECT * FROM agentcert_pilot_feedback WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2", [projectId, limit]),
+      pilotFeedbackFromRow,
+    );
   }
 
   async roleForProject(userId: string, projectId: string): Promise<MemberRole | undefined> {
@@ -1771,6 +1841,14 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
 
 function projectFromRow(row: Record<string, unknown>): Project {
   return { id: text(row.id), organizationId: text(row.organization_id), name: text(row.name), slug: text(row.slug), createdAt: iso(row.created_at) };
+}
+function pilotFeedbackFromRow(row: Record<string, unknown>): PilotFeedbackRecord {
+  return {
+    id: text(row.id), projectId: text(row.project_id), userId: text(row.user_id),
+    stage: text(row.stage) as PilotFeedbackRecord["stage"], category: text(row.category) as PilotFeedbackRecord["category"],
+    outcome: text(row.outcome) as PilotFeedbackRecord["outcome"], reasonCode: text(row.reason_code),
+    message: optionalText(row.message), context: object(row.context), createdAt: iso(row.created_at),
+  };
 }
 function agentFromRow(row: Record<string, unknown>): AgentRecord {
   return { id: text(row.id), projectId: text(row.project_id), externalId: text(row.external_id), name: text(row.name), version: text(row.version),

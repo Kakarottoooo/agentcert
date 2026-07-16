@@ -45,6 +45,12 @@ import type {
   NotificationDestinationRecord,
   PublicNotificationDestinationRecord,
   NotificationJobRecord,
+  PilotFeedbackCategory,
+  PilotFeedbackOutcome,
+  PilotFeedbackRecord,
+  PilotFeedbackStage,
+  Project,
+  ProjectOnboardingStatus,
   TrustHealthBurnWindow,
   WebhookJobRecord,
   WebhookRecord,
@@ -87,8 +93,14 @@ interface SloBurnEvaluation {
 }
 
 export class ControlPlaneError extends Error {
-  constructor(message: string, readonly status = 400) {
+  constructor(
+    message: string,
+    readonly status = 400,
+    readonly code = "control_plane_error",
+    readonly recovery?: string,
+  ) {
     super(message);
+    this.name = "ControlPlaneError";
   }
 }
 
@@ -119,19 +131,132 @@ export class AgentCertControlPlane {
     return this.store.listProjectsForUser(auth.userId);
   }
 
+  async createProject(auth: AuthContext, input: unknown): Promise<Project> {
+    requireUser(auth);
+    const bootstrap = await this.store.bootstrapUser(auth.userId, auth.email);
+    if (!new Set(["owner", "admin"]).has(bootstrap.membership.role)) {
+      throw new ControlPlaneError("Only organization owners and admins can create projects.", 403, "project_create_forbidden");
+    }
+    const existing = (await this.store.listProjectsForUser(auth.userId))
+      .filter((project) => project.organizationId === bootstrap.organization.id);
+    if (existing.length >= 20) {
+      throw new ControlPlaneError(
+        "This organization has reached the 20 project limit.", 409, "project_limit_reached",
+        "Archive an unused project or contact AgentCert support before creating another project.",
+      );
+    }
+    const name = projectName(record(input));
+    const baseSlug = slugifyProject(name);
+    const slugs = new Set(existing.map((project) => project.slug));
+    let slug = baseSlug;
+    while (slugs.has(slug)) slug = `${baseSlug}-${randomUUID().slice(0, 6)}`;
+    return this.store.insertProject({
+      id: randomUUID(), organizationId: bootstrap.organization.id, name, slug, createdAt: new Date().toISOString(),
+    });
+  }
+
+  async renameProject(auth: AuthContext, projectId: string, input: unknown): Promise<Project> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    const project = await this.store.getProject(projectId);
+    if (!project) throw new ControlPlaneError("Project was not found.", 404, "project_not_found");
+    return this.store.updateProject({ ...project, name: projectName(record(input)) });
+  }
+
+  async onboardingStatus(auth: AuthContext, projectId: string): Promise<ProjectOnboardingStatus> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    const [keys, runs, evidence] = await Promise.all([
+      this.store.listApiKeys(projectId), this.store.listRuns(projectId, 1), this.store.listEvidence(projectId, 1),
+    ]);
+    const activeKeys = keys.filter((key) => !key.revokedAt);
+    const firstKey = [...activeKeys].sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
+    const firstUsedKey = [...activeKeys].filter((key) => key.lastUsedAt)
+      .sort((left, right) => left.lastUsedAt!.localeCompare(right.lastUsedAt!))[0];
+    const firstEvidence = [...evidence].sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0];
+    const createKeyComplete = Boolean(firstKey);
+    const connectComplete = Boolean(firstUsedKey);
+    const evidenceComplete = Boolean(firstEvidence);
+    const steps: ProjectOnboardingStatus["steps"] = [
+      {
+        id: "create_key", status: createKeyComplete ? "complete" : "pending", completedAt: firstKey?.createdAt,
+        diagnosis: createKeyComplete ? undefined : {
+          code: "api_key_missing", message: "No active project API key exists.",
+          recovery: "Open Integrations, create a scoped API key, and store the one-time secret securely.",
+        },
+      },
+      {
+        id: "connect_cli", status: connectComplete ? "complete" : "pending", completedAt: firstUsedKey?.lastUsedAt,
+        diagnosis: connectComplete ? undefined : {
+          code: createKeyComplete ? "api_key_unused" : "api_key_required",
+          message: createKeyComplete ? "The key has not authenticated a CLI request yet." : "Create an API key before connecting the CLI.",
+          recovery: createKeyComplete
+            ? `Run npx agentcert connect --server ${this.publicUrl} --project ${projectId}, then verify the saved connection.`
+            : "Complete the Create key step first.",
+        },
+      },
+      {
+        id: "upload_evidence", status: evidenceComplete ? "complete" : "pending", completedAt: firstEvidence?.createdAt,
+        diagnosis: evidenceComplete ? undefined : {
+          code: runs.length ? "run_without_evidence" : connectComplete ? "first_run_missing" : "cli_connection_required",
+          message: runs.length ? "A run exists, but it has no uploaded evidence." : "No AgentCert evidence has reached this project yet.",
+          recovery: connectComplete
+            ? "Run npx agentcert run --tripwire <result.json> --push, then refresh this page."
+            : "Connect the CLI before uploading the first evidence bundle.",
+        },
+      },
+    ];
+    return {
+      projectId, complete: steps.every((step) => step.status === "complete"), completedSteps: steps.filter((step) => step.status === "complete").length,
+      totalSteps: 3, steps,
+      connection: {
+        baseUrl: this.publicUrl, projectId,
+        command: `npx agentcert connect --server ${this.publicUrl} --project ${projectId}`,
+      },
+    };
+  }
+
+  async submitPilotFeedback(auth: AuthContext, projectId: string, input: unknown): Promise<PilotFeedbackRecord> {
+    await this.authorizeProject(auth, projectId);
+    requireUser(auth);
+    const body = record(input);
+    const feedback: PilotFeedbackRecord = {
+      id: randomUUID(), projectId, userId: auth.userId,
+      stage: enumValue(body.stage, "stage", PILOT_FEEDBACK_STAGES),
+      category: enumValue(body.category, "category", PILOT_FEEDBACK_CATEGORIES),
+      outcome: enumValue(body.outcome, "outcome", PILOT_FEEDBACK_OUTCOMES),
+      reasonCode: boundedToken(body.reasonCode, "reasonCode", 80),
+      message: boundedText(body.message, "message", 2_000),
+      context: pilotFeedbackContext(body.context), createdAt: new Date().toISOString(),
+    };
+    return this.store.insertPilotFeedback(feedback);
+  }
+
+  async listPilotFeedback(auth: AuthContext, projectId: string): Promise<PilotFeedbackRecord[]> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    return this.store.listPilotFeedback(projectId, 500);
+  }
+
   async authorizeProject(auth: AuthContext, projectId: string, roles?: string[], scope?: ApiKeyScope): Promise<void> {
     if (auth.kind === "api_key") {
-      if (auth.projectId !== projectId) throw new ControlPlaneError("API key is not scoped to this project.", 403);
-      if (roles) throw new ControlPlaneError("This operation requires a human account.", 403);
+      if (auth.projectId !== projectId) throw new ControlPlaneError(
+        "API key is not scoped to this project.", 403, "api_key_project_mismatch",
+        "Select the project that issued this key, or create a new key in the intended project.",
+      );
+      if (roles) throw new ControlPlaneError(
+        "This operation requires a human account.", 403, "human_approval_required",
+        "Sign in to the Hosted workspace with an owner or admin account.",
+      );
       if (scope && !(auth.scopes ?? DEFAULT_API_KEY_SCOPES).includes(scope)) {
-        throw new ControlPlaneError(`API key requires the ${scope} scope.`, 403);
+        throw new ControlPlaneError(
+          `API key requires the ${scope} scope.`, 403, "api_key_scope_missing",
+          "Create a replacement key with the required scope; existing key scopes cannot be expanded silently.",
+        );
       }
       return;
     }
     requireUser(auth);
     const role = await this.store.roleForProject(auth.userId, projectId);
-    if (!role) throw new ControlPlaneError("Project access denied.", 403);
-    if (roles && !roles.includes(role)) throw new ControlPlaneError(`Project role ${role} cannot perform this operation.`, 403);
+    if (!role) throw new ControlPlaneError("Project access denied.", 403, "project_access_denied", "Switch to a project in your organization or ask an owner to grant access.");
+    if (roles && !roles.includes(role)) throw new ControlPlaneError(`Project role ${role} cannot perform this operation.`, 403, "project_role_insufficient", "Ask a project owner to perform this operation or update your membership role.");
   }
 
   async createAgent(auth: AuthContext, projectId: string, input: unknown): Promise<AgentRecord> {
@@ -1800,6 +1925,43 @@ function record(value: unknown): Record<string, unknown> { return value && typeo
 function optionalRecord(value: unknown): Record<string, unknown> | undefined { const result = record(value); return Object.keys(result).length ? result : undefined; }
 function requiredString(value: Record<string, unknown>, key: string): string { const result = optionalString(value, key); if (!result) throw new ControlPlaneError(`${key} is required.`); return result; }
 function optionalString(value: Record<string, unknown>, key: string): string | undefined { return typeof value[key] === "string" && value[key].trim() ? value[key].trim() : undefined; }
+const PILOT_FEEDBACK_STAGES = new Set<PilotFeedbackStage>(["project", "api_key", "cli_connect", "first_run", "evidence_upload", "dashboard_review"]);
+const PILOT_FEEDBACK_CATEGORIES = new Set<PilotFeedbackCategory>(["install", "authentication", "configuration", "execution", "evidence", "dashboard", "other"]);
+const PILOT_FEEDBACK_OUTCOMES = new Set<PilotFeedbackOutcome>(["blocked", "confusing", "failed", "completed", "suggestion"]);
+const PILOT_CONTEXT_KEYS = new Set(["agentType", "framework", "cliVersion", "os", "errorCode", "requestId", "stageDurationMs"]);
+function projectName(value: Record<string, unknown>): string {
+  const name = requiredString(value, "name");
+  if (name.length < 2 || name.length > 80) throw new ControlPlaneError("name must contain 2 to 80 characters.", 422, "invalid_project_name");
+  return name;
+}
+function slugifyProject(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 54) || "project";
+}
+function enumValue<T extends string>(value: unknown, key: string, allowed: ReadonlySet<T>): T {
+  if (typeof value === "string" && allowed.has(value as T)) return value as T;
+  throw new ControlPlaneError(`${key} is not supported.`, 422, `invalid_${key}`);
+}
+function boundedToken(value: unknown, key: string, max: number): string {
+  if (typeof value !== "string" || !/^[a-z0-9][a-z0-9_.-]*$/i.test(value) || value.length > max) {
+    throw new ControlPlaneError(`${key} must be an alphanumeric token up to ${max} characters.`, 422, `invalid_${key}`);
+  }
+  return value;
+}
+function boundedText(value: unknown, key: string, max: number): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string" || value.length > max) throw new ControlPlaneError(`${key} must be at most ${max} characters.`, 422, `invalid_${key}`);
+  return value.trim() || undefined;
+}
+function pilotFeedbackContext(value: unknown): Record<string, unknown> {
+  const source = record(value);
+  const context: Record<string, unknown> = {};
+  for (const key of PILOT_CONTEXT_KEYS) {
+    const item = source[key];
+    if (typeof item === "string" && item.length <= 200) context[key] = item;
+    else if (key === "stageDurationMs" && typeof item === "number" && Number.isFinite(item) && item >= 0) context[key] = Math.round(item);
+  }
+  return context;
+}
 function requiredTimestamp(value: Record<string, unknown>, key: string): string {
   const result = requiredString(value, key);
   if (!Number.isFinite(Date.parse(result))) throw new ControlPlaneError(`${key} must be a valid timestamp.`);

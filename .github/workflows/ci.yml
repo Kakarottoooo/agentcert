@@ -89,11 +89,17 @@ jobs:
             packages/agentcert-mcp-adapter/package-lock.json
       - name: Install control plane dependencies
         run: npm run control-plane:install
+      - name: Install external CLI package dependencies
+        run: npm --prefix packages/agentcert-cli ci
       - name: Test control plane packages
         run: npm run control-plane:test
       - name: Test production smoke harness
         run: npm run production-smoke:test
+      - name: Test backup restore safety guardrails
+        run: npm run backup-restore:test
       - name: Test real vendor sandbox acceptance harness
         run: npm run vendor-sandbox:test
+      - name: Test empty-repository hosted onboarding
+        run: npm run onboarding:e2e
       - name: Build control plane image
         run: docker build --file Dockerfile.control-plane --tag agentcert-control-plane:ci .
