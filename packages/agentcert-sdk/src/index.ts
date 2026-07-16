@@ -1,8 +1,51 @@
+import { createHash, createPublicKey, randomBytes, randomUUID, verify } from "node:crypto";
+
 export interface AgentCertClientOptions {
   baseUrl: string;
   projectId: string;
   apiKey: string;
   fetch?: typeof fetch;
+}
+
+export interface TraceContext {
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  traceFlags?: number;
+  traceState?: string;
+}
+
+export interface UniversalEnvelope {
+  schemaVersion: "agentcert.envelope.v0.1";
+  envelopeId: string;
+  kind: "event" | "action";
+  occurredAt: string;
+  source: { agentId: string; agentVersion?: string; framework?: string; adapter?: string };
+  run: { externalId: string; kind?: RunInput["kind"] };
+  trace: TraceContext;
+  event?: { sequence: number; type: string; actor?: string; attributes?: Record<string, unknown> };
+  action?: ActionInput;
+}
+
+export interface EvidenceAttestationPayload {
+  evidenceId: string;
+  projectId: string;
+  runId?: string;
+  actionId?: string;
+  kind: string;
+  schemaVersion: string;
+  sha256: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
+export interface ServerAttestation {
+  schemaVersion: "agentcert.server_attestation.v0.1";
+  algorithm: "Ed25519";
+  keyId: string;
+  signedAt: string;
+  payloadSha256: string;
+  signature: string;
 }
 
 export interface RunInput {
@@ -86,6 +129,14 @@ export class AgentCertClient {
     return this.json(`actions/${encodeURIComponent(actionId)}/verify`, { method: "POST", body: JSON.stringify({ observedState }) });
   }
 
+  sendEnvelope(input: UniversalEnvelope, idempotencyKey = input.envelopeId): Promise<Record<string, unknown>> {
+    return this.json("envelopes", {
+      method: "POST",
+      headers: { "idempotency-key": idempotencyKey },
+      body: JSON.stringify(input),
+    });
+  }
+
   async uploadEvidence(input: { bytes: Uint8Array; fileName: string; contentType?: string; kind?: string; schemaVersion?: string; runId?: string; actionId?: string; sourcePath?: string }): Promise<Record<string, unknown>> {
     const query = new URLSearchParams({
       fileName: input.fileName,
@@ -115,6 +166,68 @@ export class AgentCertClient {
   private projectUrl(suffix: string): string {
     return `${this.baseUrl}/v1/projects/${encodeURIComponent(this.projectId)}/${suffix}`;
   }
+}
+
+export function createTraceContext(parent?: TraceContext): TraceContext {
+  return {
+    traceId: parent?.traceId ?? nonZeroHex(16),
+    spanId: nonZeroHex(8),
+    parentSpanId: parent?.spanId,
+    traceFlags: parent?.traceFlags ?? 1,
+    traceState: parent?.traceState,
+  };
+}
+
+export function createEventEnvelope(input: {
+  envelopeId?: string;
+  occurredAt?: string;
+  source: UniversalEnvelope["source"];
+  run: UniversalEnvelope["run"];
+  trace?: TraceContext;
+  event: NonNullable<UniversalEnvelope["event"]>;
+}): UniversalEnvelope {
+  return {
+    schemaVersion: "agentcert.envelope.v0.1",
+    envelopeId: input.envelopeId ?? randomUUID(),
+    kind: "event",
+    occurredAt: input.occurredAt ?? new Date().toISOString(),
+    source: input.source,
+    run: input.run,
+    trace: input.trace ?? createTraceContext(),
+    event: input.event,
+  };
+}
+
+function nonZeroHex(bytes: number): string {
+  let value = "";
+  while (!value || /^0+$/.test(value)) value = randomBytes(bytes).toString("hex");
+  return value;
+}
+
+export function verifyServerAttestation(payload: EvidenceAttestationPayload, attestation: ServerAttestation, publicKeyPem: string): boolean {
+  if (attestation.schemaVersion !== "agentcert.server_attestation.v0.1" || attestation.algorithm !== "Ed25519") return false;
+  const bytes = Buffer.from(canonicalJson(payload));
+  if (createHash("sha256").update(bytes).digest("hex") !== attestation.payloadSha256) return false;
+  try { return verify(null, bytes, createPublicKey(publicKeyPem), Buffer.from(attestation.signature, "base64url")); }
+  catch { return false; }
+}
+
+export function canonicalJson(value: unknown): string {
+  return JSON.stringify(canonicalValue(value));
+}
+
+function canonicalValue(value: unknown): unknown {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error("Canonical JSON does not support non-finite numbers.");
+    return Object.is(value, -0) ? 0 : value;
+  }
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(Object.keys(record).sort().filter((key) => record[key] !== undefined).map((key) => [key, canonicalValue(record[key])]));
+  }
+  throw new Error(`Canonical JSON does not support ${typeof value}.`);
 }
 
 async function responseJson(response: Response): Promise<Record<string, unknown>> {

@@ -7,6 +7,8 @@ import { AgentCertControlPlane } from "./service.js";
 import { InMemoryControlPlaneStore, PostgresControlPlaneStore } from "./store.js";
 import type { EvidenceGovernancePolicy } from "./evidence-governance.js";
 import type { PublicConfig } from "./types.js";
+import { EvidenceSigner } from "./signing.js";
+import { FixedWindowRateLimiter, WebhookSecretVault } from "./security.js";
 
 const host = process.env.HOST ?? "127.0.0.1";
 const port = integerEnv("PORT", 8787);
@@ -43,7 +45,13 @@ const platformAdminEmails = (process.env.AGENTCERT_PLATFORM_ADMIN_EMAILS ?? "")
   .split(",")
   .map((email) => email.trim())
   .filter(Boolean);
-const service = new AgentCertControlPlane(store, artifacts, evidencePolicy, platformAdminEmails);
+const signingPrivateKey = secretTextEnv("AGENTCERT_EVIDENCE_SIGNING_PRIVATE_KEY");
+const evidenceSigner = signingPrivateKey
+  ? new EvidenceSigner(process.env.AGENTCERT_EVIDENCE_SIGNING_KEY_ID ?? "agentcert-server-v0.1", signingPrivateKey)
+  : undefined;
+const webhookEncryptionKey = process.env.AGENTCERT_WEBHOOK_ENCRYPTION_KEY;
+const webhookVault = webhookEncryptionKey ? new WebhookSecretVault(webhookEncryptionKey) : undefined;
+const service = new AgentCertControlPlane(store, artifacts, evidencePolicy, platformAdminEmails, evidenceSigner, webhookVault);
 const authenticator = new Authenticator({ store, supabaseUrl, supabasePublishableKey, devMode });
 const publicConfig: PublicConfig = {
   kind: "agentcert.control_plane_config",
@@ -70,6 +78,10 @@ if (process.argv[2] === "cleanup-evidence") {
     port,
     dashboardDir: process.env.AGENTCERT_DASHBOARD_DIR ?? resolve("public-demo/agentcert-monitor"),
     maxArtifactBytes: integerEnv("AGENTCERT_MAX_ARTIFACT_BYTES", 20 * 1024 * 1024),
+    rateLimiter: new FixedWindowRateLimiter(
+      integerEnv("AGENTCERT_RATE_LIMIT_REQUESTS", 300),
+      integerEnv("AGENTCERT_RATE_LIMIT_WINDOW_MS", 60_000),
+    ),
   });
   scheduleEvidenceCleanup(
     service,
@@ -102,4 +114,12 @@ function integerEnv(name: string, fallback: number): number {
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) throw new Error(`${name} must be a positive integer.`);
   return value;
+}
+
+function secretTextEnv(name: string): string | undefined {
+  const raw = process.env[name]?.trim();
+  if (!raw) return undefined;
+  if (raw.includes("BEGIN PRIVATE KEY")) return raw.replace(/\\n/g, "\n");
+  try { return Buffer.from(raw, "base64").toString("utf8"); }
+  catch { throw new Error(`${name} must be PEM text or base64-encoded PEM.`); }
 }

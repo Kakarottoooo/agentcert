@@ -296,3 +296,66 @@ organization, owner membership, and first project.
 The machine path is intentionally separate from the human dashboard. Agents
 submit intent, runs, events, observed state, and evidence through the API; they
 do not scrape or operate the dashboard.
+
+## Universal ingestion and API hardening
+
+Framework adapters should prefer the
+[Universal Event/Action Envelope](universal-envelope.md). Machine API keys are
+project-scoped and carry explicit scopes. New keys can use the full ingestion
+preset or a read-only preset; no API key can approve/reject actions, manage
+agent permissions, or decide legal holds.
+
+Machine run, event, action, envelope, completion, and verification routes
+accept `Idempotency-Key`. The server stores the request
+hash and response for 24 hours. Reusing the same key and body replays the
+response; reusing it with a different body returns `409`. Authenticated traffic
+is subject to a fixed-window limit and returns `429` plus `Retry-After` when
+exhausted. The v0.1 limiter is per process, so multi-instance deployments must
+replace it with a shared Redis/Postgres limiter before horizontal scaling.
+
+```text
+AGENTCERT_RATE_LIMIT_REQUESTS=300
+AGENTCERT_RATE_LIMIT_WINDOW_MS=60000
+```
+
+## Signed webhooks
+
+Owners/admins can register HTTPS webhook endpoints for `run.completed`,
+`action.approved`, `action.rejected`, `action.verified`, and
+`evidence.accepted`. AgentCert signs `timestamp + "." + rawBody` with
+HMAC-SHA-256 and sends:
+
+```text
+X-AgentCert-Event
+X-AgentCert-Event-Id
+X-AgentCert-Timestamp
+X-AgentCert-Signature: v1=<hex digest>
+```
+
+Secrets are shown once and encrypted at rest with AES-256-GCM. Configure a
+stable 32-byte base64url or 64-hex key:
+
+```text
+AGENTCERT_WEBHOOK_ENCRYPTION_KEY=<32 byte key>
+```
+
+v0.1 records every delivery and applies a 10-second timeout, but performs one
+immediate attempt only. Durable retry/backoff and dead-letter processing are
+required before treating webhooks as a guaranteed delivery channel.
+
+## Retention audit
+
+Every cleanup attempt writes an immutable deletion-journal row containing the
+evidence digest, object key, size, reason, outcome, timestamp, and failure text.
+Platform administrators can review, approve, reject, and release legal holds in
+the **Governance** view and export a project report containing policy, active
+evidence, hold history, and the deletion journal.
+
+The overview continuously exposes reviewed failure coverage, reviewed-label
+precision, and correction rate under
+`agentcert.failure_quality_metrics.v0.1`. New JSON evidence bundles record a
+bounded failure-pattern count at ingestion; failed-run count is the fallback
+for legacy bundles.
+
+Hosted evidence signing and verification are documented in
+[Evidence Trust Chain v0.1](evidence-trust-chain.md).

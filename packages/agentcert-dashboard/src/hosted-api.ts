@@ -182,6 +182,26 @@ export interface HostedApiKey {
   createdAt: string;
   lastUsedAt?: string;
   revokedAt?: string;
+  scopes: string[];
+}
+
+export interface HostedCapabilities {
+  platformAdmin: boolean;
+  evidenceSigning: boolean;
+  signedWebhooks: boolean;
+}
+
+export interface HostedRetentionReport {
+  schemaVersion: "agentcert.retention_report.v0.1";
+  projectId: string;
+  generatedAt: string;
+  policy: { retentionDays: number; projectLimitBytes: number };
+  usage: { count: number; bytes: number };
+  legalHolds: HostedLegalHoldRequest[];
+  deletionJournal: Array<{
+    id: string; evidenceId: string; fileName: string; kind: string; sha256: string; sizeBytes: number;
+    outcome: "deleted" | "held" | "missing" | "failed"; reason: string; error?: string; occurredAt: string;
+  }>;
 }
 
 export interface HostedOverview {
@@ -193,6 +213,7 @@ export interface HostedOverview {
     retentionDays: number;
     acceptedFormats: string[];
     legalHold: HostedLegalHoldRequest | null;
+    deletionCount: number;
   };
   summary: {
     agents: number;
@@ -201,6 +222,17 @@ export interface HostedOverview {
     pendingApprovals: number;
     openIncidents: number;
     evidence: number;
+    taxonomyQuality: {
+      schemaVersion: "agentcert.failure_quality_metrics.v0.1";
+      totalFailures: number;
+      reviewedFailures: number;
+      confirmedFailures: number;
+      correctedFailures: number;
+      reviewCoverage: number;
+      autoLabelPrecision: number;
+      correctionRate: number;
+      calculatedAt: string;
+    };
   };
   recentRuns: HostedRun[];
   recentActions: HostedAction[];
@@ -313,6 +345,10 @@ export async function loadProjects(session: HostedSession): Promise<HostedProjec
   return (await apiRequest<{ projects: HostedProject[] }>(session, "/v1/projects")).projects;
 }
 
+export async function loadHostedCapabilities(session: HostedSession): Promise<HostedCapabilities> {
+  return apiRequest(session, "/v1/me/capabilities");
+}
+
 export async function loadOverview(session: HostedSession, projectId: string): Promise<HostedOverview> {
   return apiRequest(session, path(projectId, "overview"));
 }
@@ -369,8 +405,8 @@ export async function requestHostedLegalHold(
   return apiRequest(session, path(projectId, "legal-holds"), { method: "POST", body: JSON.stringify({ reason }) });
 }
 
-export async function createHostedApiKey(session: HostedSession, projectId: string, name: string): Promise<{ secret: string; apiKey: { prefix: string; name: string } }> {
-  return apiRequest(session, path(projectId, "api-keys"), { method: "POST", body: JSON.stringify({ name }) });
+export async function createHostedApiKey(session: HostedSession, projectId: string, name: string, scopes?: string[]): Promise<{ secret: string; apiKey: { prefix: string; name: string; scopes: string[] } }> {
+  return apiRequest(session, path(projectId, "api-keys"), { method: "POST", body: JSON.stringify({ name, scopes }) });
 }
 
 export async function loadHostedApiKeys(session: HostedSession, projectId: string): Promise<HostedApiKey[]> {
@@ -379,6 +415,44 @@ export async function loadHostedApiKeys(session: HostedSession, projectId: strin
 
 export async function revokeHostedApiKey(session: HostedSession, projectId: string, apiKeyId: string): Promise<HostedApiKey> {
   return apiRequest(session, path(projectId, `api-keys/${encodeURIComponent(apiKeyId)}`), { method: "DELETE" });
+}
+
+export async function loadAdminLegalHolds(session: HostedSession): Promise<HostedLegalHoldRequest[]> {
+  return (await apiRequest<{ requests: HostedLegalHoldRequest[] }>(session, "/v1/admin/legal-hold-requests")).requests;
+}
+
+export async function reviewAdminLegalHold(session: HostedSession, requestId: string, decision: "approve" | "reject" | "release", reviewNote: string): Promise<HostedLegalHoldRequest> {
+  return apiRequest(session, `/v1/admin/legal-hold-requests/${encodeURIComponent(requestId)}/${decision}`, {
+    method: "POST", body: JSON.stringify({ reviewNote }),
+  });
+}
+
+export async function loadRetentionReport(session: HostedSession, projectId: string): Promise<HostedRetentionReport> {
+  return apiRequest(session, path(projectId, "retention-report"));
+}
+
+export async function downloadRetentionReport(session: HostedSession, projectId: string): Promise<void> {
+  const report = await loadRetentionReport(session, projectId);
+  const href = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: "application/json" }));
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = `agentcert-retention-report-${projectId}.json`;
+  link.click();
+  URL.revokeObjectURL(href);
+}
+
+export async function downloadAdminLegalHoldReport(session: HostedSession, requestId: string): Promise<void> {
+  const report = await apiRequest<HostedRetentionReport>(session, `/v1/admin/legal-hold-requests/${encodeURIComponent(requestId)}/report`);
+  downloadJson(report, `agentcert-legal-hold-${requestId}.json`);
+}
+
+function downloadJson(value: unknown, fileName: string): void {
+  const href = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: "application/json" }));
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(href);
 }
 
 export function evidenceContentUrl(projectId: string, evidenceId: string): string {

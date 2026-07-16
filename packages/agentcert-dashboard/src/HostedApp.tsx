@@ -3,6 +3,8 @@ import {
   bootstrap,
   createHostedAgent,
   createHostedApiKey,
+  downloadRetentionReport,
+  downloadAdminLegalHoldReport,
   evidenceContentUrl,
   loadHostedActions,
   loadHostedApiKeys,
@@ -10,12 +12,16 @@ import {
   loadHostedEvidence,
   loadHostedIncidents,
   loadHostedRuns,
+  loadHostedCapabilities,
+  loadAdminLegalHolds,
+  loadRetentionReport,
   loadOverview,
   readHostedAuthCallbackError,
   readHostedSession,
   requestHostedLegalHold,
   resendSignUpConfirmation,
   reviewHostedAction,
+  reviewAdminLegalHold,
   revokeHostedApiKey,
   signIn,
   signOut,
@@ -24,16 +30,19 @@ import {
   type HostedAgent,
   type HostedApiKey,
   type HostedConfig,
+  type HostedCapabilities,
   type HostedEvidence,
   type HostedIncident,
   type HostedOverview,
   type HostedProject,
   type HostedRun,
   type HostedSession,
+  type HostedLegalHoldRequest,
+  type HostedRetentionReport,
 } from "./hosted-api";
 import HostedRunsView from "./HostedRunsView";
 
-type HostedView = "overview" | "agents" | "runs" | "gates" | "actions" | "incidents" | "evidence" | "integrations";
+type HostedView = "overview" | "agents" | "runs" | "gates" | "actions" | "incidents" | "evidence" | "integrations" | "governance";
 
 interface ConsoleData {
   overview: HostedOverview;
@@ -126,6 +135,7 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
   const [data, setData] = useState<ConsoleData>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
+  const [capabilities, setCapabilities] = useState<HostedCapabilities>();
 
   const refresh = useCallback(async () => {
     if (!project) return;
@@ -141,7 +151,9 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
   }, [project, session]);
 
   useEffect(() => {
-    bootstrap(session).then((result) => setProject(result.project)).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
+    Promise.all([bootstrap(session), loadHostedCapabilities(session)])
+      .then(([result, nextCapabilities]) => { setProject(result.project); setCapabilities(nextCapabilities); })
+      .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
   }, [session]);
   useEffect(() => { if (project) void refresh(); }, [project, refresh]);
 
@@ -151,6 +163,7 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
     ["actions", "Runtime actions", data?.actions.filter((action) => action.status === "PENDING_APPROVAL").length],
     ["incidents", "Incidents", data?.incidents.filter((incident) => incident.status === "open").length],
     ["evidence", "Evidence", data?.evidence.length], ["integrations", "Integrations"],
+    ...(capabilities?.platformAdmin ? [["governance", "Governance"] as [HostedView, string]] : []),
   ];
 
   return (
@@ -180,6 +193,7 @@ function HostedViewContent({ view, data, project, session, refresh, onNavigate }
   if (view === "actions") return <ActionsView actions={data.actions} project={project} session={session} refresh={refresh} />;
   if (view === "incidents") return <IncidentsView incidents={data.incidents} />;
   if (view === "evidence") return <EvidenceView evidence={data.evidence} overview={data.overview} project={project} session={session} refresh={refresh} />;
+  if (view === "governance") return <GovernanceView project={project} session={session} />;
   return <IntegrationsView project={project} session={session} />;
 }
 
@@ -210,6 +224,9 @@ function HostedOverviewView({ data, project, onNavigate }: { data: ConsoleData; 
         value={compactBytes(data.overview.storage.usedBytes)}
         detail={`${summary.evidence} objects · ${compactBytes(data.overview.storage.limitBytes)} cap · ${data.overview.storage.legalHold?.status === "approved" ? "legal hold" : `${data.overview.storage.retentionDays}d retention`}`}
       />
+      <ControlMetric label="Review coverage" value={percent(summary.taxonomyQuality.reviewCoverage)} detail={`${summary.taxonomyQuality.reviewedFailures}/${summary.taxonomyQuality.totalFailures} failures reviewed`} />
+      <ControlMetric label="Label precision" value={percent(summary.taxonomyQuality.autoLabelPrecision)} detail={`${summary.taxonomyQuality.correctedFailures} corrections`} />
+      <ControlMetric label="Correction rate" value={percent(summary.taxonomyQuality.correctionRate)} detail="Human-reviewed taxonomy" attention={summary.taxonomyQuality.correctionRate > 0.25} />
     </section>
     <section className="operations-band"><div><SectionTitle title="Runtime queue" caption="Actions waiting for a human decision" /><ActionRows actions={data.actions.filter((action) => action.status === "PENDING_APPROVAL").slice(0, 5)} /></div><div><SectionTitle title="Open incidents" caption="Failed runs and verification gaps" /><IncidentRows incidents={data.incidents.filter((incident) => incident.status === "open").slice(0, 5)} /></div></section>
     <section className="data-section"><SectionTitle title="Recent runs" caption="Pre-release and runtime assurance activity" /><RunsTable runs={data.runs.slice(0, 8)} /></section>
@@ -270,12 +287,40 @@ function EvidenceView({ evidence, overview, project, session, refresh }: {
 
 function IntegrationsView({ project, session }: { project: HostedProject; session: HostedSession }) {
   const [secret, setSecret] = useState<string>(); const [copied, setCopied] = useState(false); const [error, setError] = useState<string>(); const [keys, setKeys] = useState<HostedApiKey[]>([]); const [pendingRevoke, setPendingRevoke] = useState<string>();
+  const [keyMode, setKeyMode] = useState<"ingest" | "read-only">("ingest");
   const refreshKeys = useCallback(async () => { try { setKeys(await loadHostedApiKeys(session, project.id)); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }, [project.id, session]);
   useEffect(() => { void refreshKeys(); }, [refreshKeys]);
-  async function createKey() { try { const result = await createHostedApiKey(session, project.id, "Default integration"); setSecret(result.secret); await refreshKeys(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }
+  async function createKey() { try { const scopes = keyMode === "read-only" ? ["agents:read", "runs:read", "actions:read", "evidence:read"] : ["agents:read", "runs:read", "runs:write", "events:write", "actions:read", "actions:write", "evidence:read", "evidence:write"]; const result = await createHostedApiKey(session, project.id, keyMode === "read-only" ? "Read-only integration" : "Ingest integration", scopes); setSecret(result.secret); await refreshKeys(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }
   async function revokeKey(id: string) { try { await revokeHostedApiKey(session, project.id, id); setPendingRevoke(undefined); await refreshKeys(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }
   const endpoint = window.location.origin;
-  return <div className="integration-layout"><section className="connection-quickstart"><div><span className="eyebrow">Recommended</span><h2>Connect this project once</h2><p>The CLI validates the key before storing it in your user profile. Future push commands reuse the saved connection.</p></div><pre>{`npx agentcert connect --server ${endpoint} --project ${project.id}`}</pre></section><section className="data-section"><div className="section-actions"><SectionTitle title="API access" caption="Project-scoped credentials for agents and CI" /><button className="primary-action compact" onClick={() => void createKey()}>Create API key</button></div>{secret ? <div className="secret-box"><div><strong>Copy this key now. It will not be shown again.</strong><button onClick={() => { void navigator.clipboard.writeText(secret); setCopied(true); }}>{copied ? "Copied" : "Copy key"}</button></div><code>{secret}</code></div> : null}{error ? <div className="form-error">{error}</div> : null}<div className="entity-list key-list">{keys.map((key) => <article key={key.id}><div><strong>{key.name}</strong><span>{key.prefix}...</span></div><div><b>{key.revokedAt ? "Revoked" : "Active"}</b><span>{key.lastUsedAt ? `Last used ${compactTime(key.lastUsedAt)}` : "Never used"}</span></div>{key.revokedAt ? null : pendingRevoke === key.id ? <div className="key-revoke-actions"><button onClick={() => setPendingRevoke(undefined)}>Cancel</button><button className="danger-action" onClick={() => void revokeKey(key.id)}>Confirm revoke</button></div> : <button onClick={() => setPendingRevoke(key.id)}>Revoke</button>}</article>)}{keys.length === 0 ? <EmptyHosted text="No API keys created yet. Create one, then run the connection command above." /> : null}</div></section><section className="data-section"><SectionTitle title="First upload" caption="Run locally, then send the validated evidence bundle" /><pre>{`npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --push\n# or: npx agentcert push --evidence .agentcert/latest/agentcert-evidence.json`}</pre></section><section className="data-section"><SectionTitle title="CI environment" caption="Use secret-manager variables for ephemeral runners and SDK integrations" /><pre>{`AGENTCERT_BASE_URL=${endpoint}\nAGENTCERT_PROJECT_ID=${project.id}\nAGENTCERT_API_KEY=ac_live_...`}</pre></section></div>;
+  return <div className="integration-layout"><section className="connection-quickstart"><div><span className="eyebrow">Recommended</span><h2>Connect this project once</h2><p>The CLI validates the key before storing it in your user profile. Future push commands reuse the saved connection.</p></div><pre>{`npx agentcert connect --server ${endpoint} --project ${project.id}`}</pre></section><section className="data-section"><div className="section-actions"><SectionTitle title="API access" caption="Project-scoped credentials for agents and CI" /><div className="key-create-controls"><select value={keyMode} onChange={(event) => setKeyMode(event.target.value as "ingest" | "read-only")}><option value="ingest">Ingest + read</option><option value="read-only">Read only</option></select><button className="primary-action compact" onClick={() => void createKey()}>Create API key</button></div></div>{secret ? <div className="secret-box"><div><strong>Copy this key now. It will not be shown again.</strong><button onClick={() => { void navigator.clipboard.writeText(secret); setCopied(true); }}>{copied ? "Copied" : "Copy key"}</button></div><code>{secret}</code></div> : null}{error ? <div className="form-error">{error}</div> : null}<div className="entity-list key-list">{keys.map((key) => <article key={key.id}><div><strong>{key.name}</strong><span>{key.prefix}...</span></div><div><b>{key.revokedAt ? "Revoked" : "Active"}</b><span>{key.scopes.join(", ")}</span></div>{key.revokedAt ? null : pendingRevoke === key.id ? <div className="key-revoke-actions"><button onClick={() => setPendingRevoke(undefined)}>Cancel</button><button className="danger-action" onClick={() => void revokeKey(key.id)}>Confirm revoke</button></div> : <button onClick={() => setPendingRevoke(key.id)}>Revoke</button>}</article>)}{keys.length === 0 ? <EmptyHosted text="No API keys created yet. Create one, then run the connection command above." /> : null}</div></section><section className="data-section"><SectionTitle title="First upload" caption="Run locally, then send the validated evidence bundle" /><pre>{`npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --push\n# or: npx agentcert push --evidence .agentcert/latest/agentcert-evidence.json`}</pre></section><section className="data-section"><SectionTitle title="CI environment" caption="Use secret-manager variables for ephemeral runners and SDK integrations" /><pre>{`AGENTCERT_BASE_URL=${endpoint}\nAGENTCERT_PROJECT_ID=${project.id}\nAGENTCERT_API_KEY=ac_live_...`}</pre></section></div>;
+}
+
+function GovernanceView({ project, session }: { project: HostedProject; session: HostedSession }) {
+  const [holds, setHolds] = useState<HostedLegalHoldRequest[]>([]);
+  const [report, setReport] = useState<HostedRetentionReport>();
+  const [selected, setSelected] = useState<string>();
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string>();
+  const refresh = useCallback(async () => {
+    try { const [nextHolds, nextReport] = await Promise.all([loadAdminLegalHolds(session), loadRetentionReport(session, project.id)]); setHolds(nextHolds); setReport(nextReport); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+  }, [project.id, session]);
+  useEffect(() => { void refresh(); }, [refresh]);
+  async function decide(request: HostedLegalHoldRequest, decision: "approve" | "reject" | "release") {
+    if (selected !== request.id || note.trim().length < 10) { setSelected(request.id); setError("Enter a review note of at least 10 characters before recording the decision."); return; }
+    try { await reviewAdminLegalHold(session, request.id, decision, note); setSelected(undefined); setNote(""); setError(undefined); await refresh(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+  }
+  return <div className="governance-layout">
+    {error ? <div className="console-error">{error}</div> : null}
+    <section className="data-section"><div className="section-actions"><SectionTitle title="Legal hold review" caption="Independent approval, rejection, and release decisions" /><button onClick={() => void downloadRetentionReport(session, project.id)}>Export retention report</button></div>
+      <div className="governance-list">{holds.map((hold) => <article key={hold.id}><div><span className="eyebrow">{hold.projectId}</span><strong>{hold.reason}</strong><small>Requested by {hold.requestedByEmail ?? "unknown"} on {compactTime(hold.requestedAt)}</small></div><Status value={hold.status} />
+        <div className="governance-actions"><button onClick={() => void downloadAdminLegalHoldReport(session, hold.id)}>Export report</button>{(hold.status === "requested" || hold.status === "approved") ? <>{selected === hold.id ? <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Decision rationale and preservation scope" /> : null}{hold.status === "requested" ? <><button onClick={() => void decide(hold, "reject")}>Reject</button><button className="primary-action compact" onClick={() => void decide(hold, "approve")}>Approve</button></> : <button className="danger-action" onClick={() => void decide(hold, "release")}>Release hold</button>}</> : null}</div>
+      </article>)}{holds.length === 0 ? <EmptyHosted text="No legal hold requests have been submitted." /> : null}</div>
+    </section>
+    <section className="data-section"><SectionTitle title="Deletion journal" caption="Immutable retention cleanup outcomes for the current project" /><div className="ops-table deletion-table"><div className="ops-row head"><span>Evidence</span><span>Kind</span><span>Outcome</span><span>Size</span><span>Occurred</span></div>{report?.deletionJournal.map((item) => <div className="ops-row" key={item.id}><strong>{item.fileName}</strong><span>{item.kind}</span><Status value={item.outcome} /><span>{compactBytes(item.sizeBytes)}</span><span>{compactTime(item.occurredAt)}</span></div>)}</div>{report?.deletionJournal.length === 0 ? <EmptyHosted text="No evidence deletions have been recorded." /> : null}</section>
+  </div>;
 }
 
 function ActionRows({ actions }: { actions: HostedAction[] }) { return <div className="compact-list">{actions.map((action) => <div key={action.id}><strong>{action.externalId}</strong><span>{action.actionType} · {action.riskLevel}</span><Status value={action.status} /></div>)}{actions.length === 0 ? <EmptyHosted text="No actions waiting for approval." /> : null}</div>; }
@@ -284,7 +329,8 @@ function ControlMetric({ label, value, detail, attention }: { label: string; val
 function SectionTitle({ title, caption }: { title: string; caption: string }) { return <div className="section-title"><h2>{title}</h2><p>{caption}</p></div>; }
 function Status({ value }: { value: string }) { return <span className={`hosted-status ${value.toLowerCase().replace(/_/g, "-")}`}>{value.replace(/_/g, " ")}</span>; }
 function EmptyHosted({ text }: { text: string }) { return <div className="hosted-empty">{text}</div>; }
-function viewTitle(view: HostedView): string { return ({ overview: "Operational overview", agents: "Agent registry", runs: "Assurance runs", gates: "Release gates", actions: "Runtime actions", incidents: "Incident ledger", evidence: "Evidence registry", integrations: "Integrations" })[view]; }
+function viewTitle(view: HostedView): string { return ({ overview: "Operational overview", agents: "Agent registry", runs: "Assurance runs", gates: "Release gates", actions: "Runtime actions", incidents: "Incident ledger", evidence: "Evidence registry", integrations: "Integrations", governance: "Governance administration" })[view]; }
 function compactTime(value: string): string { return new Intl.DateTimeFormat("en", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
 function compactBytes(value: number): string { return value < 1024 ? `${value} B` : value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / 1024 / 1024).toFixed(1)} MB`; }
+function percent(value: number): string { return `${Math.round(value * 100)}%`; }
 async function downloadEvidence(session: HostedSession, url: string, fileName: string) { const response = await fetch(url, { headers: { authorization: `Bearer ${session.accessToken}` } }); if (!response.ok) throw new Error("Evidence download failed."); const href = URL.createObjectURL(await response.blob()); const link = document.createElement("a"); link.href = href; link.download = fileName; link.click(); URL.revokeObjectURL(href); }

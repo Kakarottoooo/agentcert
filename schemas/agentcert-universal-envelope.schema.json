@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.dev/schemas/agentcert-universal-envelope.schema.json",
+  "title": "AgentCert Universal Event/Action Envelope v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "envelopeId", "kind", "occurredAt", "source", "run", "trace"],
+  "properties": {
+    "schemaVersion": { "const": "agentcert.envelope.v0.1" },
+    "envelopeId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "kind": { "enum": ["event", "action"] },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agentId"],
+      "properties": {
+        "agentId": { "type": "string", "minLength": 1 },
+        "agentVersion": { "type": "string", "minLength": 1 },
+        "framework": { "type": "string", "minLength": 1 },
+        "adapter": { "type": "string", "minLength": 1 }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["externalId"],
+      "properties": {
+        "externalId": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["mcpbench", "tripwire", "release_gate", "runtime", "custom"] }
+      }
+    },
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["traceId", "spanId"],
+      "properties": {
+        "traceId": { "type": "string", "pattern": "^(?!0{32}$)[0-9a-f]{32}$" },
+        "spanId": { "type": "string", "pattern": "^(?!0{16}$)[0-9a-f]{16}$" },
+        "parentSpanId": { "type": "string", "pattern": "^(?!0{16}$)[0-9a-f]{16}$" },
+        "traceFlags": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "traceState": { "type": "string", "minLength": 1 }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sequence", "type"],
+      "properties": {
+        "sequence": { "type": "integer", "minimum": 0 },
+        "type": { "type": "string", "minLength": 1 },
+        "actor": { "type": "string", "minLength": 1 },
+        "attributes": { "type": "object" }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["externalId", "principal", "actionType", "targetSystem", "requestedPermissions"],
+      "properties": {
+        "externalId": { "type": "string", "minLength": 1 },
+        "principal": { "type": "object" },
+        "actionType": { "enum": ["SUBMIT", "PAY", "SEND", "UPDATE"] },
+        "targetSystem": { "type": "string", "minLength": 1 },
+        "requestedPermissions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "amount": { "type": "number" },
+        "currency": { "type": "string", "minLength": 1 },
+        "externalRecipient": { "type": "boolean" },
+        "sensitive": { "type": "boolean" },
+        "expectedState": { "type": "object" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "event" } } },
+      "then": { "required": ["event"], "not": { "required": ["action"] } }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "action" } } },
+      "then": { "required": ["action"], "not": { "required": ["event"] } }
+    }
+  ]
+}

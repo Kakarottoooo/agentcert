@@ -33,6 +33,17 @@ class AgentCertClient:
     def assess_action(self, **input: Any) -> dict[str, Any]:
         return self._json("actions", method="POST", body=input)
 
+    def send_envelope(self, envelope: dict[str, Any]) -> dict[str, Any]:
+        envelope_id = str(envelope.get("envelopeId") or "")
+        if not envelope_id:
+            raise AgentCertError("envelopeId is required")
+        return self._json(
+            "envelopes",
+            method="POST",
+            body=envelope,
+            headers={"Idempotency-Key": envelope_id},
+        )
+
     def get_action(self, action_id: str) -> dict[str, Any]:
         return self._json(f"actions/{urllib.parse.quote(action_id)}")
 
@@ -70,15 +81,17 @@ class AgentCertClient:
         )
 
     def _json(
-        self, suffix: str, *, method: str = "GET", body: dict[str, Any] | None = None
+        self, suffix: str, *, method: str = "GET", body: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         content = json.dumps(body).encode("utf-8") if body is not None else None
         return self._request(
-            suffix, method=method, content=content, content_type="application/json"
+            suffix, method=method, content=content, content_type="application/json", headers=headers
         )
 
     def _request(
-        self, suffix: str, *, method: str, content: bytes | None, content_type: str
+        self, suffix: str, *, method: str, content: bytes | None, content_type: str,
+        headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         if not self.base_url or not self.project_id or not self.api_key:
             raise AgentCertError("base_url, project_id, and api_key are required")
@@ -87,7 +100,7 @@ class AgentCertClient:
             url,
             data=content,
             method=method,
-            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": content_type},
+            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": content_type, **(headers or {})},
         )
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:

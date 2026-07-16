@@ -1915,6 +1915,72 @@ button {
   justify-content: flex-end;
 }
 
+.deletion-table .ops-row {
+  grid-template-columns: minmax(140px, 1.5fr) 72px 90px 64px 120px;
+  min-width: 540px;
+}
+
+.key-create-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.key-create-controls select {
+  min-height: 36px;
+  padding: 0 9px;
+  color: var(--text);
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.governance-layout,
+.governance-list {
+  display: grid;
+  gap: 18px;
+}
+
+.governance-list {
+  gap: 0;
+}
+
+.governance-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px 18px;
+  align-items: start;
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+}
+
+.governance-list article > div:first-child {
+  display: grid;
+  gap: 6px;
+}
+
+.governance-list small {
+  color: var(--muted);
+}
+
+.governance-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 8px;
+  align-items: end;
+  justify-content: flex-end;
+}
+
+.governance-actions textarea {
+  min-height: 70px;
+  flex: 1;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  resize: vertical;
+  font: inherit;
+}
+
 .danger-action {
   border-color: #c33c36 !important;
   color: #a82e29 !important;
@@ -2655,6 +2721,12 @@ button {
   }
   .artifact-workspace {
     grid-template-columns: 1fr;
+  }
+  .governance-list article,
+  .governance-actions,
+  .key-create-controls {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
   .finding-queue {
     max-height: 280px;

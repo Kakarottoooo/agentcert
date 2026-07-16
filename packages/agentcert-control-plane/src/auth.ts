@@ -34,7 +34,7 @@ export class Authenticator {
     if (!apiKey || !safeEqual(apiKey.secretHash, secretHash)) return undefined;
     const usedAt = new Date().toISOString();
     await this.options.store.touchApiKey(apiKey.id, usedAt);
-    return { kind: "api_key", projectId: apiKey.projectId, apiKeyId: apiKey.id };
+    return { kind: "api_key", projectId: apiKey.projectId, apiKeyId: apiKey.id, scopes: apiKey.scopes };
   }
 }
 
