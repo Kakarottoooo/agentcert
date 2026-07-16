@@ -81,10 +81,21 @@ const auditPacket = await runtime.writeAuditPacket(review.action);
 ```
 
 The SDK is intentionally adapter-shaped: you bring the authorization policy,
-approval workflow, execution adapter, and audit store. Requested permissions
+approval workflow, execution adapter, and audit store. Execution is keyed by
+`ActionIntent.idempotencyKey`; concurrent retries share one result, and a key
+cannot be rebound to a different action. Rollback is an explicit compensating
+action implemented by the adapter, never an assumed reversal of a real-world
+side effect. Requested permissions
 must be included in the policy's granted permissions or the action is blocked.
 The checked-in examples are local-only and deterministic so they are safe for
 tests and demos.
+
+`createStateSandboxAdapter()` is the reference safety boundary. It refuses
+production actions, allows only named synthetic target systems, performs no
+network access, snapshots previous state, and implements deterministic
+rollback. `createJsonlAuditStore()` provides an append-only local audit sink;
+hosted or customer-managed stores can implement the same `AuditStore`
+contract.
 
 ## Demo
 

@@ -37,6 +37,10 @@ services:
         value: 2000
       - key: AGENTCERT_WEBHOOK_WORKER_BATCH
         value: 20
+      - key: AGENTCERT_NOTIFICATION_WORKER_INTERVAL_MS
+        value: 5000
+      - key: AGENTCERT_NOTIFICATION_WORKER_BATCH
+        value: 20
       - key: REDIS_URL
         fromService:
           type: keyvalue

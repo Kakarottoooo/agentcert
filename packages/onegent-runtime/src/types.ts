@@ -10,6 +10,8 @@ export type ActionIntentStatus =
   | "EXECUTED"
   | "VERIFIED"
   | "FAILED_VERIFICATION"
+  | "ROLLED_BACK"
+  | "ROLLBACK_FAILED"
   | "CANCELLED";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
@@ -35,6 +37,7 @@ export interface AgentPrincipal {
 
 export interface ActionIntent {
   id: string;
+  idempotencyKey: string;
   workspaceId: string;
   workflowId: string;
   sourceAgentName: string;
@@ -62,6 +65,7 @@ export interface ActionIntent {
 }
 
 export interface CreateActionIntentInput {
+  idempotencyKey?: string;
   workspaceId?: string;
   workflowId?: string;
   sourceAgentName: string;
@@ -171,6 +175,9 @@ export interface ApprovalAdapterDecision {
   approved?: boolean;
   reviewerId?: string;
   reviewerComment?: string;
+  decisionId?: string;
+  decidedAt?: string;
+  expiresAt?: string;
 }
 
 export interface ApprovalAdapterRequest {
@@ -206,6 +213,10 @@ export type AuditEventType =
   | "ACTION_REJECTED"
   | "MOCK_EXECUTION_STARTED"
   | "MOCK_EXECUTION_COMPLETED"
+  | "EXECUTION_REUSED"
+  | "ROLLBACK_STARTED"
+  | "ROLLBACK_COMPLETED"
+  | "ROLLBACK_FAILED"
   | "VERIFICATION_PASSED"
   | "VERIFICATION_FAILED"
   | "AUDIT_PACKET_GENERATED";
@@ -250,6 +261,7 @@ export interface ActionExecutionSummary {
   targetSystem: string;
   previousState?: Record<string, unknown>;
   observedState?: Record<string, unknown>;
+  rollbackToken?: string;
 }
 
 export interface LocalActionAdapterResult {
@@ -257,11 +269,54 @@ export interface LocalActionAdapterResult {
   targetSystem?: string;
   previousState?: Record<string, unknown>;
   observedState: Record<string, unknown>;
+  rollbackToken?: string;
+}
+
+export interface LocalActionAdapterSafety {
+  mode: "sandbox";
+  allowedTargetSystems: string[];
+  networkAccess: false;
+}
+
+export interface ActionExecutionContext {
+  idempotencyKey: string;
+  attempt: number;
+}
+
+export interface ActionRollbackContext {
+  idempotencyKey: string;
+  reason: string;
+  rollbackToken?: string;
+}
+
+export interface ActionRollbackResult {
+  success: boolean;
+  observedState: Record<string, unknown>;
+  message?: string;
 }
 
 export interface LocalActionAdapter {
   name: string;
-  execute(action: ActionIntent): LocalActionAdapterResult | Promise<LocalActionAdapterResult>;
+  safety?: LocalActionAdapterSafety;
+  execute(action: ActionIntent, context?: ActionExecutionContext): LocalActionAdapterResult | Promise<LocalActionAdapterResult>;
+  rollback?(action: ActionIntent, execution: ActionExecutionSummary, context: ActionRollbackContext): ActionRollbackResult | Promise<ActionRollbackResult>;
+}
+
+export interface ActionExecutionReceipt {
+  idempotencyKey: string;
+  actionIntentId: string;
+  adapterName: string;
+  status: "COMPLETED" | "ROLLED_BACK" | "ROLLBACK_FAILED";
+  execution: ActionExecutionSummary;
+  rollbackToken?: string;
+  executedAt: string;
+  rollback?: ActionRollbackResult & { attemptedAt: string; reason: string };
+}
+
+export interface ExecutionStore {
+  name: string;
+  get(idempotencyKey: string): ActionExecutionReceipt | undefined | Promise<ActionExecutionReceipt | undefined>;
+  put(receipt: ActionExecutionReceipt): void | Promise<void>;
 }
 
 export interface ActionAuditPacket {

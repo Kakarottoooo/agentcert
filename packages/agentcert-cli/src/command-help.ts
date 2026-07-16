@@ -1,4 +1,9 @@
 export function renderCommandHelp(command: string): string | undefined {
+  if (command === "conformance") return `Usage:
+  agentcert conformance <evidence.json> --artifact-root <directory> [--implementation <name>] [--out <report.json>]
+
+Checks schema identity, v0.1 compatibility, artifact manifest structure, and exact artifact hashes and sizes.
+`;
   if (command !== "push") return undefined;
   return `Usage:
   agentcert push --evidence .agentcert/latest/agentcert-evidence.json

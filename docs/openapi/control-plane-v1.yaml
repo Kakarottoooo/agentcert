@@ -83,10 +83,10 @@ paths:
         "200": { description: Project overview }
   /v1/projects/{projectId}/operations:
     get:
-      summary: Read Trust Operations incidents, 30/90-day SLO, alerts, trends, webhook metrics, and signing-key state
+      summary: Read Trust Operations incidents, 30/90-day SLO, multi-window burn rate, durable delivery queues, trends, and signing-key state
       parameters: [{$ref: "#/components/parameters/ProjectId"}]
       responses:
-        "200": {description: Trust Operations v0.4 status}
+        "200": {description: Trust Operations v0.5 status}
   /v1/projects/{projectId}/operations/smoke-runs:
     post:
       summary: Record a production smoke health sample
@@ -132,6 +132,15 @@ paths:
         - {$ref: "#/components/parameters/ProjectId"}
         - {in: path, name: destinationId, required: true, schema: {type: string, format: uuid}}
       responses: {"200": {description: Disabled destination}}
+  /v1/projects/{projectId}/notification-jobs/{jobId}/retry:
+    post:
+      summary: Retry a dead-letter email notification job
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: path, name: jobId, required: true, schema: {type: string, format: uuid}}
+      responses:
+        "200": {description: Notification job returned to the pending queue}
+        "409": {description: Notification job is not in the dead-letter queue}
   /v1/projects/{projectId}/envelopes:
     post:
       summary: Ingest a framework-neutral event or action envelope

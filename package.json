@@ -40,6 +40,7 @@
     "control-plane:install": "npm --prefix packages/agentcert-dashboard ci && npm --prefix packages/agentcert-control-plane ci && npm --prefix packages/agentcert-sdk ci && npm --prefix packages/agentcert-mcp-adapter ci",
     "control-plane:build": "npm --prefix packages/agentcert-dashboard run build && npm --prefix packages/agentcert-control-plane run build && npm --prefix packages/agentcert-sdk run build && npm --prefix packages/agentcert-mcp-adapter run build",
     "control-plane:test": "npm --prefix packages/agentcert-dashboard test && npm --prefix packages/agentcert-control-plane test && npm --prefix packages/agentcert-sdk test && npm --prefix packages/agentcert-sdk run build && npm --prefix packages/agentcert-mcp-adapter test",
+    "control-plane:security": "npm --prefix packages/agentcert-control-plane run test:security",
     "control-plane:dev": "npm run control-plane:build && node packages/agentcert-control-plane/dist/cli.js",
     "production-smoke": "node scripts/production-smoke.mjs",
     "production-smoke:test": "node --test scripts/production-smoke.test.mjs scripts/production-smoke-incident.test.mjs",

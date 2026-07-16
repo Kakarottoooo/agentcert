@@ -109,6 +109,12 @@ if (process.argv[2] === "cleanup-evidence") {
     integerEnv("AGENTCERT_WEBHOOK_WORKER_INTERVAL_MS", 2_000),
     integerEnv("AGENTCERT_WEBHOOK_WORKER_BATCH", 20),
   );
+  scheduleNotificationDelivery(
+    service,
+    `${hostname()}:${process.pid}`,
+    integerEnv("AGENTCERT_NOTIFICATION_WORKER_INTERVAL_MS", 5_000),
+    integerEnv("AGENTCERT_NOTIFICATION_WORKER_BATCH", 20),
+  );
 }
 
 function localCoordination(limit: number, windowMs: number): CoordinationRuntime {
@@ -135,6 +141,24 @@ function scheduleWebhookDelivery(service: AgentCertControlPlane, workerId: strin
     }
   };
   setTimeout(() => void run(), 500).unref();
+  setInterval(() => void run(), intervalMs).unref();
+}
+
+function scheduleNotificationDelivery(service: AgentCertControlPlane, workerId: string, intervalMs: number, batchSize: number): void {
+  let running = false;
+  const run = async () => {
+    if (running) return;
+    running = true;
+    try {
+      const result = await service.processNotificationJobs(workerId, new Date(), batchSize);
+      if (result.claimed > 0) process.stdout.write(`${JSON.stringify({ event: "notification_delivery_batch", ...result })}\n`);
+    } catch (error) {
+      process.stderr.write(`${JSON.stringify({ event: "notification_delivery_batch_failed", message: error instanceof Error ? error.message : String(error) })}\n`);
+    } finally {
+      running = false;
+    }
+  };
+  setTimeout(() => void run(), 750).unref();
   setInterval(() => void run(), intervalMs).unref();
 }
 

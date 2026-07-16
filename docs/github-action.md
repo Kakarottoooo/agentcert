@@ -14,7 +14,7 @@ jobs:
   mcpbench:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -53,12 +53,13 @@ jobs:
   tripwire:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: "20"
 
-      - uses: Kakarottoooo/agentcert/actions/tripwire@v0
+      - id: agentcert
+        uses: Kakarottoooo/agentcert/actions/tripwire@v0
         with:
           config: tripwire.yml
           out: .tripwire/latest
@@ -110,12 +111,13 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: "20"
 
-      - uses: Kakarottoooo/agentcert/actions/tripwire@v0
+      - id: agentcert
+        uses: Kakarottoooo/agentcert/actions/tripwire@v0
         with:
           config: tripwire.yml
           subject: my-browser-agent
@@ -128,6 +130,8 @@ One-time setup: enable GitHub Pages for the `gh-pages` branch in the caller
 repository settings (Settings -> Pages -> Deploy from a branch -> `gh-pages`).
 
 The action then exposes:
+
+- output `agentcert-version`: exact bundled CLI version used for the run
 
 - output `pages-url`: `https://<owner>.github.io/<repo>/agentcert`
 - output `badge-markdown`:

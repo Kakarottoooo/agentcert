@@ -15,6 +15,7 @@ import {
 } from "./corpus.js";
 import { openCorpusStore, parseCorpusStoreKind, type CorpusStoreOptions } from "./corpus-store.js";
 import { pushEvidenceToControlPlane, verifyControlPlaneConnection } from "./control-plane.js";
+import { runEvidenceConformance } from "./conformance.js";
 import { DEFAULT_AGENTCERT_SERVER, resolveConnection, saveConnection } from "./credentials.js";
 import {
   applyFailureReviews,
@@ -525,6 +526,28 @@ Saved connections are reused by agentcert push and agentcert run --push.
       process.exitCode = 1;
     }
   }
+} else if (command === "conformance") {
+  const file = readFlag("--file") ?? readFirstPositionalAfterCommand();
+  if (!file) throw new Error("Missing evidence file. Usage: agentcert conformance <file> --artifact-root <directory>.");
+  const artifactRoot = resolve(readFlag("--artifact-root") ?? dirname(resolve(file)));
+  const report = await runEvidenceConformance(await readJson(file), {
+    evidenceFile: file,
+    artifactRoot,
+    implementation: readFlag("--implementation"),
+  });
+  const output = `${JSON.stringify(report, null, 2)}\n`;
+  const outPath = readFlag("--out");
+  if (outPath) {
+    await mkdir(dirname(resolve(outPath)), { recursive: true });
+    await writeFile(outPath, output);
+    process.stdout.write(`Wrote conformance report: ${resolve(outPath)}\n`);
+  }
+  process.stdout.write(`${report.valid ? "Conformant" : "Non-conformant"} evidence implementation: ${report.implementation}\n`);
+  for (const item of report.checks) {
+    process.stdout.write(`- ${item.status === "passed" ? "PASS" : "FAIL"} ${item.id}: ${item.message}\n`);
+    for (const error of item.errors) process.stdout.write(`  - ${error}\n`);
+  }
+  if (!report.valid) process.exitCode = 1;
 } else {
   process.stdout.write(`Usage:
   agentcert init --subject my-browser-agent
@@ -553,6 +576,7 @@ Saved connections are reused by agentcert push and agentcert run --push.
   agentcert serve --corpus .agentcert/corpus/corpus.jsonl --static public-demo/agentcert-monitor --artifact-root public-demo/browser-agent-robustness/evidence/tripwire-public-demo
   agentcert validate .agentcert/latest/agentcert-evidence.json
   agentcert validate .agentcert/latest/agentcert-evidence.json --check-artifacts
+  agentcert conformance .agentcert/latest/agentcert-evidence.json --artifact-root . --implementation my-agent
   agentcert schema validate --schema evidence-bundle --file .agentcert/latest/agentcert-evidence.json
 `);
 }
@@ -948,12 +972,13 @@ jobs:
     # permissions:
     #   contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: "20"
 
-      - uses: Kakarottoooo/agentcert/actions/tripwire@v0
+      - id: agentcert
+        uses: Kakarottoooo/agentcert/actions/tripwire@v0
         with:
           config: tripwire.yml
           out: .tripwire/latest

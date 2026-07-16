@@ -34,6 +34,24 @@ describe("AgentCert schema validator", () => {
     expect(result.errors).toContain("summary must be an object.");
   });
 
+  it("rejects malformed nested evidence fields", () => {
+    const result = validateAgentCertSchema("evidence-bundle", {
+      schemaName: "agentcert.evidence_bundle", schemaVersion: "agentcert.evidence.v0.1", schemaSemver: "0.1.0",
+      kind: "agentcert.evidence_bundle", runId: "run-1", generatedAt: "not-a-time",
+      subject: { name: "", type: "invalid" }, verdict: { passed: "yes", score: 101, level: "pass" },
+      summary: { products: [1], criticalEvidence: -1, highEvidence: 0, totalEvidence: 1.5 },
+      results: [], evidence: [{ id: "e-1", kind: "trace", severity: "urgent", message: "failure" }],
+      artifacts: { trace: 42 }, standards: [],
+    });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual(expect.arrayContaining([
+      "generatedAt must be a valid date-time string.", "subject.name must be a non-empty string.",
+      "subject.type must be one of: agent, mcp-server, tool, application, unknown.", "verdict.passed must be a boolean.",
+      "verdict.score must be a finite number from 0 to 100.", "evidence[0].severity must be one of: critical, high, medium, low, info.",
+      "artifacts.trace must be a string.",
+    ]));
+  });
+
   it("accepts classifier evaluation artifacts", () => {
     const result = validateAgentCertSchema("classifier-eval", {
       schemaVersion: "1",

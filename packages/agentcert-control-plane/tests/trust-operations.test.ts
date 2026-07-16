@@ -112,7 +112,7 @@ describe("signing key rotation", () => {
   });
 });
 
-describe("Trust Operations v0.4", () => {
+describe("Trust Operations v0.5", () => {
   it("persists smoke health and reports deterministic health and webhook trends", async () => {
     const store = new InMemoryControlPlaneStore();
     const privateKey = generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" }).toString();
@@ -143,7 +143,7 @@ describe("Trust Operations v0.4", () => {
       user, projectId, { backend: "redis", state: "ready", shared: true }, new Date("2026-07-15T08:30:00.000Z"),
     );
     expect(operations).toMatchObject({
-      schemaVersion: "agentcert.trust_operations.v0.4", status: "warning",
+      schemaVersion: "agentcert.trust_operations.v0.5", status: "warning",
       alerts: {
         redis: { status: "healthy" }, signing: { status: "healthy" },
         scheduledSmoke: { status: "healthy" }, webhooks: { status: "healthy" },
@@ -209,6 +209,8 @@ describe("Trust Operations v0.4", () => {
       alertTypes: ["incident_opened", "incident_recovered"],
     });
     expect(destination).toMatchObject({ email: "security@example.com", status: "pending_verification" });
+    expect(provider.messages).toHaveLength(0);
+    await service.processNotificationJobs("notification-worker");
     expect(provider.messages).toHaveLength(1);
     const token = new URL(provider.messages[0]!.text.match(/https:\/\/\S+/)![0]).searchParams.get("token")!;
     await expect(service.verifyNotificationDestination(token)).resolves.toMatchObject({ status: "active" });
@@ -217,12 +219,72 @@ describe("Trust Operations v0.4", () => {
       externalId: "notification-failure", source: "production_smoke", status: "failed",
       startedAt: "2026-07-15T10:00:00.000Z", completedAt: "2026-07-15T10:00:05.000Z", checks: [], error: "health failed",
     });
+    await service.processNotificationJobs("notification-worker");
     expect(provider.messages).toHaveLength(2);
     expect(provider.messages[1]).toMatchObject({ to: "security@example.com", subject: expect.stringContaining("opened") });
     expect(await store.listNotificationDeliveries(projectId)).toEqual(expect.arrayContaining([
       { alertType: "incident_opened", status: "delivered" },
       { alertType: "destination_verification", status: "delivered" },
     ].map((item) => expect.objectContaining(item))));
+  });
+
+  it("retries failed email delivery, dead-letters it, and permits an explicit replay", async () => {
+    const provider = new FailingEmailProvider();
+    const store = new InMemoryControlPlaneStore();
+    const service = new AgentCertControlPlane(
+      store, new MemoryArtifactStore(), undefined, [], undefined, undefined, fetch, provider, "https://agentcert.example",
+    );
+    const projectId = (await service.bootstrap(user)).project.id;
+    await service.createNotificationDestination(user, projectId, {
+      email: "security@example.com", alertTypes: ["incident_opened"],
+    });
+
+    let [job] = await store.listNotificationJobs(projectId);
+    expect(job).toMatchObject({ status: "pending", attemptCount: 0, maxAttempts: 5 });
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      await service.processNotificationJobs("worker-a", new Date(job!.nextAttemptAt));
+      [job] = await store.listNotificationJobs(projectId);
+      expect(job!.attemptCount).toBe(attempt);
+    }
+
+    expect(job).toMatchObject({ status: "dead_letter", attemptCount: 5, lastError: "provider unavailable" });
+    expect(provider.attempts).toBe(5);
+    expect(await store.listNotificationDeliveries(projectId)).toHaveLength(5);
+    await expect(service.retryNotificationJob(user, projectId, job!.id)).resolves.toMatchObject({
+      status: "pending", attemptCount: 0, lastError: undefined,
+    });
+  });
+
+  it("recovers an email job after its worker lease expires", async () => {
+    const store = new InMemoryControlPlaneStore();
+    await store.enqueueNotificationJob({
+      id: "00000000-0000-4000-8000-000000000020", projectId: "p1", destinationId: "d1",
+      alertType: "incident_opened", recipient: "security@example.com", subject: "incident", text: "incident", html: "<p>incident</p>",
+      status: "processing", attemptCount: 0, maxAttempts: 5, nextAttemptAt: "2026-07-15T00:00:00.000Z",
+      lockedAt: "2026-07-15T00:00:00.000Z", lockedBy: "dead-worker", createdAt: "2026-07-15T00:00:00.000Z",
+    });
+    await expect(store.claimNotificationJobs("worker-b", "2026-07-15T00:01:00.000Z", "2026-07-15T00:00:30.000Z", 10))
+      .resolves.toMatchObject([{ status: "processing", lockedBy: "worker-b", lockedAt: "2026-07-15T00:01:00.000Z" }]);
+  });
+
+  it("opens a separate incident only after multi-window burn thresholds are crossed", async () => {
+    const store = new InMemoryControlPlaneStore();
+    const service = new AgentCertControlPlane(store, new MemoryArtifactStore());
+    const projectId = (await service.bootstrap(user)).project.id;
+    const sample = (index: number) => ({
+      externalId: `burn-failure-${index}`, source: "production_smoke", status: "failed",
+      startedAt: `2026-07-15T10:0${index}:00.000Z`, completedAt: `2026-07-15T10:0${index}:05.000Z`,
+      checks: ["health"], error: "production smoke failed",
+    });
+
+    await service.recordTrustHealthSample(user, projectId, sample(0));
+    expect((await store.listIncidents(projectId)).filter((item) => item.type === "slo_burn_rate")).toHaveLength(0);
+    await service.recordTrustHealthSample(user, projectId, sample(1));
+    expect((await store.listIncidents(projectId)).filter((item) => item.type === "slo_burn_rate")).toHaveLength(0);
+    const third = await service.recordTrustHealthSample(user, projectId, sample(2));
+    expect(third.sloBurnRate.evaluation.status).toBe("critical");
+    expect(third.sloBurnRate.evaluation.windows[0]).toMatchObject({ label: "1h", total: 3, failed: 3 });
+    expect(third.sloBurnRate.operationalIncident).toMatchObject({ type: "slo_burn_rate", status: "open" });
   });
 
   it("does not change incident state when the atomic transition write fails", async () => {
@@ -249,6 +311,16 @@ class RecordingEmailProvider implements EmailProvider {
   readonly configured = true;
   readonly messages: EmailMessage[] = [];
   async send(message: EmailMessage) { this.messages.push(message); return { provider: this.name, messageId: `message-${this.messages.length}` }; }
+}
+
+class FailingEmailProvider implements EmailProvider {
+  readonly name = "failing-test";
+  readonly configured = true;
+  attempts = 0;
+  async send(_message: EmailMessage): Promise<{ provider: string; messageId?: string }> {
+    this.attempts += 1;
+    throw new Error("provider unavailable");
+  }
 }
 
 describe("Redis coordination primitives", () => {

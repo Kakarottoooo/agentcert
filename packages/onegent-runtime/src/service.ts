@@ -5,6 +5,7 @@ import { getPurchaseOrder, submitMockPurchaseOrder } from "./mock-procurement.js
 import type {
   ActionAuditPacket,
   ActionExecutionSummary,
+  ActionRollbackResult,
   ActionIntent,
   ActionReview,
   AuthorizationDecision,
@@ -31,8 +32,11 @@ export interface ApprovalOptions {
 }
 
 export function captureActionIntent(input: CreateActionIntentInput, options: ActionGatewayOptions = {}): ActionReview {
+  const idempotencyKey = input.idempotencyKey?.trim();
+  if (idempotencyKey && idempotencyKey.length > 200) throw new Error("Action idempotencyKey cannot exceed 200 characters.");
   const action: ActionIntent = {
     id: nextId("act"),
+    idempotencyKey: idempotencyKey || "",
     workspaceId: input.workspaceId ?? "demo-workspace",
     workflowId: input.workflowId ?? "demo-workflow",
     sourceAgentName: input.sourceAgentName,
@@ -58,6 +62,7 @@ export function captureActionIntent(input: CreateActionIntentInput, options: Act
     createdAt: nowIso(),
     status: "CAPTURED",
   };
+  action.idempotencyKey ||= action.id;
 
   store.actions.set(action.id, action);
   appendAudit(action.id, "ACTION_CAPTURED", "AGENT", action.sourceAgentName, "Action intent captured from agent.", {
@@ -233,6 +238,7 @@ export function executeAfterApproval(actionId: string): ActionExecutionSummary {
 export async function executeAfterApprovalWithAdapter(
   actionId: string,
   adapter: LocalActionAdapter,
+  context?: { idempotencyKey: string; attempt: number },
 ): Promise<ActionExecutionSummary> {
   const action = requireAction(actionId);
   const approval = store.approvals.get(actionId);
@@ -245,7 +251,7 @@ export async function executeAfterApprovalWithAdapter(
     adapter: adapter.name,
     targetSystem: action.targetSystem,
   });
-  const result = await adapter.execute(action);
+  const result = await adapter.execute(action, context);
   action.status = "EXECUTED";
   store.actions.set(action.id, action);
   appendAudit(action.id, "MOCK_EXECUTION_COMPLETED", "SYSTEM", "onegent-runtime", "Local adapter execution completed.", {
@@ -260,7 +266,33 @@ export async function executeAfterApprovalWithAdapter(
     targetSystem: result.targetSystem ?? action.targetSystem,
     previousState: result.previousState ?? action.beforeState,
     observedState: result.observedState,
+    rollbackToken: result.rollbackToken,
   };
+}
+
+export function recordRollback(
+  actionId: string,
+  adapterName: string,
+  reason: string,
+  result: ActionRollbackResult,
+): ActionReview {
+  const action = requireAction(actionId);
+  appendAudit(action.id, "ROLLBACK_STARTED", "SYSTEM", "onegent-runtime", "Compensating rollback started.", {
+    adapter: adapterName,
+    reason,
+    idempotencyKey: action.idempotencyKey,
+  });
+  action.status = result.success ? "ROLLED_BACK" : "ROLLBACK_FAILED";
+  store.actions.set(action.id, action);
+  appendAudit(
+    action.id,
+    result.success ? "ROLLBACK_COMPLETED" : "ROLLBACK_FAILED",
+    "SYSTEM",
+    "onegent-runtime",
+    result.success ? "Compensating rollback completed." : "Compensating rollback failed.",
+    { adapter: adapterName, reason, observedState: result.observedState, message: result.message },
+  );
+  return getActionReview(action.id);
 }
 
 export function executeMockAction(actionId: string): ActionExecutionSummary {
@@ -478,7 +510,7 @@ function buildExecutionSummary(action: ActionIntent): ActionExecutionSummary {
     action.businessObjectType === "purchase_order" && action.targetSystem === "MockERP" ? "LOCAL_MOCK_ERP" : "MOCK";
   return {
     method,
-    status: action.status === "VERIFIED" || action.status === "FAILED_VERIFICATION" ? "COMPLETED" : "NOT_EXECUTED",
+    status: new Set(["EXECUTED", "VERIFIED", "FAILED_VERIFICATION", "ROLLED_BACK", "ROLLBACK_FAILED"]).has(action.status) ? "COMPLETED" : "NOT_EXECUTED",
     targetSystem: action.targetSystem,
     previousState: action.beforeState,
     observedState: verification?.observedState,

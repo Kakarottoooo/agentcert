@@ -84,6 +84,7 @@ required top-level fields or required enum values are missing.
 npx agentcert validate .agentcert/latest/agentcert-evidence.json
 npx agentcert validate .agentcert/latest/agentcert-evidence.json --check-artifacts
 npx agentcert validate examples/agentcert/evidence-bundle.example.json
+npx agentcert conformance examples/conformance/evidence.valid.json --artifact-root examples/conformance/artifacts
 ```
 
 `--check-artifacts` verifies that artifact paths referenced by the evidence

@@ -202,6 +202,10 @@ async function handleRequest(
     else throw new ControlPlaneError("Notification destination route was not found.", 404);
     return;
   }
+  if (collection === "notification-jobs" && entityId && child === "retry" && request.method === "POST") {
+    sendJson(response, 200, await options.service.retryNotificationJob(auth, projectId, entityId));
+    return;
+  }
   if (collection === "agents") {
     if (request.method === "GET" && !entityId) sendJson(response, 200, { agents: await options.service.listAgents(auth, projectId) });
     else if (request.method === "POST" && !entityId) sendJson(response, 201, await options.service.createAgent(auth, projectId, await readJson(request)));

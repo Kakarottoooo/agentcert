@@ -53,6 +53,9 @@ inputs:
     description: Directory inside the Pages branch that holds the evidence page.
     default: agentcert
 outputs:
+  agentcert-version:
+    description: AgentCert CLI version bundled by this Action release.
+    value: ${{ steps.toolchain.outputs.agentcert-version }}
   tripwire-result:
     description: Path to tripwire-result.json.
     value: ${{ inputs.out }}/tripwire-result.json
@@ -93,11 +96,15 @@ runs:
   using: composite
   steps:
     - name: Install AgentCert toolchain
+      id: toolchain
       shell: bash
       run: |
         set -euo pipefail
         ACTION_ROOT="$(cd "$GITHUB_ACTION_PATH/../.." && pwd)"
         echo "AGENTCERT_ACTION_ROOT=$ACTION_ROOT" >> "$GITHUB_ENV"
+        agentcert_version="$(node -p "require('$ACTION_ROOT/packages/agentcert-cli/package.json').version")"
+        echo "agentcert-version=$agentcert_version" >> "$GITHUB_OUTPUT"
+        echo "AgentCert CLI $agentcert_version"
         npm ci --prefix "$ACTION_ROOT/packages/tripwire-ci"
         npm ci --prefix "$ACTION_ROOT/packages/agentcert-cli"
         npm run --prefix "$ACTION_ROOT/packages/tripwire-ci" build
@@ -229,6 +236,7 @@ runs:
         {
           echo "## AgentCert Tripwire"
           echo
+          echo "- AgentCert CLI: \`${{ steps.toolchain.outputs.agentcert-version }}\`"
           echo "- Tripwire result: \`${{ inputs.out }}/tripwire-result.json\`"
           echo "- Tripwire report: \`${{ inputs.out }}/tripwire-report.html\`"
           echo "- JUnit: \`${{ inputs.out }}/junit.xml\`"
