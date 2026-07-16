@@ -38,7 +38,10 @@ services:
       - key: AGENTCERT_WEBHOOK_WORKER_BATCH
         value: 20
       - key: REDIS_URL
-        sync: false
+        fromService:
+          type: keyvalue
+          name: agentcert-coordination
+          property: connectionString
       - key: AGENTCERT_PLATFORM_ADMIN_EMAILS
         sync: false
       - key: AGENTCERT_EVIDENCE_SIGNING_PRIVATE_KEY
@@ -57,3 +60,11 @@ services:
         sync: false
       - key: SUPABASE_SECRET_KEY
         sync: false
+
+  - type: keyvalue
+    name: agentcert-coordination
+    region: oregon
+    plan: free
+    maxmemoryPolicy: noeviction
+    persistenceMode: off
+    ipAllowList: []

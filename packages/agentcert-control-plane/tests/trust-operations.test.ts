@@ -1,7 +1,11 @@
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryArtifactStore } from "../src/artifacts.js";
-import { RedisFixedWindowRateLimiter, RedisIdempotencyCoordinator } from "../src/coordination.js";
+import {
+  RedisFixedWindowRateLimiter,
+  RedisIdempotencyCoordinator,
+  createRedisCoordination,
+} from "../src/coordination.js";
 import { WebhookSecretVault, createWebhookSignature } from "../src/security.js";
 import { AgentCertControlPlane } from "../src/service.js";
 import { EvidenceSigner, verifyEvidenceAttestation } from "../src/signing.js";
@@ -108,6 +112,15 @@ describe("signing key rotation", () => {
 });
 
 describe("Redis coordination primitives", () => {
+  it.each(["agentcert-coordination:6379", "https://agentcert-coordination:6379", "redis-cli -u redis://host:6379"])(
+    "rejects an invalid REDIS_URL before connecting: %s",
+    async (url) => {
+      await expect(createRedisCoordination(url, 3, 1_000)).rejects.toThrow(
+        "REDIS_URL must be a valid redis:// or rediss:// connection URL.",
+      );
+    },
+  );
+
   it("uses one atomic fixed-window operation", async () => {
     const evalMock = vi.fn(async () => [2, 800]);
     const limiter = new RedisFixedWindowRateLimiter({ eval: evalMock } as never, 3, 1_000);

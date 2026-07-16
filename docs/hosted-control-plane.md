@@ -85,7 +85,7 @@ AGENTCERT_RUN_STORAGE_BYTES=104857600
 AGENTCERT_EVIDENCE_RETENTION_DAYS=90
 AGENTCERT_EVIDENCE_CLEANUP_INTERVAL_MS=86400000
 AGENTCERT_EVIDENCE_CLEANUP_BATCH=500
-REDIS_URL=rediss://...
+# Render Blueprint injects REDIS_URL from agentcert-coordination.
 AGENTCERT_RATE_LIMIT_REQUESTS=300
 AGENTCERT_RATE_LIMIT_WINDOW_MS=60000
 AGENTCERT_WEBHOOK_WORKER_INTERVAL_MS=2000
@@ -154,11 +154,15 @@ fallbacks, but new deployments should use the current key types above.
 3. Select the `Kakarottoooo/agentcert` repository. Render reads the root
    `render.yaml` and `Dockerfile.control-plane`.
 4. Enter all `sync: false` values when prompted:
-   `AGENTCERT_PUBLIC_URL`, `DATABASE_URL`, `REDIS_URL`, `SUPABASE_URL`,
+   `AGENTCERT_PUBLIC_URL`, `DATABASE_URL`, `SUPABASE_URL`,
    `SUPABASE_PUBLISHABLE_KEY`, and `SUPABASE_SECRET_KEY`.
-5. Set `AGENTCERT_PUBLIC_URL` to the initial `https://...onrender.com` URL.
-6. Deploy and wait for `/health` to return `{ "ok": true }`.
-7. Open the service URL, create an account, confirm the email, and verify that
+5. The Blueprint creates the private `agentcert-coordination` Render Key Value
+   service and injects its internal connection string as `REDIS_URL`; do not
+   paste a hostname or a `redis-cli` command into the web service manually.
+6. Set `AGENTCERT_PUBLIC_URL` to the initial `https://...onrender.com` URL.
+7. Deploy and wait for `/health` to report
+   `coordination.backend=redis`, `state=ready`, and `shared=true`.
+8. Open the service URL, create an account, confirm the email, and verify that
    the first organization/project is created.
 
 ### 6. Add a Custom Domain
