@@ -2597,6 +2597,169 @@ button {
   border-radius: 5px;
 }
 
+.pilot-report {
+  display: grid;
+  gap: 18px;
+}
+
+.pilot-report-actions,
+.period-control {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.period-control {
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.period-control button {
+  min-width: 46px;
+  min-height: 34px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  background: white;
+}
+
+.period-control button:last-child {
+  border-right: 0;
+}
+
+.period-control button.active {
+  color: white;
+  background: var(--accent);
+}
+
+.pilot-stage-grid,
+.pilot-timing-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--border);
+}
+
+.pilot-stage-grid article,
+.pilot-timing-grid > div {
+  display: grid;
+  gap: 5px;
+  min-height: 104px;
+  padding: 15px;
+  border-right: 1px solid var(--border);
+}
+
+.pilot-stage-grid article:last-child,
+.pilot-timing-grid > div:last-child {
+  border-right: 0;
+}
+
+.pilot-stage-grid span,
+.pilot-timing-grid span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.pilot-stage-grid strong,
+.pilot-timing-grid strong {
+  font-size: 28px;
+}
+
+.pilot-stage-grid em,
+.pilot-timing-grid em {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.pilot-timing-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.pilot-report-columns {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 22px;
+}
+
+.pilot-report-columns h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.pilot-reason-list,
+.pilot-outcomes {
+  border-top: 1px solid var(--border);
+}
+
+.pilot-reason-list > div,
+.pilot-outcomes > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 1fr) 40px;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.pilot-reason-list span,
+.pilot-outcomes span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pilot-reason-list b {
+  text-align: right;
+}
+
+.pilot-outcomes > div {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.pilot-project-table {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+}
+
+.pilot-project-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.6fr) minmax(120px, 1fr) 110px 70px;
+  gap: 12px;
+  align-items: center;
+  min-width: 650px;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pilot-project-row:last-child {
+  border-bottom: 0;
+}
+
+.pilot-project-row.head {
+  color: var(--muted);
+  background: #f1f5fa;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.pilot-project-row div {
+  display: grid;
+  gap: 3px;
+}
+
+.pilot-project-row small,
+.pilot-report-note {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pilot-report-note {
+  margin: 0;
+}
+
 .governance-layout,
 .governance-list {
   display: grid;
@@ -3429,6 +3592,24 @@ button {
     display: grid;
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+  .pilot-report-actions,
+  .pilot-report-columns {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+  .pilot-report-actions {
+    display: grid;
+  }
+  .pilot-stage-grid,
+  .pilot-timing-grid {
+    grid-template-columns: 1fr;
+  }
+  .pilot-stage-grid article,
+  .pilot-timing-grid > div {
+    min-height: 86px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
   }
   .finding-queue {
     max-height: 280px;

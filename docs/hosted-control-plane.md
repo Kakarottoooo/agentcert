@@ -445,5 +445,12 @@ precision, and correction rate under
 bounded failure-pattern count at ingestion; failed-run count is the fallback
 for legacy bundles.
 
+Platform administrators also receive 7/30/90-day pilot reports in the same
+Governance view. `agentcert.pilot_funnel.v0.1` cohorts projects by creation
+time, measures sequential project/key/CLI/evidence conversion, reports median
+stage duration, and aggregates bounded onboarding-friction reasons. The JSON
+export intentionally excludes API-key hashes, evidence bytes, user email, and
+arbitrary feedback context.
+
 Hosted evidence signing and verification are documented in
 [Evidence Trust Chain v0.1](evidence-trust-chain.md).

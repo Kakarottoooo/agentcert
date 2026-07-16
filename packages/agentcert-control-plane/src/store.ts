@@ -32,6 +32,7 @@ import type {
   NotificationJobRecord,
   NotificationJobCounts,
   PilotFeedbackRecord,
+  PilotFunnelSource,
 } from "./types.js";
 
 export const CONTROL_PLANE_MIGRATIONS = [
@@ -46,6 +47,7 @@ export const CONTROL_PLANE_MIGRATIONS = [
   "009_trust_operations_v05.sql",
   "010_default_project_name.sql",
   "011_hosted_onboarding_v02.sql",
+  "012_pilot_funnel_indexes.sql",
 ] as const;
 
 const DEFAULT_PROJECT_NAME = "Agent assurance project";
@@ -79,6 +81,7 @@ export interface ControlPlaneStore {
   roleForProject(userId: string, projectId: string): Promise<MemberRole | undefined>;
   insertPilotFeedback(feedback: PilotFeedbackRecord): Promise<PilotFeedbackRecord>;
   listPilotFeedback(projectId: string, limit?: number): Promise<PilotFeedbackRecord[]>;
+  pilotFunnelSource(since: string): Promise<PilotFunnelSource>;
   upsertAgent(agent: AgentRecord): Promise<AgentRecord>;
   getAgent(projectId: string, agentId: string): Promise<AgentRecord | undefined>;
   listAgents(projectId: string): Promise<AgentRecord[]>;
@@ -256,6 +259,24 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
 
   async listPilotFeedback(projectId: string, limit = 100): Promise<PilotFeedbackRecord[]> {
     return newest([...this.pilotFeedback.values()].filter((item) => item.projectId === projectId), "createdAt").slice(0, limit);
+  }
+
+  async pilotFunnelSource(since: string): Promise<PilotFunnelSource> {
+    const projects = [...this.projects.values()].filter((project) => project.createdAt >= since);
+    const projectIds = new Set(projects.map((project) => project.id));
+    return {
+      projects: projects.map((project) => {
+        const keys = [...this.apiKeys.values()].filter((item) => item.projectId === project.id);
+        const firstKeyAt = keys.map((item) => item.createdAt).sort()[0];
+        const firstConnectionAt = keys.map((item) => item.lastUsedAt).filter((value): value is string => Boolean(value)).sort()[0];
+        const firstEvidenceAt = firstConnectionAt
+          ? [...this.evidence.values()].filter((item) => item.projectId === project.id && item.createdAt >= firstConnectionAt)
+            .map((item) => item.createdAt).sort()[0]
+          : undefined;
+        return { project, firstKeyAt, firstConnectionAt, firstEvidenceAt };
+      }),
+      feedback: [...this.pilotFeedback.values()].filter((item) => projectIds.has(item.projectId)),
+    };
   }
 
   async roleForProject(userId: string, projectId: string): Promise<MemberRole | undefined> {
@@ -912,6 +933,41 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
       this.pool.query("SELECT * FROM agentcert_pilot_feedback WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2", [projectId, limit]),
       pilotFeedbackFromRow,
     );
+  }
+
+  async pilotFunnelSource(since: string): Promise<PilotFunnelSource> {
+    const result = await this.pool.query(
+      `SELECT p.*,
+              key_milestone.first_key_at,
+              connection_milestone.first_connection_at,
+              evidence_milestone.first_evidence_at
+       FROM agentcert_projects p
+       LEFT JOIN LATERAL (
+         SELECT MIN(created_at) AS first_key_at FROM agentcert_api_keys WHERE project_id=p.id
+       ) key_milestone ON true
+       LEFT JOIN LATERAL (
+         SELECT MIN(last_used_at) AS first_connection_at FROM agentcert_api_keys
+         WHERE project_id=p.id AND last_used_at IS NOT NULL
+       ) connection_milestone ON true
+       LEFT JOIN LATERAL (
+         SELECT MIN(created_at) AS first_evidence_at FROM agentcert_evidence
+         WHERE project_id=p.id AND connection_milestone.first_connection_at IS NOT NULL
+           AND created_at >= connection_milestone.first_connection_at
+       ) evidence_milestone ON true
+       WHERE p.created_at >= $1 ORDER BY p.created_at DESC`,
+      [since],
+    );
+    const projects = result.rows.map((row) => ({
+      project: projectFromRow(row), firstKeyAt: optionalIso(row.first_key_at),
+      firstConnectionAt: optionalIso(row.first_connection_at), firstEvidenceAt: optionalIso(row.first_evidence_at),
+    }));
+    const projectIds = projects.map((item) => item.project.id);
+    if (projectIds.length === 0) return { projects: [], feedback: [] };
+    const feedback = await many(
+      this.pool.query("SELECT * FROM agentcert_pilot_feedback WHERE project_id = ANY($1::uuid[]) ORDER BY created_at DESC", [projectIds]),
+      pilotFeedbackFromRow,
+    );
+    return { projects, feedback };
   }
 
   async roleForProject(userId: string, projectId: string): Promise<MemberRole | undefined> {

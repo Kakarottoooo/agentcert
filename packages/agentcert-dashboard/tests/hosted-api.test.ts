@@ -4,6 +4,7 @@ import {
   loadHostedRunAnalysis,
   createHostedProject,
   loadHostedOnboarding,
+  loadAdminPilotReport,
   HostedApiError,
   readHostedAuthCallbackError,
   requestHostedLegalHold,
@@ -75,6 +76,20 @@ describe("hosted signup recovery", () => {
 });
 
 describe("hosted run analysis", () => {
+  it("loads a period-bounded platform pilot report", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      schemaVersion: "agentcert.pilot_funnel.v0.1", periodDays: 30, stages: [], projects: [],
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await loadAdminPilotReport({ accessToken: "admin-token" }, 30);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/v1/admin/pilot-report?days=30",
+      expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer admin-token" }) }),
+    );
+  });
+
   it("creates projects and loads computed onboarding status", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ id: "project-2", name: "Coding agents" }), { status: 201, headers: { "content-type": "application/json" } }))

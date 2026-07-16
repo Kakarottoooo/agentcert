@@ -69,6 +69,36 @@ describe("AgentCertControlPlane", () => {
     expect(await service.listPilotFeedback(user, projectId)).toEqual([feedback]);
   });
 
+  it("aggregates a sequential pilot funnel with timing and failure reasons", async () => {
+    const { service, store, projectId } = await setup(undefined, [user.email!]);
+    const keyOnly = await service.createProject(user, { name: "Key only" });
+    await service.createProject(user, { name: "Created only" });
+
+    const completeKey = await service.createApiKey(user, projectId, { name: "Complete pilot" });
+    await service.createApiKey(user, keyOnly.id, { name: "Key-only pilot" });
+    await store.touchApiKey(completeKey.apiKey.id, new Date().toISOString());
+    await service.uploadEvidence(user, projectId, Buffer.from("{}"), {
+      fileName: "agentcert-evidence.json", contentType: "application/json", kind: "evidence_bundle",
+      schemaVersion: "agentcert.evidence.v0.1",
+    });
+    await service.submitPilotFeedback(user, keyOnly.id, {
+      stage: "cli_connect", category: "authentication", outcome: "blocked", reasonCode: "invalid_api_key",
+    });
+
+    const report = await service.pilotFunnelReport(user, 30);
+    expect(report.stages.map((stage) => [stage.id, stage.count])).toEqual([
+      ["project_created", 3], ["key_created", 2], ["cli_connected", 1], ["first_evidence", 1],
+    ]);
+    expect(report.feedback).toMatchObject({ total: 1, friction: 1, topReasons: [{ reasonCode: "invalid_api_key", count: 1 }] });
+    expect(report.projects.find((project) => project.projectId === projectId)).toMatchObject({ stage: "first_evidence", totalDurationMs: expect.any(Number) });
+    await expect(service.pilotFunnelReport(user, 14)).rejects.toMatchObject<Partial<ControlPlaneError>>({ status: 422, code: "invalid_pilot_period" });
+  });
+
+  it("keeps cross-project pilot reports platform-admin only", async () => {
+    const { service } = await setup();
+    await expect(service.pilotFunnelReport(user, 30)).rejects.toMatchObject<Partial<ControlPlaneError>>({ status: 403 });
+  });
+
   it("requires approval, prevents agent self-approval, verifies the outcome, and retains audit state", async () => {
     const { service, projectId } = await setup();
     const agent = await service.createAgent(user, projectId, {

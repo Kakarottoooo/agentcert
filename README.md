@@ -17,7 +17,8 @@ pass.
 
 **Use AgentCert:** [Public assurance demo](https://agentcert-control-plane.onrender.com/demo) |
 [Private workspace](https://agentcert-control-plane.onrender.com/app) |
-[GitHub source](https://github.com/Kakarottoooo/agentcert)
+[GitHub source](https://github.com/Kakarottoooo/agentcert) |
+[v0.5.2 release](https://github.com/Kakarottoooo/agentcert/releases/tag/v0.5.2)
 
 ```bash
 npx agentcert release-gate --config agentcert.config.json --strict
@@ -130,6 +131,12 @@ shared rate limits and idempotency locks, durable webhook retry/dead-letter
 delivery, historical signing-key verification, server-signed Ed25519 evidence,
 legal-hold review/export, an immutable deletion journal, and continuous failure
 taxonomy coverage/precision/correction metrics.
+
+Hosted Governance provides a 7/30/90-day pilot funnel across newly created
+projects: project creation, project-key creation, first authenticated CLI
+request, first evidence, median onboarding time, and structured failure
+reasons. It uses existing operational records rather than a parallel analytics
+store and exports `agentcert.pilot_funnel.v0.1` JSON.
 
 ```text
 packages/agentcert-control-plane  # Node API + Postgres + private artifacts

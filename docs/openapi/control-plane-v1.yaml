@@ -445,6 +445,15 @@ paths:
     get:
       summary: List pending legal hold applications (platform administrators only)
       responses: {"200": {description: Pending applications}}
+  /v1/admin/pilot-report:
+    get:
+      summary: Aggregate platform pilot conversion, timing, and onboarding friction for a project cohort
+      parameters:
+        - {in: query, name: days, required: false, schema: {type: integer, enum: [7, 30, 90], default: 30}}
+      responses:
+        "200": {description: AgentCert pilot funnel v0.1 report}
+        "403": {description: Platform administrator access required}
+        "422": {description: Unsupported reporting period}
   /v1/admin/legal-hold-requests/{requestId}/{decision}:
     post:
       summary: Approve, reject, or release a legal hold (platform administrators only)

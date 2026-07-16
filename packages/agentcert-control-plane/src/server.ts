@@ -163,6 +163,11 @@ async function handleRequest(
     }
     return;
   }
+  if (request.method === "GET" && url.pathname === "/v1/admin/pilot-report") {
+    const days = Number(url.searchParams.get("days") ?? "30");
+    sendJson(response, 200, await options.service.pilotFunnelReport(auth, days));
+    return;
+  }
 
   const projectId = segments[1] === "projects" ? segments[2] : undefined;
   if (!projectId) throw new ControlPlaneError("Project route was not found.", 404);
