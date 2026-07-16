@@ -818,16 +818,18 @@ export class AgentCertControlPlane {
           summary: "Production trust smoke failed.", firstDivergence: sample.error, fingerprint: PRODUCTION_SMOKE_FINGERPRINT,
           occurrenceCount: 1, consecutivePasses: 0, lastFailedAt: now, createdAt: now, updatedAt: now,
         };
-        let inserted: IncidentRecord;
-        try { inserted = await this.store.insertIncident(incident); }
+        try {
+          const transition = this.incidentTransition(
+            incident, undefined, "open", auth, "Production smoke failure opened the incident.", sampleEvidence(sample),
+          );
+          const inserted = await this.store.insertIncidentWithTransition(incident, transition);
+          await this.sendIncidentNotification("incident_opened", inserted.incident, inserted.transition);
+          return { operationalIncident: inserted.incident, incidentTransition: inserted.transition };
+        }
         catch (error) {
           if (databaseErrorCode(error) !== "23505") throw error;
-          inserted = await this.store.getActiveIncidentByFingerprint(sample.projectId, PRODUCTION_SMOKE_FINGERPRINT) ?? incident;
+          return this.applyProductionSmokeOutcome(auth, sample);
         }
-        if (inserted.id !== incident.id) return this.applyProductionSmokeOutcome(auth, sample);
-        const transition = await this.appendIncidentTransition(inserted, undefined, "open", auth, "Production smoke failure opened the incident.", sampleEvidence(sample));
-        await this.sendIncidentNotification("incident_opened", inserted, transition);
-        return { operationalIncident: inserted, incidentTransition: transition };
       }
       const regressed = active.status === "recovered";
       const next: IncidentRecord = {
@@ -835,14 +837,14 @@ export class AgentCertControlPlane {
         consecutivePasses: 0, lastFailedAt: sample.completedAt, firstDivergence: sample.error ?? active.firstDivergence,
         updatedAt: sample.completedAt,
       };
-      const updated = await this.store.updateIncident(next);
-      const transition = await this.appendIncidentTransition(
-        updated, active.status, updated.status, auth,
+      const transition = this.incidentTransition(
+        next, active.status, next.status, auth,
         regressed ? "Production smoke failed after recovery." : "Another production smoke failure was observed.",
         sampleEvidence(sample),
       );
-      if (regressed) await this.sendIncidentNotification("incident_regressed", updated, transition);
-      return { operationalIncident: updated, incidentTransition: transition };
+      const updated = await this.store.updateIncidentWithTransition(next, transition);
+      if (regressed) await this.sendIncidentNotification("incident_regressed", updated.incident, updated.transition);
+      return { operationalIncident: updated.incident, incidentTransition: updated.transition };
     }
 
     if (!active) {
@@ -851,17 +853,18 @@ export class AgentCertControlPlane {
     }
     const consecutivePasses = active.consecutivePasses + 1;
     const recovered = consecutivePasses >= 2 && (active.status === "open" || active.status === "investigating");
-    const next = await this.store.updateIncident({
+    const candidate: IncidentRecord = {
       ...active, status: recovered ? "recovered" : active.status, consecutivePasses, lastPassedAt: sample.completedAt,
       recoveredAt: recovered ? sample.completedAt : active.recoveredAt, updatedAt: sample.completedAt,
-    });
-    if (!recovered) return { operationalIncident: next };
-    const transition = await this.appendIncidentTransition(
-      next, active.status, "recovered", auth, "Two consecutive production smoke runs passed.",
+    };
+    if (!recovered) return { operationalIncident: await this.store.updateIncident(candidate) };
+    const transition = this.incidentTransition(
+      candidate, active.status, "recovered", auth, "Two consecutive production smoke runs passed.",
       { ...sampleEvidence(sample), consecutivePasses },
     );
-    await this.sendIncidentNotification("incident_recovered", next, transition);
-    return { operationalIncident: next, incidentTransition: transition };
+    const next = await this.store.updateIncidentWithTransition(candidate, transition);
+    await this.sendIncidentNotification("incident_recovered", next.incident, next.transition);
+    return { operationalIncident: next.incident, incidentTransition: next.transition };
   }
 
   async acknowledgeOperationalIncident(auth: AuthContext, projectId: string, incidentId: string, input: unknown) {
@@ -873,12 +876,13 @@ export class AgentCertControlPlane {
     if (incident.status !== "open") throw new ControlPlaneError(`Incident cannot be acknowledged from ${incident.status}.`, 409);
     const reason = reviewReason(input);
     const now = new Date().toISOString();
-    const updated = await this.store.updateIncident({
+    const candidate: IncidentRecord = {
       ...incident, status: "investigating", acknowledgedBy: auth.userId, acknowledgedByEmail: auth.email,
       acknowledgedAt: now, updatedAt: now,
-    });
-    const transition = await this.appendIncidentTransition(updated, "open", "investigating", auth, reason, {});
-    return { incident: updated, transition, transitions: await this.store.listIncidentTransitions(projectId, incidentId) };
+    };
+    const transition = this.incidentTransition(candidate, "open", "investigating", auth, reason, {});
+    const updated = await this.store.updateIncidentWithTransition(candidate, transition);
+    return { incident: updated.incident, transition: updated.transition, transitions: await this.store.listIncidentTransitions(projectId, incidentId) };
   }
 
   async resolveOperationalIncident(auth: AuthContext, projectId: string, incidentId: string, input: unknown) {
@@ -890,12 +894,13 @@ export class AgentCertControlPlane {
     if (incident.status !== "recovered") throw new ControlPlaneError("Incident must have two consecutive passing smokes before resolution.", 409);
     const reason = reviewReason(input);
     const now = new Date().toISOString();
-    const updated = await this.store.updateIncident({
+    const candidate: IncidentRecord = {
       ...incident, status: "resolved", resolvedBy: auth.userId, resolvedByEmail: auth.email, resolvedAt: now, updatedAt: now,
-    });
-    const transition = await this.appendIncidentTransition(updated, "recovered", "resolved", auth, reason, {});
-    await this.sendIncidentNotification("incident_resolved", updated, transition);
-    return { incident: updated, transition, transitions: await this.store.listIncidentTransitions(projectId, incidentId) };
+    };
+    const transition = this.incidentTransition(candidate, "recovered", "resolved", auth, reason, {});
+    const updated = await this.store.updateIncidentWithTransition(candidate, transition);
+    await this.sendIncidentNotification("incident_resolved", updated.incident, updated.transition);
+    return { incident: updated.incident, transition: updated.transition, transitions: await this.store.listIncidentTransitions(projectId, incidentId) };
   }
 
   async linkOperationalIncidentGitHub(auth: AuthContext, projectId: string, incidentId: string, input: unknown) {
@@ -1268,15 +1273,15 @@ export class AgentCertControlPlane {
     });
   }
 
-  private async appendIncidentTransition(
+  private incidentTransition(
     incident: IncidentRecord,
     fromStatus: IncidentStatus | undefined,
     toStatus: IncidentStatus,
     auth: AuthContext,
     reason: string,
     evidence: Record<string, unknown>,
-  ): Promise<IncidentTransitionRecord> {
-    return this.store.insertIncidentTransition({
+  ): IncidentTransitionRecord {
+    return {
       id: randomUUID(),
       projectId: incident.projectId,
       incidentId: incident.id,
@@ -1288,7 +1293,7 @@ export class AgentCertControlPlane {
       reason,
       evidence,
       occurredAt: new Date().toISOString(),
-    });
+    };
   }
 
   private async sendIncidentNotification(

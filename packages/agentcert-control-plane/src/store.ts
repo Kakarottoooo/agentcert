@@ -96,8 +96,10 @@ export interface ControlPlaneStore {
   listLegalHoldRequestsForAdmin(status?: LegalHoldRequestRecord["status"], limit?: number): Promise<LegalHoldRequestRecord[]>;
   getApprovedLegalHold(projectId: string): Promise<LegalHoldRequestRecord | undefined>;
   insertIncident(incident: IncidentRecord): Promise<IncidentRecord>;
+  insertIncidentWithTransition(incident: IncidentRecord, transition: IncidentTransitionRecord): Promise<{ incident: IncidentRecord; transition: IncidentTransitionRecord }>;
   getIncident(projectId: string, incidentId: string): Promise<IncidentRecord | undefined>;
   updateIncident(incident: IncidentRecord): Promise<IncidentRecord>;
+  updateIncidentWithTransition(incident: IncidentRecord, transition: IncidentTransitionRecord): Promise<{ incident: IncidentRecord; transition: IncidentTransitionRecord }>;
   getActiveIncidentByFingerprint(projectId: string, fingerprint: string): Promise<IncidentRecord | undefined>;
   getLatestIncidentByFingerprint(projectId: string, fingerprint: string): Promise<IncidentRecord | undefined>;
   listIncidents(projectId: string, limit?: number): Promise<IncidentRecord[]>;
@@ -436,6 +438,12 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
     return incident;
   }
 
+  async insertIncidentWithTransition(incident: IncidentRecord, transition: IncidentTransitionRecord) {
+    this.incidents.set(incident.id, incident);
+    this.incidentTransitions.set(transition.id, transition);
+    return { incident, transition };
+  }
+
   async getIncident(projectId: string, incidentId: string): Promise<IncidentRecord | undefined> {
     const incident = this.incidents.get(incidentId);
     return incident?.projectId === projectId ? incident : undefined;
@@ -445,6 +453,13 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
     if (!this.incidents.has(incident.id)) throw new Error(`Incident ${incident.id} was not found.`);
     this.incidents.set(incident.id, incident);
     return incident;
+  }
+
+  async updateIncidentWithTransition(incident: IncidentRecord, transition: IncidentTransitionRecord) {
+    if (!this.incidents.has(incident.id)) throw new Error(`Incident ${incident.id} was not found.`);
+    this.incidents.set(incident.id, incident);
+    this.incidentTransitions.set(transition.id, transition);
+    return { incident, transition };
   }
 
   async getActiveIncidentByFingerprint(projectId: string, fingerprint: string): Promise<IncidentRecord | undefined> {
@@ -1132,6 +1147,10 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     return incidentFromRow(result.rows[0]);
   }
 
+  async insertIncidentWithTransition(incident: IncidentRecord, transition: IncidentTransitionRecord) {
+    return this.persistIncidentWithTransition("insert", incident, transition);
+  }
+
   async getIncident(projectId: string, incidentId: string): Promise<IncidentRecord | undefined> {
     return one(this.pool.query("SELECT * FROM agentcert_incidents WHERE project_id=$1 AND id=$2", [projectId, incidentId]), incidentFromRow);
   }
@@ -1150,6 +1169,52 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     );
     if (!result.rows[0]) throw new Error(`Incident ${incident.id} was not found.`);
     return incidentFromRow(result.rows[0]);
+  }
+
+  async updateIncidentWithTransition(incident: IncidentRecord, transition: IncidentTransitionRecord) {
+    return this.persistIncidentWithTransition("update", incident, transition);
+  }
+
+  private async persistIncidentWithTransition(
+    operation: "insert" | "update",
+    incident: IncidentRecord,
+    transition: IncidentTransitionRecord,
+  ): Promise<{ incident: IncidentRecord; transition: IncidentTransitionRecord }> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const incidentResult = operation === "insert"
+        ? await client.query(
+          `INSERT INTO agentcert_incidents
+           (id,project_id,agent_id,run_id,action_id,severity,type,status,summary,first_divergence,fingerprint,
+            occurrence_count,consecutive_passes,last_failed_at,last_passed_at,acknowledged_by,acknowledged_by_email,
+            acknowledged_at,recovered_at,resolved_by,resolved_by_email,github_issue_number,github_issue_url,created_at,updated_at,resolved_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+           RETURNING *`,
+          incidentQueryValues(incident),
+        )
+        : await client.query(
+          `UPDATE agentcert_incidents SET status=$3,summary=$4,first_divergence=$5,occurrence_count=$6,
+           consecutive_passes=$7,last_failed_at=$8,last_passed_at=$9,acknowledged_by=$10,acknowledged_by_email=$11,
+           acknowledged_at=$12,recovered_at=$13,resolved_by=$14,resolved_by_email=$15,github_issue_number=$16,
+           github_issue_url=$17,updated_at=$18,resolved_at=$19 WHERE project_id=$1 AND id=$2 RETURNING *`,
+          incidentUpdateQueryValues(incident),
+        );
+      if (!incidentResult.rows[0]) throw new Error(`Incident ${incident.id} was not found.`);
+      const transitionResult = await client.query(
+        `INSERT INTO agentcert_incident_transitions
+         (id,project_id,incident_id,from_status,to_status,actor_type,actor_id,actor_email,reason,evidence,occurred_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+        incidentTransitionQueryValues(transition),
+      );
+      await client.query("COMMIT");
+      return { incident: incidentFromRow(incidentResult.rows[0]), transition: incidentTransitionFromRow(transitionResult.rows[0]) };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async getActiveIncidentByFingerprint(projectId: string, fingerprint: string): Promise<IncidentRecord | undefined> {
@@ -1634,6 +1699,26 @@ function legalHoldFromRow(row: Record<string, unknown>): LegalHoldRequestRecord 
     reviewNote: optionalText(row.review_note), reviewedAt: optionalIso(row.reviewed_at), releasedBy: optionalText(row.released_by),
     releasedByEmail: optionalText(row.released_by_email), releaseNote: optionalText(row.release_note), releasedAt: optionalIso(row.released_at),
   };
+}
+function incidentQueryValues(incident: IncidentRecord): unknown[] {
+  return [incident.id, incident.projectId, incident.agentId ?? null, incident.runId ?? null, incident.actionId ?? null, incident.severity,
+    incident.type, incident.status, incident.summary, incident.firstDivergence ?? null, incident.fingerprint ?? null,
+    incident.occurrenceCount, incident.consecutivePasses, incident.lastFailedAt ?? null, incident.lastPassedAt ?? null,
+    incident.acknowledgedBy ?? null, incident.acknowledgedByEmail ?? null, incident.acknowledgedAt ?? null,
+    incident.recoveredAt ?? null, incident.resolvedBy ?? null, incident.resolvedByEmail ?? null,
+    incident.githubIssueNumber ?? null, incident.githubIssueUrl ?? null, incident.createdAt, incident.updatedAt, incident.resolvedAt ?? null];
+}
+function incidentUpdateQueryValues(incident: IncidentRecord): unknown[] {
+  return [incident.projectId, incident.id, incident.status, incident.summary, incident.firstDivergence ?? null,
+    incident.occurrenceCount, incident.consecutivePasses, incident.lastFailedAt ?? null, incident.lastPassedAt ?? null,
+    incident.acknowledgedBy ?? null, incident.acknowledgedByEmail ?? null, incident.acknowledgedAt ?? null,
+    incident.recoveredAt ?? null, incident.resolvedBy ?? null, incident.resolvedByEmail ?? null,
+    incident.githubIssueNumber ?? null, incident.githubIssueUrl ?? null, incident.updatedAt, incident.resolvedAt ?? null];
+}
+function incidentTransitionQueryValues(transition: IncidentTransitionRecord): unknown[] {
+  return [transition.id, transition.projectId, transition.incidentId, transition.fromStatus ?? null, transition.toStatus,
+    transition.actorType, transition.actorId ?? null, transition.actorEmail ?? null, transition.reason,
+    JSON.stringify(transition.evidence), transition.occurredAt];
 }
 function incidentFromRow(row: Record<string, unknown>): IncidentRecord {
   return { id: text(row.id), projectId: text(row.project_id), agentId: optionalText(row.agent_id), runId: optionalText(row.run_id), actionId: optionalText(row.action_id),

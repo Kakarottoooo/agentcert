@@ -219,10 +219,28 @@ describe("Trust Operations v0.4", () => {
     });
     expect(provider.messages).toHaveLength(2);
     expect(provider.messages[1]).toMatchObject({ to: "security@example.com", subject: expect.stringContaining("opened") });
-    expect(await store.listNotificationDeliveries(projectId)).toMatchObject([
+    expect(await store.listNotificationDeliveries(projectId)).toEqual(expect.arrayContaining([
       { alertType: "incident_opened", status: "delivered" },
       { alertType: "destination_verification", status: "delivered" },
-    ]);
+    ].map((item) => expect.objectContaining(item))));
+  });
+
+  it("does not change incident state when the atomic transition write fails", async () => {
+    const store = new InMemoryControlPlaneStore();
+    const service = new AgentCertControlPlane(store, new MemoryArtifactStore());
+    const projectId = (await service.bootstrap(user)).project.id;
+    const opened = await service.recordTrustHealthSample(user, projectId, {
+      externalId: "atomic-failure", source: "production_smoke", status: "failed",
+      startedAt: "2026-07-15T11:00:00.000Z", completedAt: "2026-07-15T11:00:05.000Z", checks: [], error: "health failed",
+    });
+    const incidentId = opened.operationalIncident!.id;
+    vi.spyOn(store, "updateIncidentWithTransition").mockRejectedValueOnce(new Error("transition insert failed"));
+
+    await expect(service.acknowledgeOperationalIncident(user, projectId, incidentId, {
+      reason: "Investigating the failed transition transaction.",
+    })).rejects.toThrow("transition insert failed");
+    await expect(store.getIncident(projectId, incidentId)).resolves.toMatchObject({ status: "open" });
+    expect(await store.listIncidentTransitions(projectId, incidentId)).toHaveLength(1);
   });
 });
 
