@@ -5,7 +5,10 @@ import { randomUUID } from "node:crypto";
 import { Authenticator } from "./auth.js";
 import { AgentCertControlPlane, ControlPlaneError } from "./service.js";
 import type { PublicConfig } from "./types.js";
-import { FixedWindowRateLimiter, rateLimitIdentity, requestHash, setRateLimitHeaders } from "./security.js";
+import { rateLimitIdentity, requestHash, setRateLimitHeaders, type RateLimiter } from "./security.js";
+import { LocalIdempotencyCoordinator, type CoordinationHealth, type IdempotencyCoordinator } from "./coordination.js";
+
+const localIdempotency = new LocalIdempotencyCoordinator();
 
 export interface ControlPlaneServerOptions {
   service: AgentCertControlPlane;
@@ -15,7 +18,9 @@ export interface ControlPlaneServerOptions {
   port: number;
   dashboardDir: string;
   maxArtifactBytes: number;
-  rateLimiter?: FixedWindowRateLimiter;
+  rateLimiter?: RateLimiter;
+  idempotencyCoordinator?: IdempotencyCoordinator;
+  coordinationHealth?: () => CoordinationHealth;
 }
 
 export async function startControlPlaneServer(options: ControlPlaneServerOptions): Promise<void> {
@@ -66,15 +71,42 @@ async function handleRequest(
   if (!request.url) throw new ControlPlaneError("Missing request URL.");
   const url = new URL(request.url, `http://${request.headers.host ?? "localhost"}`);
   if (request.method === "GET" && url.pathname === "/health") {
-    sendJson(response, 200, { ok: true, service: "agentcert-control-plane" });
+    const coordination = options.coordinationHealth?.() ?? { backend: "memory", state: "degraded", shared: false };
+    sendJson(response, 200, { ok: true, service: "agentcert-control-plane", coordination });
     return;
   }
   if (request.method === "GET" && url.pathname === "/v1/config") {
     sendJson(response, 200, options.publicConfig);
     return;
   }
+  const testReceiver = url.pathname.match(/^\/v1\/webhook-test-receiver\/([^/]+)\/([^/]+)$/);
+  if (request.method === "POST" && testReceiver) {
+    if (options.rateLimiter) {
+      const limit = await options.rateLimiter.consume(`webhook-receiver:${rateLimitIdentity(request)}`);
+      setRateLimitHeaders(response, limit);
+      if (!limit.allowed) throw new ControlPlaneError("Webhook receiver rate limit exceeded.", 429);
+    }
+    const bytes = await readBody(request, 1_048_576);
+    await options.service.acceptTestWebhook(decodeURIComponent(testReceiver[1]!), decodeURIComponent(testReceiver[2]!), {
+      "x-agentcert-timestamp": request.headers["x-agentcert-timestamp"]?.toString(),
+      "x-agentcert-signature": request.headers["x-agentcert-signature"]?.toString(),
+      "x-agentcert-event": request.headers["x-agentcert-event"]?.toString(),
+      "x-agentcert-event-id": request.headers["x-agentcert-event-id"]?.toString(),
+    }, bytes);
+    response.writeHead(204, { "cache-control": "no-store" });
+    response.end();
+    return;
+  }
   if (request.method === "GET" && url.pathname === "/v1/signing-keys/current") {
     sendJson(response, 200, options.service.signingKey());
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/v1/signing-keys") {
+    sendJson(response, 200, await options.service.signingKeys());
+    return;
+  }
+  if (request.method === "GET" && url.pathname.startsWith("/v1/signing-keys/")) {
+    sendJson(response, 200, await options.service.signingKeyById(decodeURIComponent(url.pathname.slice("/v1/signing-keys/".length))));
     return;
   }
   if (!url.pathname.startsWith("/v1/")) {
@@ -85,7 +117,7 @@ async function handleRequest(
   const auth = await options.authenticator.authenticate(request.headers.authorization);
   if (!auth) throw new ControlPlaneError("Authentication required.", 401);
   if (options.rateLimiter) {
-    const limit = options.rateLimiter.consume(rateLimitIdentity(request, auth.apiKeyId ?? auth.userId));
+    const limit = await options.rateLimiter.consume(rateLimitIdentity(request, auth.apiKeyId ?? auth.userId));
     setRateLimitHeaders(response, limit);
     if (!limit.allowed) throw new ControlPlaneError("Rate limit exceeded. Retry after the interval in the Retry-After header.", 429);
   }
@@ -129,11 +161,15 @@ async function handleRequest(
 
   if (collection === "envelopes" && request.method === "POST" && !entityId) {
     await sendIdempotentJson(request, response, options.service, projectId, "envelopes.create", 202,
-      (body) => options.service.ingestEnvelope(auth, projectId, body));
+      (body) => options.service.ingestEnvelope(auth, projectId, body), options.idempotencyCoordinator);
     return;
   }
   if (collection === "overview" && request.method === "GET") {
     sendJson(response, 200, await options.service.overview(auth, projectId));
+    return;
+  }
+  if (collection === "operations" && request.method === "GET") {
+    sendJson(response, 200, await options.service.operationsOverview(auth, projectId, options.coordinationHealth?.()));
     return;
   }
   if (collection === "agents") {
@@ -145,14 +181,14 @@ async function handleRequest(
   if (collection === "runs") {
     if (request.method === "GET" && !entityId) sendJson(response, 200, { runs: await options.service.listRuns(auth, projectId) });
     else if (request.method === "POST" && !entityId) await sendIdempotentJson(request, response, options.service, projectId, "runs.create", 201,
-      (body) => options.service.startRun(auth, projectId, body));
+      (body) => options.service.startRun(auth, projectId, body), options.idempotencyCoordinator);
     else if (request.method === "GET" && entityId && !child) sendJson(response, 200, await options.service.runDetail(auth, projectId, entityId));
     else if (request.method === "GET" && entityId && child === "analysis") sendJson(response, 200, await options.service.runAnalysis(auth, projectId, entityId));
     else if (request.method === "POST" && entityId && child === "failure-reviews") sendJson(response, 200, await options.service.reviewFailure(auth, projectId, entityId, await readJson(request)));
     else if (request.method === "POST" && entityId && child === "events") await sendIdempotentJson(request, response, options.service, projectId, `runs.${entityId}.events`, 202,
-      async (body) => ({ events: await options.service.appendEvents(auth, projectId, entityId, body) }));
+      async (body) => ({ events: await options.service.appendEvents(auth, projectId, entityId, body) }), options.idempotencyCoordinator);
     else if (request.method === "POST" && entityId && child === "complete") await sendIdempotentJson(request, response, options.service, projectId, `runs.${entityId}.complete`, 200,
-      (body) => options.service.completeRun(auth, projectId, entityId, body));
+      (body) => options.service.completeRun(auth, projectId, entityId, body), options.idempotencyCoordinator);
     else throw new ControlPlaneError("Run route was not found.", 404);
     return;
   }
@@ -160,11 +196,11 @@ async function handleRequest(
     if (request.method === "GET" && !entityId) sendJson(response, 200, { actions: await options.service.listActions(auth, projectId) });
     else if (request.method === "GET" && entityId && !child) sendJson(response, 200, await options.service.getAction(auth, projectId, entityId));
     else if (request.method === "POST" && !entityId) await sendIdempotentJson(request, response, options.service, projectId, "actions.create", 201,
-      (body) => options.service.proposeAction(auth, projectId, body));
+      (body) => options.service.proposeAction(auth, projectId, body), options.idempotencyCoordinator);
     else if (request.method === "POST" && entityId && child === "approve") sendJson(response, 200, await options.service.reviewAction(auth, projectId, entityId, true, await readJson(request)));
     else if (request.method === "POST" && entityId && child === "reject") sendJson(response, 200, await options.service.reviewAction(auth, projectId, entityId, false, await readJson(request)));
     else if (request.method === "POST" && entityId && child === "verify") await sendIdempotentJson(request, response, options.service, projectId, `actions.${entityId}.verify`, 200,
-      (body) => options.service.verifyAction(auth, projectId, entityId, body));
+      (body) => options.service.verifyAction(auth, projectId, entityId, body), options.idempotencyCoordinator);
     else throw new ControlPlaneError("Action route was not found.", 404);
     return;
   }
@@ -228,8 +264,13 @@ async function handleRequest(
   if (collection === "webhooks") {
     if (request.method === "GET" && !entityId) sendJson(response, 200, await options.service.listWebhooks(auth, projectId));
     else if (request.method === "POST" && !entityId) sendJson(response, 201, await options.service.createWebhook(auth, projectId, await readJson(request)));
+    else if (request.method === "POST" && entityId === "test-receiver") sendJson(response, 201, await options.service.createTestWebhook(auth, projectId, options.publicConfig.publicUrl));
     else if (request.method === "DELETE" && entityId) sendJson(response, 200, await options.service.revokeWebhook(auth, projectId, entityId));
     else throw new ControlPlaneError("Webhook route was not found.", 404);
+    return;
+  }
+  if (collection === "webhook-jobs" && entityId && child === "retry" && request.method === "POST") {
+    sendJson(response, 200, await options.service.retryWebhookJob(auth, projectId, entityId));
     return;
   }
   throw new ControlPlaneError("Control plane route was not found.", 404);
@@ -243,6 +284,7 @@ async function sendIdempotentJson(
   operation: string,
   status: number,
   execute: (body: unknown) => Promise<unknown>,
+  idempotencyCoordinator?: IdempotencyCoordinator,
 ): Promise<void> {
   const body = await readJson(request);
   const key = request.headers["idempotency-key"]?.toString().trim();
@@ -259,14 +301,22 @@ async function sendIdempotentJson(
     sendJson(response, existing.responseStatus, existing.responseBody);
     return;
   }
-  const result = await execute(body);
-  const now = new Date();
-  const stored = await service.store.saveIdempotency({
-    projectId, key, operation, requestHash: hash, responseStatus: status, responseBody: result,
-    createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+  const coordinator = idempotencyCoordinator ?? localIdempotency;
+  const lock = await coordinator.runExclusive(`${projectId}:${operation}:${key}`, async () => {
+    const raced = await service.store.getIdempotency(projectId, key, operation);
+    if (raced) return { record: raced, replayed: true };
+    const result = await execute(body);
+    const now = new Date();
+    const stored = await service.store.saveIdempotency({
+      projectId, key, operation, requestHash: hash, responseStatus: status, responseBody: result,
+      createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+    });
+    return { record: stored, replayed: false };
   });
-  if (stored.requestHash !== hash) throw new ControlPlaneError("Idempotency-Key was already used with a different request body.", 409);
-  sendJson(response, stored.responseStatus, stored.responseBody);
+  if (!lock.acquired || !lock.value) throw new ControlPlaneError("A request with this Idempotency-Key is already in progress. Retry shortly.", 409);
+  if (lock.value.record.requestHash !== hash) throw new ControlPlaneError("Idempotency-Key was already used with a different request body.", 409);
+  if (lock.value.replayed) response.setHeader("idempotency-replayed", "true");
+  sendJson(response, lock.value.record.responseStatus, lock.value.record.responseBody);
 }
 
 async function readJson(request: IncomingMessage): Promise<unknown> {

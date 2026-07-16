@@ -326,6 +326,41 @@ export interface WebhookDeliveryRecord {
   attemptedAt: string;
 }
 
+export type WebhookJobStatus = "pending" | "processing" | "retrying" | "delivered" | "dead_letter";
+export type WebhookJobCounts = Record<WebhookJobStatus, number>;
+
+export interface WebhookJobRecord {
+  id: string;
+  projectId: string;
+  webhookId: string;
+  eventId: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+  status: WebhookJobStatus;
+  attemptCount: number;
+  maxAttempts: number;
+  nextAttemptAt: string;
+  lockedAt?: string;
+  lockedBy?: string;
+  lastResponseStatus?: number;
+  lastError?: string;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export type SigningKeyStatus = "active" | "retired" | "revoked";
+
+export interface SigningKeyRecord {
+  keyId: string;
+  algorithm: "Ed25519";
+  publicKeyPem: string;
+  status: SigningKeyStatus;
+  createdAt: string;
+  activatedAt: string;
+  retiredAt?: string;
+  revokedAt?: string;
+}
+
 export interface FailureQualityMetrics {
   schemaVersion: "agentcert.failure_quality_metrics.v0.1";
   totalFailures: number;

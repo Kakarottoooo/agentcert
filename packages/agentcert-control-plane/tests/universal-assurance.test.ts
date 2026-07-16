@@ -12,7 +12,7 @@ const user: AuthContext = { kind: "user", userId: "00000000-0000-4000-8000-00000
 
 describe("control-plane migrations", () => {
   it("loads the universal assurance migration during startup", () => {
-    expect(CONTROL_PLANE_MIGRATIONS.at(-1)).toBe("005_universal_assurance.sql");
+    expect(CONTROL_PLANE_MIGRATIONS.at(-1)).toBe("006_trust_operations.sql");
   });
 });
 
@@ -133,6 +133,7 @@ describe("scoped integrations and governance reporting", () => {
     expect(created.secret).toMatch(/^whsec_/);
     const run = await service.startRun(user, projectId, { externalId: "webhook-run", kind: "custom" });
     await service.completeRun(user, projectId, run.id, { status: "passed" });
+    await service.processWebhookJobs("test-worker");
     const { deliveries } = await service.listWebhooks(user, projectId);
     expect(deliveries).toMatchObject([{ eventType: "run.completed", status: "delivered" }]);
     const headers = requestFetch.mock.calls[0]?.[1]?.headers as Record<string, string>;

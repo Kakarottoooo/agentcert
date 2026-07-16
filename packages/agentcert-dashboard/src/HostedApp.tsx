@@ -3,6 +3,7 @@ import {
   bootstrap,
   createHostedAgent,
   createHostedApiKey,
+  createHostedTestWebhook,
   downloadRetentionReport,
   downloadAdminLegalHoldReport,
   evidenceContentUrl,
@@ -16,6 +17,7 @@ import {
   loadAdminLegalHolds,
   loadRetentionReport,
   loadOverview,
+  loadHostedOperations,
   readHostedAuthCallbackError,
   readHostedSession,
   requestHostedLegalHold,
@@ -23,6 +25,7 @@ import {
   reviewHostedAction,
   reviewAdminLegalHold,
   revokeHostedApiKey,
+  retryHostedWebhookJob,
   signIn,
   signOut,
   signUp,
@@ -34,6 +37,7 @@ import {
   type HostedEvidence,
   type HostedIncident,
   type HostedOverview,
+  type HostedOperations,
   type HostedProject,
   type HostedRun,
   type HostedSession,
@@ -46,6 +50,7 @@ type HostedView = "overview" | "agents" | "runs" | "gates" | "actions" | "incide
 
 interface ConsoleData {
   overview: HostedOverview;
+  operations: HostedOperations;
   agents: HostedAgent[];
   runs: HostedRun[];
   actions: HostedAction[];
@@ -141,11 +146,11 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
     if (!project) return;
     setLoading(true); setError(undefined);
     try {
-      const [overview, agents, runs, actions, incidents, evidence] = await Promise.all([
-        loadOverview(session, project.id), loadHostedAgents(session, project.id), loadHostedRuns(session, project.id),
+      const [overview, operations, agents, runs, actions, incidents, evidence] = await Promise.all([
+        loadOverview(session, project.id), loadHostedOperations(session, project.id), loadHostedAgents(session, project.id), loadHostedRuns(session, project.id),
         loadHostedActions(session, project.id), loadHostedIncidents(session, project.id), loadHostedEvidence(session, project.id),
       ]);
-      setData({ overview, agents, runs, actions, incidents, evidence });
+      setData({ overview, operations, agents, runs, actions, incidents, evidence });
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setLoading(false); }
   }, [project, session]);
@@ -194,7 +199,7 @@ function HostedViewContent({ view, data, project, session, refresh, onNavigate }
   if (view === "incidents") return <IncidentsView incidents={data.incidents} />;
   if (view === "evidence") return <EvidenceView evidence={data.evidence} overview={data.overview} project={project} session={session} refresh={refresh} />;
   if (view === "governance") return <GovernanceView project={project} session={session} />;
-  return <IntegrationsView project={project} session={session} />;
+  return <IntegrationsView project={project} session={session} operations={data.operations} refresh={refresh} />;
 }
 
 function HostedOverviewView({ data, project, onNavigate }: { data: ConsoleData; project: HostedProject; onNavigate: (view: HostedView) => void }) {
@@ -213,6 +218,12 @@ function HostedOverviewView({ data, project, onNavigate }: { data: ConsoleData; 
         <li className={firstEvidenceReady ? "done" : ""}><b>2</b><span><strong>CLI connected</strong><small>Validated project credentials</small></span></li>
         <li className={firstEvidenceReady ? "done" : ""}><b>3</b><span><strong>Evidence received</strong><small>Run, report, and provenance</small></span></li>
       </ol>
+    </section>
+    <section className="trust-operations-band">
+      <div><span>Production health</span><strong><Status value={data.operations.status} /></strong><em>Checked {compactTime(data.operations.generatedAt)}</em></div>
+      <div><span>Shared coordination</span><strong>{data.operations.coordination.backend}</strong><em>{data.operations.coordination.shared ? "Cross-instance controls ready" : "Single-instance fallback"}</em></div>
+      <div><span>Webhook delivery</span><strong>{data.operations.webhooks.queue.dead_letter} dead letter</strong><em>{data.operations.webhooks.queue.retrying} retrying, {data.operations.webhooks.queue.pending} pending</em></div>
+      <div><span>Evidence signing</span><strong>{data.operations.signing.activeKey?.keyId ?? "Not configured"}</strong><em>{data.operations.signing.historicalKeys} historical keys retained</em></div>
     </section>
     <section className="control-metrics">
       <ControlMetric label="Registered agents" value={summary.agents} />
@@ -285,15 +296,19 @@ function EvidenceView({ evidence, overview, project, session, refresh }: {
   </div>;
 }
 
-function IntegrationsView({ project, session }: { project: HostedProject; session: HostedSession }) {
+function IntegrationsView({ project, session, operations, refresh }: { project: HostedProject; session: HostedSession; operations: HostedOperations; refresh: () => Promise<void> }) {
   const [secret, setSecret] = useState<string>(); const [copied, setCopied] = useState(false); const [error, setError] = useState<string>(); const [keys, setKeys] = useState<HostedApiKey[]>([]); const [pendingRevoke, setPendingRevoke] = useState<string>();
   const [keyMode, setKeyMode] = useState<"ingest" | "read-only">("ingest");
+  const [testReceiverEnabled, setTestReceiverEnabled] = useState(false);
+  const [testReceiverBusy, setTestReceiverBusy] = useState(false);
   const refreshKeys = useCallback(async () => { try { setKeys(await loadHostedApiKeys(session, project.id)); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }, [project.id, session]);
   useEffect(() => { void refreshKeys(); }, [refreshKeys]);
   async function createKey() { try { const scopes = keyMode === "read-only" ? ["agents:read", "runs:read", "actions:read", "evidence:read"] : ["agents:read", "runs:read", "runs:write", "events:write", "actions:read", "actions:write", "evidence:read", "evidence:write"]; const result = await createHostedApiKey(session, project.id, keyMode === "read-only" ? "Read-only integration" : "Ingest integration", scopes); setSecret(result.secret); await refreshKeys(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }
   async function revokeKey(id: string) { try { await revokeHostedApiKey(session, project.id, id); setPendingRevoke(undefined); await refreshKeys(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }
+  async function retryWebhook(jobId: string) { try { await retryHostedWebhookJob(session, project.id, jobId); await refresh(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }
+  async function enableTestReceiver() { setTestReceiverBusy(true); try { await createHostedTestWebhook(session, project.id); setTestReceiverEnabled(true); await refresh(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } finally { setTestReceiverBusy(false); } }
   const endpoint = window.location.origin;
-  return <div className="integration-layout"><section className="connection-quickstart"><div><span className="eyebrow">Recommended</span><h2>Connect this project once</h2><p>The CLI validates the key before storing it in your user profile. Future push commands reuse the saved connection.</p></div><pre>{`npx agentcert connect --server ${endpoint} --project ${project.id}`}</pre></section><section className="data-section"><div className="section-actions"><SectionTitle title="API access" caption="Project-scoped credentials for agents and CI" /><div className="key-create-controls"><select value={keyMode} onChange={(event) => setKeyMode(event.target.value as "ingest" | "read-only")}><option value="ingest">Ingest + read</option><option value="read-only">Read only</option></select><button className="primary-action compact" onClick={() => void createKey()}>Create API key</button></div></div>{secret ? <div className="secret-box"><div><strong>Copy this key now. It will not be shown again.</strong><button onClick={() => { void navigator.clipboard.writeText(secret); setCopied(true); }}>{copied ? "Copied" : "Copy key"}</button></div><code>{secret}</code></div> : null}{error ? <div className="form-error">{error}</div> : null}<div className="entity-list key-list">{keys.map((key) => <article key={key.id}><div><strong>{key.name}</strong><span>{key.prefix}...</span></div><div><b>{key.revokedAt ? "Revoked" : "Active"}</b><span>{key.scopes.join(", ")}</span></div>{key.revokedAt ? null : pendingRevoke === key.id ? <div className="key-revoke-actions"><button onClick={() => setPendingRevoke(undefined)}>Cancel</button><button className="danger-action" onClick={() => void revokeKey(key.id)}>Confirm revoke</button></div> : <button onClick={() => setPendingRevoke(key.id)}>Revoke</button>}</article>)}{keys.length === 0 ? <EmptyHosted text="No API keys created yet. Create one, then run the connection command above." /> : null}</div></section><section className="data-section"><SectionTitle title="First upload" caption="Run locally, then send the validated evidence bundle" /><pre>{`npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --push\n# or: npx agentcert push --evidence .agentcert/latest/agentcert-evidence.json`}</pre></section><section className="data-section"><SectionTitle title="CI environment" caption="Use secret-manager variables for ephemeral runners and SDK integrations" /><pre>{`AGENTCERT_BASE_URL=${endpoint}\nAGENTCERT_PROJECT_ID=${project.id}\nAGENTCERT_API_KEY=ac_live_...`}</pre></section></div>;
+  return <div className="integration-layout"><section className="connection-quickstart"><div><span className="eyebrow">Recommended</span><h2>Connect this project once</h2><p>The CLI validates the key before storing it in your user profile. Future push commands reuse the saved connection.</p></div><pre>{`npx agentcert connect --server ${endpoint} --project ${project.id}`}</pre></section><section className="data-section"><div className="section-actions"><SectionTitle title="API access" caption="Project-scoped credentials for agents and CI" /><div className="key-create-controls"><select value={keyMode} onChange={(event) => setKeyMode(event.target.value as "ingest" | "read-only")}><option value="ingest">Ingest + read</option><option value="read-only">Read only</option></select><button className="primary-action compact" onClick={() => void createKey()}>Create API key</button></div></div>{secret ? <div className="secret-box"><div><strong>Copy this key now. It will not be shown again.</strong><button onClick={() => { void navigator.clipboard.writeText(secret); setCopied(true); }}>{copied ? "Copied" : "Copy key"}</button></div><code>{secret}</code></div> : null}{error ? <div className="form-error">{error}</div> : null}<div className="entity-list key-list">{keys.map((key) => <article key={key.id}><div><strong>{key.name}</strong><span>{key.prefix}...</span></div><div><b>{key.revokedAt ? "Revoked" : "Active"}</b><span>{key.scopes.join(", ")}</span></div>{key.revokedAt ? null : pendingRevoke === key.id ? <div className="key-revoke-actions"><button onClick={() => setPendingRevoke(undefined)}>Cancel</button><button className="danger-action" onClick={() => void revokeKey(key.id)}>Confirm revoke</button></div> : <button onClick={() => setPendingRevoke(key.id)}>Revoke</button>}</article>)}{keys.length === 0 ? <EmptyHosted text="No API keys created yet. Create one, then run the connection command above." /> : null}</div></section><section className="data-section"><div className="section-actions"><SectionTitle title="Trust operations" caption="Webhook delivery and historical signing-key state" /><button className="primary-action compact" disabled={testReceiverBusy || testReceiverEnabled} onClick={() => void enableTestReceiver()}>{testReceiverEnabled ? "Self-test receiver ready" : testReceiverBusy ? "Enabling..." : "Enable self-test receiver"}</button></div><div className="trust-ops-list"><article><div><strong>Coordination backend</strong><span>{operations.coordination.backend} / {operations.coordination.state}</span></div><Status value={operations.status} /></article><article><div><strong>Signing key</strong><span>{operations.signing.activeKey?.keyId ?? "Not configured"}</span></div><span>{operations.signing.historicalKeys} retained</span></article>{operations.webhooks.deadLetters.map((job) => <article key={job.id}><div><strong>{job.eventType}</strong><span>{job.lastError ?? "Delivery exhausted"}</span></div><div className="key-revoke-actions"><Status value={job.status} /><button onClick={() => void retryWebhook(job.id)}>Retry</button></div></article>)}{operations.webhooks.deadLetters.length === 0 ? <EmptyHosted text="No webhook deliveries are in the dead-letter queue." /> : null}</div></section><section className="data-section"><SectionTitle title="First upload" caption="Run locally, then send the validated evidence bundle" /><pre>{`npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --push\n# or: npx agentcert push --evidence .agentcert/latest/agentcert-evidence.json`}</pre></section><section className="data-section"><SectionTitle title="CI environment" caption="Use secret-manager variables for ephemeral runners and SDK integrations" /><pre>{`AGENTCERT_BASE_URL=${endpoint}\nAGENTCERT_PROJECT_ID=${project.id}\nAGENTCERT_API_KEY=ac_live_...`}</pre></section></div>;
 }
 
 function GovernanceView({ project, session }: { project: HostedProject; session: HostedSession }) {

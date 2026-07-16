@@ -31,7 +31,11 @@ export interface RateLimitResult {
   retryAfterSeconds: number;
 }
 
-export class FixedWindowRateLimiter {
+export interface RateLimiter {
+  consume(key: string, now?: number): RateLimitResult | Promise<RateLimitResult>;
+}
+
+export class FixedWindowRateLimiter implements RateLimiter {
   private readonly windows = new Map<string, { count: number; resetAt: number }>();
 
   constructor(readonly limit: number, readonly windowMs: number) {

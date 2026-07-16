@@ -1,0 +1,45 @@
+name: Production trust smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 8 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agentcert-production-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AGENTCERT_BASE_URL: https://agentcert-control-plane.onrender.com
+      AGENTCERT_PROJECT_ID: ${{ secrets.AGENTCERT_PROJECT_ID }}
+      AGENTCERT_API_KEY: ${{ secrets.AGENTCERT_API_KEY }}
+      AGENTCERT_REQUIRE_SHARED_COORDINATION: "true"
+      AGENTCERT_REQUIRE_WEBHOOK_DELIVERY: "true"
+      AGENTCERT_SMOKE_OUTPUT: .agentcert/production-smoke/result.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify required secrets
+        shell: bash
+        run: |
+          test -n "$AGENTCERT_PROJECT_ID" || { echo "::error::AGENTCERT_PROJECT_ID repository secret is missing"; exit 1; }
+          test -n "$AGENTCERT_API_KEY" || { echo "::error::AGENTCERT_API_KEY repository secret is missing"; exit 1; }
+      - name: Run production trust acceptance
+        run: node scripts/production-smoke.mjs
+      - name: Upload sanitized smoke result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentcert-production-smoke-${{ github.run_id }}
+          path: .agentcert/production-smoke/result.json
+          if-no-files-found: warn
+          retention-days: 30

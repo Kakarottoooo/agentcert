@@ -20,7 +20,10 @@ import type {
   EventRecord,
   MemberRole,
   WebhookDeliveryRecord,
+  WebhookJobRecord,
+  WebhookJobCounts,
   WebhookRecord,
+  SigningKeyRecord,
 } from "./types.js";
 
 export const CONTROL_PLANE_MIGRATIONS = [
@@ -29,6 +32,7 @@ export const CONTROL_PLANE_MIGRATIONS = [
   "003_evidence_retention.sql",
   "004_legal_holds.sql",
   "005_universal_assurance.sql",
+  "006_trust_operations.sql",
 ] as const;
 
 export interface BootstrapResult {
@@ -99,6 +103,15 @@ export interface ControlPlaneStore {
   revokeWebhook(projectId: string, webhookId: string, revokedAt: string): Promise<WebhookRecord | undefined>;
   insertWebhookDelivery(delivery: WebhookDeliveryRecord): Promise<WebhookDeliveryRecord>;
   listWebhookDeliveries(projectId: string, limit?: number): Promise<WebhookDeliveryRecord[]>;
+  enqueueWebhookJob(job: WebhookJobRecord): Promise<WebhookJobRecord>;
+  claimWebhookJobs(workerId: string, now: string, leaseExpiredBefore: string, limit?: number): Promise<WebhookJobRecord[]>;
+  updateWebhookJob(job: WebhookJobRecord): Promise<WebhookJobRecord>;
+  getWebhookJob(projectId: string, jobId: string): Promise<WebhookJobRecord | undefined>;
+  listWebhookJobs(projectId: string, limit?: number): Promise<WebhookJobRecord[]>;
+  webhookJobCounts(projectId: string): Promise<WebhookJobCounts>;
+  activateSigningKey(key: SigningKeyRecord): Promise<SigningKeyRecord>;
+  getSigningKey(keyId: string): Promise<SigningKeyRecord | undefined>;
+  listSigningKeys(): Promise<SigningKeyRecord[]>;
   insertApiKey(apiKey: ApiKeyRecord): Promise<ApiKeyRecord>;
   findApiKeyByHash(secretHash: string): Promise<ApiKeyRecord | undefined>;
   touchApiKey(apiKeyId: string, usedAt: string): Promise<void>;
@@ -125,6 +138,8 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   private idempotency = new Map<string, IdempotencyRecord>();
   private webhooks = new Map<string, WebhookRecord>();
   private webhookDeliveries = new Map<string, WebhookDeliveryRecord>();
+  private webhookJobs = new Map<string, WebhookJobRecord>();
+  private signingKeys = new Map<string, SigningKeyRecord>();
   private retentionLocks = new Map<string, Promise<void>>();
 
   async migrate(): Promise<void> {}
@@ -469,6 +484,59 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   async listWebhookDeliveries(projectId: string, limit = 100): Promise<WebhookDeliveryRecord[]> {
     return newest([...this.webhookDeliveries.values()].filter((item) => item.projectId === projectId), "attemptedAt").slice(0, limit);
   }
+
+  async enqueueWebhookJob(job: WebhookJobRecord): Promise<WebhookJobRecord> {
+    this.webhookJobs.set(job.id, job);
+    return job;
+  }
+
+  async claimWebhookJobs(workerId: string, now: string, leaseExpiredBefore: string, limit = 20): Promise<WebhookJobRecord[]> {
+    const due = [...this.webhookJobs.values()]
+      .filter((job) => (job.status === "pending" || job.status === "retrying" || (job.status === "processing" && Boolean(job.lockedAt) && job.lockedAt! <= leaseExpiredBefore)) && job.nextAttemptAt <= now)
+      .sort((left, right) => left.nextAttemptAt.localeCompare(right.nextAttemptAt))
+      .slice(0, limit);
+    return due.map((job) => {
+      const claimed = { ...job, status: "processing" as const, lockedAt: now, lockedBy: workerId };
+      this.webhookJobs.set(job.id, claimed);
+      return claimed;
+    });
+  }
+
+  async updateWebhookJob(job: WebhookJobRecord): Promise<WebhookJobRecord> {
+    this.webhookJobs.set(job.id, job);
+    return job;
+  }
+
+  async getWebhookJob(projectId: string, jobId: string): Promise<WebhookJobRecord | undefined> {
+    const job = this.webhookJobs.get(jobId);
+    return job?.projectId === projectId ? job : undefined;
+  }
+
+  async listWebhookJobs(projectId: string, limit = 100): Promise<WebhookJobRecord[]> {
+    return newest([...this.webhookJobs.values()].filter((item) => item.projectId === projectId), "createdAt").slice(0, limit);
+  }
+
+  async webhookJobCounts(projectId: string): Promise<WebhookJobCounts> {
+    const counts = emptyWebhookJobCounts();
+    for (const job of this.webhookJobs.values()) if (job.projectId === projectId) counts[job.status] += 1;
+    return counts;
+  }
+
+  async activateSigningKey(key: SigningKeyRecord): Promise<SigningKeyRecord> {
+    const existing = this.signingKeys.get(key.keyId);
+    if (existing && existing.publicKeyPem !== key.publicKeyPem) throw new Error(`Signing key ID ${key.keyId} already belongs to another public key.`);
+    if (existing?.status === "active") return existing;
+    if (existing) throw new Error(`Signing key ID ${key.keyId} is historical and cannot be reactivated.`);
+    for (const [id, current] of this.signingKeys) {
+      if (id !== key.keyId && current.status === "active") this.signingKeys.set(id, { ...current, status: "retired", retiredAt: key.activatedAt });
+    }
+    const active = { ...key, status: "active" as const, retiredAt: undefined, revokedAt: undefined };
+    this.signingKeys.set(key.keyId, active);
+    return active;
+  }
+
+  async getSigningKey(keyId: string): Promise<SigningKeyRecord | undefined> { return this.signingKeys.get(keyId); }
+  async listSigningKeys(): Promise<SigningKeyRecord[]> { return newest([...this.signingKeys.values()], "activatedAt"); }
 
   async insertApiKey(apiKey: ApiKeyRecord): Promise<ApiKeyRecord> {
     this.apiKeys.set(apiKey.id, apiKey);
@@ -1056,6 +1124,118 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     ), webhookDeliveryFromRow);
   }
 
+  async enqueueWebhookJob(job: WebhookJobRecord): Promise<WebhookJobRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_webhook_jobs
+       (id,project_id,webhook_id,event_id,event_type,payload,status,attempt_count,max_attempts,next_attempt_at,locked_at,locked_by,last_response_status,last_error,created_at,completed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+      [job.id, job.projectId, job.webhookId, job.eventId, job.eventType, JSON.stringify(job.payload), job.status,
+       job.attemptCount, job.maxAttempts, job.nextAttemptAt, job.lockedAt ?? null, job.lockedBy ?? null,
+       job.lastResponseStatus ?? null, job.lastError ?? null, job.createdAt, job.completedAt ?? null],
+    );
+    return webhookJobFromRow(result.rows[0]);
+  }
+
+  async claimWebhookJobs(workerId: string, now: string, leaseExpiredBefore: string, limit = 20): Promise<WebhookJobRecord[]> {
+    return many(this.pool.query(
+      `WITH due AS (
+         SELECT id FROM agentcert_webhook_jobs
+         WHERE next_attempt_at <= $2
+           AND (status IN ('pending','retrying') OR (status='processing' AND locked_at <= $3))
+         ORDER BY next_attempt_at, created_at
+         FOR UPDATE SKIP LOCKED
+         LIMIT $4
+       )
+       UPDATE agentcert_webhook_jobs jobs
+       SET status='processing', locked_at=$2, locked_by=$1
+       FROM due WHERE jobs.id=due.id
+       RETURNING jobs.*`,
+      [workerId, now, leaseExpiredBefore, limit],
+    ), webhookJobFromRow);
+  }
+
+  async updateWebhookJob(job: WebhookJobRecord): Promise<WebhookJobRecord> {
+    const result = await this.pool.query(
+      `UPDATE agentcert_webhook_jobs SET
+       status=$2,attempt_count=$3,max_attempts=$4,next_attempt_at=$5,locked_at=$6,locked_by=$7,
+       last_response_status=$8,last_error=$9,completed_at=$10
+       WHERE id=$1 RETURNING *`,
+      [job.id, job.status, job.attemptCount, job.maxAttempts, job.nextAttemptAt, job.lockedAt ?? null,
+       job.lockedBy ?? null, job.lastResponseStatus ?? null, job.lastError ?? null, job.completedAt ?? null],
+    );
+    if (!result.rows[0]) throw new Error(`Webhook job ${job.id} was not found.`);
+    return webhookJobFromRow(result.rows[0]);
+  }
+
+  async getWebhookJob(projectId: string, jobId: string): Promise<WebhookJobRecord | undefined> {
+    return one(this.pool.query(
+      "SELECT * FROM agentcert_webhook_jobs WHERE project_id=$1 AND id=$2",
+      [projectId, jobId],
+    ), webhookJobFromRow);
+  }
+
+  async listWebhookJobs(projectId: string, limit = 100): Promise<WebhookJobRecord[]> {
+    return many(this.pool.query(
+      "SELECT * FROM agentcert_webhook_jobs WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2",
+      [projectId, limit],
+    ), webhookJobFromRow);
+  }
+
+  async webhookJobCounts(projectId: string): Promise<WebhookJobCounts> {
+    const counts = emptyWebhookJobCounts();
+    const result = await this.pool.query(
+      "SELECT status, count(*)::integer AS count FROM agentcert_webhook_jobs WHERE project_id=$1 GROUP BY status",
+      [projectId],
+    );
+    for (const row of result.rows) counts[text(row.status) as WebhookJobRecord["status"]] = number(row.count);
+    return counts;
+  }
+
+  async activateSigningKey(key: SigningKeyRecord): Promise<SigningKeyRecord> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('agentcert-signing-keyring'))");
+      const existing = await client.query("SELECT * FROM agentcert_signing_keys WHERE key_id=$1", [key.keyId]);
+      if (existing.rows[0] && text(existing.rows[0].public_key_pem) !== key.publicKeyPem) {
+        throw new Error(`Signing key ID ${key.keyId} already belongs to another public key.`);
+      }
+      if (existing.rows[0]) {
+        const current = signingKeyFromRow(existing.rows[0]);
+        if (current.status !== "active") throw new Error(`Signing key ID ${key.keyId} is historical and cannot be reactivated.`);
+        await client.query("COMMIT");
+        return current;
+      }
+      await client.query(
+        "UPDATE agentcert_signing_keys SET status='retired',retired_at=$2 WHERE status='active' AND key_id<>$1",
+        [key.keyId, key.activatedAt],
+      );
+      const result = await client.query(
+        `INSERT INTO agentcert_signing_keys
+         (key_id,algorithm,public_key_pem,status,created_at,activated_at,retired_at,revoked_at)
+         VALUES ($1,$2,$3,'active',$4,$5,NULL,NULL)
+         ON CONFLICT (key_id) DO NOTHING
+         RETURNING *`,
+        [key.keyId, key.algorithm, key.publicKeyPem, key.createdAt, key.activatedAt],
+      );
+      await client.query("COMMIT");
+      return signingKeyFromRow(result.rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getSigningKey(keyId: string): Promise<SigningKeyRecord | undefined> {
+    return one(this.pool.query("SELECT * FROM agentcert_signing_keys WHERE key_id=$1", [keyId]), signingKeyFromRow);
+  }
+
+  async listSigningKeys(): Promise<SigningKeyRecord[]> {
+    return many(this.pool.query("SELECT * FROM agentcert_signing_keys ORDER BY activated_at DESC"), signingKeyFromRow);
+  }
+
   async insertApiKey(apiKey: ApiKeyRecord): Promise<ApiKeyRecord> {
     await this.pool.query(
       `INSERT INTO agentcert_api_keys (id,project_id,name,prefix,secret_hash,created_by,created_at,last_used_at,revoked_at,scopes)
@@ -1181,6 +1361,27 @@ function webhookDeliveryFromRow(row: Record<string, unknown>): WebhookDeliveryRe
     eventType: text(row.event_type), status: text(row.status) as WebhookDeliveryRecord["status"], responseStatus: optionalNumber(row.response_status),
     error: optionalText(row.error), attemptedAt: iso(row.attempted_at),
   };
+}
+
+function webhookJobFromRow(row: Record<string, unknown>): WebhookJobRecord {
+  return {
+    id: text(row.id), projectId: text(row.project_id), webhookId: text(row.webhook_id), eventId: text(row.event_id),
+    eventType: text(row.event_type), payload: object(row.payload), status: text(row.status) as WebhookJobRecord["status"],
+    attemptCount: number(row.attempt_count), maxAttempts: number(row.max_attempts), nextAttemptAt: iso(row.next_attempt_at),
+    lockedAt: optionalIso(row.locked_at), lockedBy: optionalText(row.locked_by), lastResponseStatus: optionalNumber(row.last_response_status),
+    lastError: optionalText(row.last_error), createdAt: iso(row.created_at), completedAt: optionalIso(row.completed_at),
+  };
+}
+
+function signingKeyFromRow(row: Record<string, unknown>): SigningKeyRecord {
+  return {
+    keyId: text(row.key_id), algorithm: text(row.algorithm) as "Ed25519", publicKeyPem: text(row.public_key_pem),
+    status: text(row.status) as SigningKeyRecord["status"], createdAt: iso(row.created_at), activatedAt: iso(row.activated_at),
+    retiredAt: optionalIso(row.retired_at), revokedAt: optionalIso(row.revoked_at),
+  };
+}
+function emptyWebhookJobCounts(): WebhookJobCounts {
+  return { pending: 0, processing: 0, retrying: 0, delivered: 0, dead_letter: 0 };
 }
 function failureReviewFromRow(row: Record<string, unknown>): FailureReviewRecord {
   const context = object(row.evidence_context);

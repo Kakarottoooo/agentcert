@@ -91,5 +91,7 @@ jobs:
         run: npm run control-plane:install
       - name: Test control plane packages
         run: npm run control-plane:test
+      - name: Test production smoke harness
+        run: npm run production-smoke:test
       - name: Build control plane image
         run: docker build --file Dockerfile.control-plane --tag agentcert-control-plane:ci .

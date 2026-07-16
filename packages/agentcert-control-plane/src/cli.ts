@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { resolve } from "node:path";
+import { hostname } from "node:os";
 import { LocalArtifactStore, MemoryArtifactStore, SupabaseArtifactStore } from "./artifacts.js";
 import { Authenticator } from "./auth.js";
 import { startControlPlaneServer } from "./server.js";
@@ -9,6 +10,7 @@ import type { EvidenceGovernancePolicy } from "./evidence-governance.js";
 import type { PublicConfig } from "./types.js";
 import { EvidenceSigner } from "./signing.js";
 import { FixedWindowRateLimiter, WebhookSecretVault } from "./security.js";
+import { LocalIdempotencyCoordinator, createRedisCoordination, type CoordinationRuntime } from "./coordination.js";
 
 const host = process.env.HOST ?? "127.0.0.1";
 const port = integerEnv("PORT", 8787);
@@ -52,6 +54,7 @@ const evidenceSigner = signingPrivateKey
 const webhookEncryptionKey = process.env.AGENTCERT_WEBHOOK_ENCRYPTION_KEY;
 const webhookVault = webhookEncryptionKey ? new WebhookSecretVault(webhookEncryptionKey) : undefined;
 const service = new AgentCertControlPlane(store, artifacts, evidencePolicy, platformAdminEmails, evidenceSigner, webhookVault);
+await service.activateSigningKey();
 const authenticator = new Authenticator({ store, supabaseUrl, supabasePublishableKey, devMode });
 const publicConfig: PublicConfig = {
   kind: "agentcert.control_plane_config",
@@ -64,10 +67,18 @@ const publicConfig: PublicConfig = {
     registrationOpen: true,
   },
 };
+const rateLimitRequests = integerEnv("AGENTCERT_RATE_LIMIT_REQUESTS", 300);
+const rateLimitWindowMs = integerEnv("AGENTCERT_RATE_LIMIT_WINDOW_MS", 60_000);
+const coordination = process.env.REDIS_URL
+  ? await createRedisCoordination(process.env.REDIS_URL, rateLimitRequests, rateLimitWindowMs, (error) => {
+      process.stderr.write(`${JSON.stringify({ event: "redis_error", message: error.message })}\n`);
+    })
+  : localCoordination(rateLimitRequests, rateLimitWindowMs);
 
 if (process.argv[2] === "cleanup-evidence") {
   const result = await service.cleanupExpiredEvidence(new Date(), integerEnv("AGENTCERT_EVIDENCE_CLEANUP_BATCH", 500));
   process.stdout.write(`${JSON.stringify({ event: "evidence_retention_cleanup", ...result })}\n`);
+  await coordination.close();
   await store.close();
 } else {
   await startControlPlaneServer({
@@ -78,16 +89,48 @@ if (process.argv[2] === "cleanup-evidence") {
     port,
     dashboardDir: process.env.AGENTCERT_DASHBOARD_DIR ?? resolve("public-demo/agentcert-monitor"),
     maxArtifactBytes: integerEnv("AGENTCERT_MAX_ARTIFACT_BYTES", 20 * 1024 * 1024),
-    rateLimiter: new FixedWindowRateLimiter(
-      integerEnv("AGENTCERT_RATE_LIMIT_REQUESTS", 300),
-      integerEnv("AGENTCERT_RATE_LIMIT_WINDOW_MS", 60_000),
-    ),
+    rateLimiter: coordination.rateLimiter,
+    idempotencyCoordinator: coordination.idempotency,
+    coordinationHealth: coordination.health,
   });
   scheduleEvidenceCleanup(
     service,
     integerEnv("AGENTCERT_EVIDENCE_CLEANUP_INTERVAL_MS", 24 * 60 * 60 * 1000),
     integerEnv("AGENTCERT_EVIDENCE_CLEANUP_BATCH", 500),
   );
+  scheduleWebhookDelivery(
+    service,
+    `${hostname()}:${process.pid}`,
+    integerEnv("AGENTCERT_WEBHOOK_WORKER_INTERVAL_MS", 2_000),
+    integerEnv("AGENTCERT_WEBHOOK_WORKER_BATCH", 20),
+  );
+}
+
+function localCoordination(limit: number, windowMs: number): CoordinationRuntime {
+  return {
+    rateLimiter: new FixedWindowRateLimiter(limit, windowMs),
+    idempotency: new LocalIdempotencyCoordinator(),
+    health: () => ({ backend: "memory", state: "degraded", shared: false }),
+    close: async () => undefined,
+  };
+}
+
+function scheduleWebhookDelivery(service: AgentCertControlPlane, workerId: string, intervalMs: number, batchSize: number): void {
+  let running = false;
+  const run = async () => {
+    if (running) return;
+    running = true;
+    try {
+      const result = await service.processWebhookJobs(workerId, new Date(), batchSize);
+      if (result.claimed > 0) process.stdout.write(`${JSON.stringify({ event: "webhook_delivery_batch", ...result })}\n`);
+    } catch (error) {
+      process.stderr.write(`${JSON.stringify({ event: "webhook_delivery_batch_failed", message: error instanceof Error ? error.message : String(error) })}\n`);
+    } finally {
+      running = false;
+    }
+  };
+  setTimeout(() => void run(), 500).unref();
+  setInterval(() => void run(), intervalMs).unref();
 }
 
 function scheduleEvidenceCleanup(service: AgentCertControlPlane, intervalMs: number, batchSize: number): void {

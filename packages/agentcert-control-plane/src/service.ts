@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { ArtifactStore } from "./artifacts.js";
 import { hashSecret } from "./auth.js";
 import {
@@ -37,19 +37,27 @@ import type {
   PublicApiKeyRecord,
   PublicWebhookRecord,
   FailureQualityMetrics,
+  SigningKeyRecord,
+  WebhookJobRecord,
   WebhookRecord,
 } from "./types.js";
 import { EnvelopeValidationError, isSpanId, isTraceId, parseUniversalEnvelope, type UniversalEnvelope } from "./protocol.js";
 import { EvidenceSigner, type EvidenceAttestationPayload } from "./signing.js";
+import type { CoordinationHealth } from "./coordination.js";
 import {
   DEFAULT_API_KEY_SCOPES,
   WebhookSecretVault,
+  createWebhookSignature,
   deliverWebhook,
   parseApiKeyScopes,
   type WebhookEvent,
 } from "./security.js";
 
 const POLICY_VERSION = "agentcert.default.v1";
+const DEFAULT_WEBHOOK_MAX_ATTEMPTS = 5;
+const DEFAULT_WEBHOOK_LEASE_MS = 60_000;
+const DEFAULT_WEBHOOK_RETRY_BASE_MS = 5_000;
+const MAX_WEBHOOK_RETRY_MS = 60 * 60 * 1000;
 
 export class ControlPlaneError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -753,6 +761,61 @@ export class AgentCertControlPlane {
     return { schemaVersion: "agentcert.signing_key.v0.1", keyId: this.evidenceSigner.keyId, algorithm: "Ed25519", publicKeyPem: this.evidenceSigner.publicKeyPem };
   }
 
+  async operationsOverview(auth: AuthContext, projectId: string, coordination?: CoordinationHealth) {
+    await this.authorizeProject(auth, projectId, undefined, "runs:read");
+    const [jobs, jobCounts, deliveries, signingKeys] = await Promise.all([
+      this.store.listWebhookJobs(projectId, 100),
+      this.store.webhookJobCounts(projectId),
+      this.store.listWebhookDeliveries(projectId, 100),
+      this.store.listSigningKeys(),
+    ]);
+    const activeKey = signingKeys.find((key) => key.status === "active");
+    const healthy = coordination?.state === "ready" && coordination.shared && jobCounts.dead_letter === 0 && Boolean(activeKey);
+    return {
+      schemaVersion: "agentcert.trust_operations.v0.2",
+      projectId,
+      status: healthy ? "healthy" : "degraded",
+      generatedAt: new Date().toISOString(),
+      coordination: coordination ?? { backend: "memory", state: "degraded", shared: false },
+      webhooks: {
+        queue: jobCounts,
+        recentJobs: jobs.slice(0, 50),
+        recentFailures: deliveries.filter((delivery) => delivery.status === "failed").slice(0, 20),
+        deadLetters: jobs.filter((job) => job.status === "dead_letter").slice(0, 20),
+      },
+      signing: {
+        configured: Boolean(this.evidenceSigner),
+        activeKey: activeKey ?? null,
+        historicalKeys: signingKeys.filter((key) => key.status !== "active").length,
+        keys: signingKeys,
+      },
+    };
+  }
+
+  async activateSigningKey(now = new Date()): Promise<SigningKeyRecord | undefined> {
+    if (!this.evidenceSigner) return undefined;
+    const timestamp = now.toISOString();
+    return this.store.activateSigningKey({
+      keyId: this.evidenceSigner.keyId,
+      algorithm: "Ed25519",
+      publicKeyPem: this.evidenceSigner.publicKeyPem,
+      status: "active",
+      createdAt: timestamp,
+      activatedAt: timestamp,
+    });
+  }
+
+  async signingKeys() {
+    const keys = await this.store.listSigningKeys();
+    return { schemaVersion: "agentcert.signing_keyset.v0.1", keys };
+  }
+
+  async signingKeyById(keyId: string): Promise<SigningKeyRecord> {
+    const key = await this.store.getSigningKey(keyId);
+    if (!key) throw new ControlPlaneError("Signing key was not found.", 404);
+    return key;
+  }
+
   async createWebhook(auth: AuthContext, projectId: string, input: unknown): Promise<{ webhook: PublicWebhookRecord; secret: string }> {
     await this.authorizeProject(auth, projectId, ["owner", "admin"]);
     requireUser(auth);
@@ -761,19 +824,57 @@ export class AgentCertControlPlane {
     const url = webhookUrl(requiredString(body, "url"));
     const eventTypes = stringList(body.eventTypes);
     if (eventTypes.length === 0 || eventTypes.length > 20) throw new ControlPlaneError("eventTypes must contain 1 to 20 event names.");
+    return this.createWebhookRecord(auth, projectId, url, eventTypes);
+  }
+
+  async createTestWebhook(auth: AuthContext, projectId: string, publicUrl: string) {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    requireUser(auth);
+    if (!this.webhookVault) throw new ControlPlaneError("Webhook signing is not configured.", 503);
+    const prefix = `${publicUrl.replace(/\/$/, "")}/v1/webhook-test-receiver/${encodeURIComponent(projectId)}/`;
+    const existing = (await this.store.listWebhooks(projectId)).find((item) => !item.revokedAt && item.url.startsWith(prefix));
+    if (existing) return { webhook: publicWebhook(existing), reused: true };
+    const id = randomUUID();
+    return { ...(await this.createWebhookRecord(auth, projectId, webhookUrl(`${prefix}${id}`), ["run.completed"], id)), reused: false };
+  }
+
+  private async createWebhookRecord(auth: AuthContext, projectId: string, url: URL, eventTypes: string[], id = randomUUID()): Promise<{ webhook: PublicWebhookRecord; secret: string }> {
     const secret = `whsec_${randomBytes(24).toString("base64url")}`;
     const webhook: WebhookRecord = {
-      id: randomUUID(), projectId, url: url.toString(), eventTypes, secretCiphertext: this.webhookVault.encrypt(secret),
-      createdBy: auth.userId, createdAt: new Date().toISOString(),
+      id, projectId, url: url.toString(), eventTypes, secretCiphertext: this.webhookVault!.encrypt(secret),
+      createdBy: auth.userId!, createdAt: new Date().toISOString(),
     };
     await this.store.insertWebhook(webhook);
     return { webhook: publicWebhook(webhook), secret };
   }
 
+  async acceptTestWebhook(projectId: string, webhookId: string, headers: Record<string, string | undefined>, bytes: Buffer, now = new Date()): Promise<void> {
+    if (!this.webhookVault) throw new ControlPlaneError("Webhook signing is not configured.", 503);
+    const webhook = (await this.store.listWebhooks(projectId)).find((item) => item.id === webhookId && !item.revokedAt);
+    const timestamp = headers["x-agentcert-timestamp"];
+    const signature = headers["x-agentcert-signature"];
+    if (!webhook || !timestamp || !signature || !/^\d+$/.test(timestamp)) throw new ControlPlaneError("Webhook signature is invalid.", 401);
+    if (Math.abs(Math.floor(now.getTime() / 1000) - Number(timestamp)) > 300) throw new ControlPlaneError("Webhook timestamp is outside the accepted window.", 401);
+    const expected = createWebhookSignature(this.webhookVault.decrypt(webhook.secretCiphertext), timestamp, bytes.toString("utf8"));
+    const expectedBytes = Buffer.from(expected);
+    const actualBytes = Buffer.from(signature);
+    if (expectedBytes.length !== actualBytes.length || !timingSafeEqual(expectedBytes, actualBytes)) throw new ControlPlaneError("Webhook signature is invalid.", 401);
+    let event: Record<string, unknown>;
+    try { event = record(JSON.parse(bytes.toString("utf8"))); }
+    catch { throw new ControlPlaneError("Webhook body must be valid JSON.", 400); }
+    if (event.projectId !== projectId || event.id !== headers["x-agentcert-event-id"] || event.type !== headers["x-agentcert-event"]) {
+      throw new ControlPlaneError("Webhook headers do not match the signed event.", 400);
+    }
+  }
+
   async listWebhooks(auth: AuthContext, projectId: string) {
     await this.authorizeProject(auth, projectId, ["owner", "admin"]);
-    const [webhooks, deliveries] = await Promise.all([this.store.listWebhooks(projectId), this.store.listWebhookDeliveries(projectId)]);
-    return { webhooks: webhooks.map(publicWebhook), deliveries };
+    const [webhooks, deliveries, jobs] = await Promise.all([
+      this.store.listWebhooks(projectId),
+      this.store.listWebhookDeliveries(projectId),
+      this.store.listWebhookJobs(projectId),
+    ]);
+    return { webhooks: webhooks.map(publicWebhook), deliveries, jobs };
   }
 
   async revokeWebhook(auth: AuthContext, projectId: string, webhookId: string): Promise<PublicWebhookRecord> {
@@ -788,10 +889,96 @@ export class AgentCertControlPlane {
     const webhooks = (await this.store.listWebhooks(projectId)).filter((item) => !item.revokedAt && (item.eventTypes.includes(type) || item.eventTypes.includes("*")));
     if (webhooks.length === 0) return;
     const event: WebhookEvent = { id, type, projectId, occurredAt: new Date().toISOString(), data };
-    await Promise.all(webhooks.map(async (webhook) => {
-      const delivery = await deliverWebhook(webhook, event, this.webhookVault!, this.webhookFetch);
+    await Promise.all(webhooks.map((webhook) => this.store.enqueueWebhookJob({
+      id: randomUUID(),
+      projectId,
+      webhookId: webhook.id,
+      eventId: event.id,
+      eventType: event.type,
+      payload: event as unknown as Record<string, unknown>,
+      status: "pending",
+      attemptCount: 0,
+      maxAttempts: DEFAULT_WEBHOOK_MAX_ATTEMPTS,
+      nextAttemptAt: event.occurredAt,
+      createdAt: event.occurredAt,
+    })));
+  }
+
+  async retryWebhookJob(auth: AuthContext, projectId: string, jobId: string): Promise<WebhookJobRecord> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    const job = await this.store.getWebhookJob(projectId, jobId);
+    if (!job) throw new ControlPlaneError("Webhook job was not found.", 404);
+    if (job.status !== "dead_letter") throw new ControlPlaneError("Only dead-letter webhook jobs can be retried.", 409);
+    return this.store.updateWebhookJob({
+      ...job,
+      status: "pending",
+      attemptCount: 0,
+      nextAttemptAt: new Date().toISOString(),
+      lockedAt: undefined,
+      lockedBy: undefined,
+      lastResponseStatus: undefined,
+      lastError: undefined,
+      completedAt: undefined,
+    });
+  }
+
+  async processWebhookJobs(
+    workerId: string,
+    now = new Date(),
+    limit = 20,
+    leaseMs = DEFAULT_WEBHOOK_LEASE_MS,
+  ): Promise<{ claimed: number; delivered: number; retrying: number; deadLetter: number }> {
+    if (!this.webhookVault) return { claimed: 0, delivered: 0, retrying: 0, deadLetter: 0 };
+    const jobs = await this.store.claimWebhookJobs(
+      workerId,
+      now.toISOString(),
+      new Date(now.getTime() - leaseMs).toISOString(),
+      limit,
+    );
+    const result = { claimed: jobs.length, delivered: 0, retrying: 0, deadLetter: 0 };
+    for (const job of jobs) {
+      const webhook = (await this.store.listWebhooks(job.projectId)).find((item) => item.id === job.webhookId);
+      if (!webhook || webhook.revokedAt) {
+        await this.finishWebhookJob(job, undefined, "Webhook was removed or revoked before delivery.", now, result);
+        continue;
+      }
+      const delivery = await deliverWebhook(webhook, job.payload as unknown as WebhookEvent, this.webhookVault, this.webhookFetch);
       await this.store.insertWebhookDelivery(delivery);
-    }));
+      await this.finishWebhookJob(job, delivery.responseStatus, delivery.error, now, result, delivery.status === "delivered");
+    }
+    return result;
+  }
+
+  private async finishWebhookJob(
+    job: WebhookJobRecord,
+    responseStatus: number | undefined,
+    error: string | undefined,
+    now: Date,
+    result: { delivered: number; retrying: number; deadLetter: number },
+    delivered = false,
+  ): Promise<void> {
+    const attemptCount = job.attemptCount + 1;
+    if (delivered) {
+      result.delivered += 1;
+      await this.store.updateWebhookJob({
+        ...job, status: "delivered", attemptCount, lastResponseStatus: responseStatus, lastError: undefined,
+        lockedAt: undefined, lockedBy: undefined, completedAt: now.toISOString(),
+      });
+      return;
+    }
+    const deadLetter = attemptCount >= job.maxAttempts;
+    result[deadLetter ? "deadLetter" : "retrying"] += 1;
+    await this.store.updateWebhookJob({
+      ...job,
+      status: deadLetter ? "dead_letter" : "retrying",
+      attemptCount,
+      lastResponseStatus: responseStatus,
+      lastError: error ?? "Webhook delivery failed.",
+      nextAttemptAt: deadLetter ? now.toISOString() : new Date(now.getTime() + webhookRetryDelay(attemptCount)).toISOString(),
+      lockedAt: undefined,
+      lockedBy: undefined,
+      completedAt: deadLetter ? now.toISOString() : undefined,
+    });
   }
 
   private async markRunEvidenceUpload(run: RunRecord, result: "accepted" | "rejected", reason?: string): Promise<void> {
@@ -838,6 +1025,10 @@ function assessAction(
   const decision: ActionDecision = riskScore >= 70 ? "REQUIRE_APPROVAL" : "ALLOW";
   if (reasons.length === 0) reasons.push("Default policy allows this low-risk action.");
   return { riskLevel: riskScore >= 90 ? "CRITICAL" : riskScore >= 70 ? "HIGH" : riskScore >= 40 ? "MEDIUM" : "LOW", riskScore, decision, reasons };
+}
+
+function webhookRetryDelay(attemptCount: number): number {
+  return Math.min(DEFAULT_WEBHOOK_RETRY_BASE_MS * (2 ** Math.max(0, attemptCount - 1)), MAX_WEBHOOK_RETRY_MS);
 }
 function publicApiKey(apiKey: ApiKeyRecord): PublicApiKeyRecord {
   const { secretHash: _secretHash, ...publicRecord } = apiKey;
