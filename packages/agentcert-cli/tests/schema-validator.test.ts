@@ -110,4 +110,15 @@ describe("AgentCert schema validator", () => {
     expect(releaseGate.valid).toBe(true);
     expect(signature.valid).toBe(true);
   });
+
+  it("accepts a scoped assurance report", () => {
+    const result = validateAgentCertSchema("assurance-report", {
+      schemaVersion: "agentcert.assurance_report.v0.1", assuranceCaseId: "case-1", projectId: "project-1",
+      subject: { id: "agent-1", name: "Browser Agent", kind: "browser", version: "1.0.0" },
+      policyPackVersion: "agentcert.browser.v0.1", evaluationPlanSha256: "a".repeat(64), evidence: [{ id: "e-1" }],
+      decision: "issued", reviewerId: "reviewer-1", issuedAt: "2026-07-16T00:00:00.000Z", expiresAt: "2026-10-14T00:00:00.000Z",
+      limitations: ["Synthetic environment only."], statement: "Scoped assurance decision.",
+    });
+    expect(result).toEqual({ schema: "assurance-report", valid: true, errors: [] });
+  });
 });

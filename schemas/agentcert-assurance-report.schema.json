@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.dev/schemas/agentcert-assurance-report-v0.1.json",
+  "title": "AgentCert Assurance Report v0.1",
+  "type": "object",
+  "required": ["schemaVersion", "assuranceCaseId", "projectId", "subject", "policyPackVersion", "evaluationPlanSha256", "evidence", "decision", "reviewerId", "issuedAt", "expiresAt", "limitations", "statement"],
+  "properties": {
+    "schemaVersion": { "const": "agentcert.assurance_report.v0.1" },
+    "assuranceCaseId": { "type": "string", "format": "uuid" },
+    "projectId": { "type": "string", "format": "uuid" },
+    "subject": { "type": "object", "required": ["id", "name", "kind"], "additionalProperties": true },
+    "policyPackVersion": { "type": "string", "minLength": 1 },
+    "evaluationPlanSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "evidence": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["id", "kind", "schemaVersion", "sha256", "sizeBytes"] } },
+    "decision": { "const": "issued" },
+    "reviewerId": { "type": "string", "minLength": 1 },
+    "issuedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "limitations": { "type": "array", "items": { "type": "string" } },
+    "statement": { "type": "string", "minLength": 1 },
+    "attestation": { "$ref": "agentcert-server-attestation.schema.json" }
+  },
+  "additionalProperties": false
+}

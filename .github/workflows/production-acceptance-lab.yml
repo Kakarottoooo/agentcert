@@ -1,0 +1,57 @@
+name: Production acceptance lab
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "43 9 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: agentcert
+          POSTGRES_PASSWORD: agentcert
+          POSTGRES_DB: agentcert_acceptance
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U agentcert -d agentcert_acceptance"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      AGENTCERT_ACCEPTANCE_DATABASE_URL: postgresql://agentcert:agentcert@127.0.0.1:5432/agentcert_acceptance
+      AGENTCERT_ACCEPTANCE_REDIS_URL: redis://127.0.0.1:6379
+      AGENTCERT_ACCEPTANCE_OUTPUT: .agentcert/acceptance/production-acceptance.json
+      AGENTCERT_BASE_URL: https://agentcert-control-plane.onrender.com
+      AGENTCERT_PROJECT_ID: ${{ secrets.AGENTCERT_PROJECT_ID }}
+      AGENTCERT_API_KEY: ${{ secrets.AGENTCERT_API_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          package-manager-cache: false
+      - name: Install acceptance dependencies
+        run: |
+          npm --prefix packages/agentcert-control-plane ci
+          npm --prefix packages/agentcert-cli ci
+      - name: Run fault and recovery acceptance
+        run: node scripts/production-acceptance-lab.mjs
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: production-acceptance-${{ github.run_id }}
+          path: .agentcert/acceptance/
+          if-no-files-found: error
+          retention-days: 90

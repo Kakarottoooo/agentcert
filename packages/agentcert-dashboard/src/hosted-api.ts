@@ -211,6 +211,40 @@ export interface HostedEvidence {
   createdAt: string;
 }
 
+export type HostedAssuranceCaseStatus = "draft" | "evaluating" | "review_required" | "issued" | "suspended" | "revoked" | "expired";
+
+export interface HostedAssuranceCase {
+  id: string;
+  projectId: string;
+  name: string;
+  subject: { id: string; name: string; version?: string; kind: string };
+  status: HostedAssuranceCaseStatus;
+  policyPackVersion: string;
+  evaluationPlan: {
+    requiredEvidenceKinds: string[];
+    controls: Array<{ id: string; title: string; mode: "automated" | "evidence_required" | "manual" }>;
+    limitations: string[];
+  };
+  evaluationPlanSha256: string;
+  evidenceIds: string[];
+  reviewerId?: string;
+  report?: { schemaVersion: string; issuedAt: string; expiresAt: string; statement: string; attestation?: { keyId: string } };
+  publicVerificationId?: string;
+  expiresAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HostedAssuranceDecision {
+  id: string;
+  fromStatus?: HostedAssuranceCaseStatus;
+  toStatus: HostedAssuranceCaseStatus;
+  actorEmail?: string;
+  reason: string;
+  evidenceIds: string[];
+  occurredAt: string;
+}
+
 export interface HostedFailureReview {
   id: string;
   projectId: string;
@@ -672,6 +706,30 @@ export async function disableHostedNotificationDestination(session: HostedSessio
 
 export async function loadHostedEvidence(session: HostedSession, projectId: string): Promise<HostedEvidence[]> {
   return (await apiRequest<{ evidence: HostedEvidence[] }>(session, path(projectId, "evidence"))).evidence;
+}
+
+export async function loadHostedAssuranceCases(session: HostedSession, projectId: string): Promise<HostedAssuranceCase[]> {
+  return (await apiRequest<{ assuranceCases: HostedAssuranceCase[] }>(session, path(projectId, "assurance-cases"))).assuranceCases;
+}
+
+export async function loadHostedAssuranceCase(session: HostedSession, projectId: string, caseId: string): Promise<{ assuranceCase: HostedAssuranceCase; decisions: HostedAssuranceDecision[] }> {
+  return apiRequest(session, path(projectId, `assurance-cases/${encodeURIComponent(caseId)}`));
+}
+
+export async function createHostedAssuranceCase(session: HostedSession, projectId: string, input: Record<string, unknown>): Promise<HostedAssuranceCase> {
+  return apiRequest(session, path(projectId, "assurance-cases"), { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function transitionHostedAssuranceCase(
+  session: HostedSession,
+  projectId: string,
+  caseId: string,
+  transition: "start" | "submit" | "return" | "issue" | "suspend" | "revoke" | "expire" | "resume",
+  input: Record<string, unknown>,
+): Promise<{ assuranceCase: HostedAssuranceCase; decision: HostedAssuranceDecision }> {
+  return apiRequest(session, path(projectId, `assurance-cases/${encodeURIComponent(caseId)}/${transition}`), {
+    method: "POST", body: JSON.stringify(input),
+  });
 }
 
 export async function requestHostedLegalHold(

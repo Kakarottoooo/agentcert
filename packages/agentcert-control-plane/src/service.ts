@@ -56,10 +56,14 @@ import type {
   TrustHealthBurnWindow,
   WebhookJobRecord,
   WebhookRecord,
+  AssuranceCaseRecord,
+  AssuranceCaseDecisionRecord,
+  AssuranceCaseStatus,
 } from "./types.js";
 import { DisabledEmailProvider, type EmailProvider } from "./notifications.js";
 import { EnvelopeValidationError, isSpanId, isTraceId, parseUniversalEnvelope, type UniversalEnvelope } from "./protocol.js";
 import { EvidenceSigner, type EvidenceAttestationPayload } from "./signing.js";
+import { buildAssuranceReport, canTransitionAssuranceCase, evaluationPlanDigest, missingRequiredEvidence } from "./assurance.js";
 import type { CoordinationHealth } from "./coordination.js";
 import {
   DEFAULT_API_KEY_SCOPES,
@@ -245,6 +249,112 @@ export class AgentCertControlPlane {
     const generatedAt = new Date();
     const since = new Date(generatedAt.getTime() - days * 24 * 60 * 60 * 1_000).toISOString();
     return buildPilotFunnelReport(await this.store.pilotFunnelSource(since), days, since, generatedAt.toISOString());
+  }
+
+  async createAssuranceCase(auth: AuthContext, projectId: string, input: unknown): Promise<AssuranceCaseRecord> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    requireUser(auth);
+    const body = record(input);
+    const subject = record(body.subject);
+    const planInput = record(body.evaluationPlan);
+    const controlsInput = Array.isArray(planInput.controls) ? planInput.controls : [];
+    const controls = controlsInput.map((value, index) => {
+      const control = record(value);
+      const mode = control.mode === "automated" || control.mode === "evidence_required" || control.mode === "manual" ? control.mode : undefined;
+      if (!mode) throw new ControlPlaneError(`evaluationPlan.controls[${index}].mode is invalid.`);
+      return { id: requiredString(control, "id"), title: requiredString(control, "title"), mode: mode as "automated" | "evidence_required" | "manual" };
+    });
+    if (controls.length === 0) throw new ControlPlaneError("evaluationPlan.controls must contain at least one control.");
+    const evaluationPlan: AssuranceCaseRecord["evaluationPlan"] = {
+      requiredEvidenceKinds: strictStringList(planInput.requiredEvidenceKinds, "evaluationPlan.requiredEvidenceKinds", ["evidence_bundle"]),
+      controls,
+      limitations: strictStringList(planInput.limitations, "evaluationPlan.limitations", ["The assessment covers only the declared subject version and evaluation plan."]),
+    };
+    const now = new Date().toISOString();
+    const assuranceCase: AssuranceCaseRecord = {
+      id: randomUUID(), projectId, name: requiredString(body, "name"),
+      subject: { id: requiredString(subject, "id"), name: requiredString(subject, "name"), version: optionalString(subject, "version"), kind: requiredString(subject, "kind") },
+      status: "draft", policyPackVersion: requiredString(body, "policyPackVersion"), evaluationPlan,
+      evaluationPlanSha256: evaluationPlanDigest(evaluationPlan), evidenceIds: [], createdBy: auth.userId, createdAt: now, updatedAt: now,
+    };
+    const decision = assuranceDecision(assuranceCase, auth, undefined, "draft", "Assurance case created.", now);
+    return this.store.insertAssuranceCaseWithDecision(assuranceCase, decision);
+  }
+
+  async listAssuranceCases(auth: AuthContext, projectId: string): Promise<AssuranceCaseRecord[]> {
+    await this.authorizeProject(auth, projectId, undefined, "runs:read");
+    return Promise.all((await this.store.listAssuranceCases(projectId)).map((item) => this.expireAssuranceCaseIfNeeded(item)));
+  }
+
+  async getAssuranceCase(auth: AuthContext, projectId: string, caseId: string) {
+    await this.authorizeProject(auth, projectId, undefined, "runs:read");
+    const found = await this.store.getAssuranceCase(projectId, caseId);
+    if (!found) throw new ControlPlaneError("Assurance case was not found.", 404);
+    const assuranceCase = await this.expireAssuranceCaseIfNeeded(found);
+    return { assuranceCase, decisions: await this.store.listAssuranceCaseDecisions(projectId, caseId) };
+  }
+
+  async transitionAssuranceCase(auth: AuthContext, projectId: string, caseId: string, action: string, input: unknown) {
+    const privileged = action === "issue" ? ["owner", "admin", "reviewer"] : ["owner", "admin"];
+    await this.authorizeProject(auth, projectId, privileged);
+    requireUser(auth);
+    const current = await this.store.getAssuranceCase(projectId, caseId);
+    if (!current) throw new ControlPlaneError("Assurance case was not found.", 404);
+    const target = assuranceTarget(action);
+    if (!canTransitionAssuranceCase(current.status, target)) {
+      throw new ControlPlaneError(`Assurance case cannot transition from ${current.status} to ${target}.`, 409, "assurance_transition_invalid");
+    }
+    const body = record(input);
+    const evidenceIds = body.evidenceIds === undefined ? current.evidenceIds : strictStringList(body.evidenceIds, "evidenceIds");
+    const evidence = await Promise.all(evidenceIds.map(async (id) => {
+      const item = await this.store.getEvidence(projectId, id);
+      if (!item) throw new ControlPlaneError(`Evidence ${id} was not found in this project.`, 422, "assurance_evidence_missing");
+      return item;
+    }));
+    if (target === "review_required" || target === "issued") {
+      const missing = missingRequiredEvidence({ ...current, evidenceIds }, evidence);
+      if (missing.length) throw new ControlPlaneError(`Required evidence kinds are missing: ${missing.join(", ")}.`, 422, "assurance_evidence_incomplete");
+    }
+    if (target === "issued" && current.createdBy === auth.userId) {
+      throw new ControlPlaneError("The assurance case creator cannot issue its report. A separate reviewer is required.", 403, "assurance_reviewer_separation_required");
+    }
+    const now = new Date();
+    const next: AssuranceCaseRecord = { ...current, status: target, evidenceIds, updatedAt: now.toISOString() };
+    if (target === "issued") {
+      if (!this.evidenceSigner) throw new ControlPlaneError("Server evidence signing is required before an assurance report can be issued.", 503, "assurance_signing_required");
+      const expiresAt = assuranceExpiry(body.expiresAt, now);
+      next.reviewerId = auth.userId;
+      next.expiresAt = expiresAt;
+      next.report = buildAssuranceReport(next, evidence, auth.userId, now.toISOString(), expiresAt, this.evidenceSigner);
+      if (body.publish === true) next.publicVerificationId = randomBytes(24).toString("base64url");
+    }
+    const reason = requiredString(body, "reason");
+    const decision = assuranceDecision(next, auth, current.status, target, reason, now.toISOString());
+    const updated = await this.store.transitionAssuranceCase(next, decision, current.status);
+    if (!updated) throw new ControlPlaneError("Assurance case changed concurrently. Reload and retry.", 409, "assurance_transition_conflict");
+    return { assuranceCase: updated, decision };
+  }
+
+  async publicAssuranceReport(publicId: string) {
+    const found = await this.store.getAssuranceCaseByPublicId(publicId);
+    if (!found?.report) throw new ControlPlaneError("Published assurance report was not found.", 404);
+    const assuranceCase = await this.expireAssuranceCaseIfNeeded(found);
+    const decisions = await this.store.listAssuranceCaseDecisions(assuranceCase.projectId, assuranceCase.id);
+    return {
+      schemaVersion: "agentcert.public_assurance_report.v0.1", status: assuranceCase.status, report: assuranceCase.report,
+      history: decisions.map(({ toStatus, reason, occurredAt }) => ({ status: toStatus, reason, occurredAt })),
+    };
+  }
+
+  private async expireAssuranceCaseIfNeeded(assuranceCase: AssuranceCaseRecord): Promise<AssuranceCaseRecord> {
+    if (assuranceCase.status !== "issued" || !assuranceCase.expiresAt || Date.parse(assuranceCase.expiresAt) > Date.now()) return assuranceCase;
+    const occurredAt = new Date().toISOString();
+    const next = { ...assuranceCase, status: "expired" as const, updatedAt: occurredAt };
+    const decision: AssuranceCaseDecisionRecord = {
+      id: randomUUID(), projectId: next.projectId, assuranceCaseId: next.id, fromStatus: "issued", toStatus: "expired",
+      actorId: "agentcert-system", reason: "Assurance report reached its declared expiry.", evidenceIds: next.evidenceIds, occurredAt,
+    };
+    return await this.store.transitionAssuranceCase(next, decision, "issued") ?? await this.store.getAssuranceCase(next.projectId, next.id) ?? next;
   }
 
   async authorizeProject(auth: AuthContext, projectId: string, roles?: string[], scope?: ApiKeyScope): Promise<void> {
@@ -1937,6 +2047,37 @@ function record(value: unknown): Record<string, unknown> { return value && typeo
 function optionalRecord(value: unknown): Record<string, unknown> | undefined { const result = record(value); return Object.keys(result).length ? result : undefined; }
 function requiredString(value: Record<string, unknown>, key: string): string { const result = optionalString(value, key); if (!result) throw new ControlPlaneError(`${key} is required.`); return result; }
 function optionalString(value: Record<string, unknown>, key: string): string | undefined { return typeof value[key] === "string" && value[key].trim() ? value[key].trim() : undefined; }
+function strictStringList(value: unknown, name: string, fallback?: string[]): string[] {
+  if (value === undefined && fallback) return fallback;
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) throw new ControlPlaneError(`${name} must be an array of non-empty strings.`);
+  const result = [...new Set(value.map((item) => String(item).trim()))];
+  if (result.length === 0) throw new ControlPlaneError(`${name} cannot be empty.`);
+  return result;
+}
+function assuranceTarget(action: string): AssuranceCaseStatus {
+  const targets: Record<string, AssuranceCaseStatus> = {
+    start: "evaluating", submit: "review_required", return: "evaluating", issue: "issued",
+    suspend: "suspended", revoke: "revoked", expire: "expired", resume: "evaluating",
+  };
+  const target = targets[action];
+  if (!target) throw new ControlPlaneError("Unknown assurance case transition.", 404);
+  return target;
+}
+function assuranceExpiry(value: unknown, now: Date): string {
+  const expiresAt = typeof value === "string" ? new Date(value) : new Date(now.getTime() + 90 * 24 * 60 * 60 * 1_000);
+  const duration = expiresAt.getTime() - now.getTime();
+  if (!Number.isFinite(expiresAt.getTime()) || duration <= 0 || duration > 365 * 24 * 60 * 60 * 1_000) {
+    throw new ControlPlaneError("expiresAt must be a future timestamp no more than 365 days from issuance.");
+  }
+  return expiresAt.toISOString();
+}
+function assuranceDecision(
+  assuranceCase: AssuranceCaseRecord, auth: AuthContext & { userId: string }, fromStatus: AssuranceCaseStatus | undefined,
+  toStatus: AssuranceCaseStatus, reason: string, occurredAt: string,
+): AssuranceCaseDecisionRecord {
+  return { id: randomUUID(), projectId: assuranceCase.projectId, assuranceCaseId: assuranceCase.id, fromStatus, toStatus,
+    actorId: auth.userId, actorEmail: auth.email, reason, evidenceIds: assuranceCase.evidenceIds, occurredAt };
+}
 const PILOT_FEEDBACK_STAGES = new Set<PilotFeedbackStage>(["project", "api_key", "cli_connect", "first_run", "evidence_upload", "dashboard_review"]);
 const PILOT_FEEDBACK_CATEGORIES = new Set<PilotFeedbackCategory>(["install", "authentication", "configuration", "execution", "evidence", "dashboard", "other"]);
 const PILOT_FEEDBACK_OUTCOMES = new Set<PilotFeedbackOutcome>(["blocked", "confusing", "failed", "completed", "suggestion"]);

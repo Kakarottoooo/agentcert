@@ -49,5 +49,21 @@
   "sourcePath": "public-demo/real-agent-robustness/evidence/playwright-agent/tripwire-result.json",
   "metadata": {
     "finalUrl": "http://127.0.0.1:3020/success"
+  },
+  "governance": {
+    "schemaVersion": "agentcert.corpus_governance.v0.1",
+    "consent": "anonymous",
+    "consentSource": "pilot agreement 2026-07",
+    "consentRecordedAt": "2026-07-16T00:00:00.000Z",
+    "provenance": {
+      "sourcePath": "tripwire-result.json",
+      "sourceRecordSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "collectedAt": "2026-06-25T00:00:00.000Z"
+    },
+    "redaction": {
+      "policyVersion": "agentcert.redaction.v0.1",
+      "replacements": 0,
+      "secretScanPassed": true
+    }
   }
 }

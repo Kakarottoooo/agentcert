@@ -13,6 +13,7 @@ import {
 } from "./corpus.js";
 import { openCorpusStore, parseCorpusStoreKind, type CorpusStoreOptions } from "./corpus-store.js";
 import { applyFailureReviews, readFailureReviews } from "./failure-review.js";
+import { governCorpusRecords } from "./corpus-governance.js";
 import { buildMonitorSnapshot, writeMonitorSnapshot } from "./monitor.js";
 import { normalizeMcpBenchResult, normalizeOnegentAuditPacket, normalizeTripwireResult } from "./normalizers.js";
 import { renderHtmlReport, renderMarkdownReport } from "./report.js";
@@ -312,10 +313,10 @@ export async function runAgentCertProfile(profileInput: AgentCertRunProfile, opt
   );
   const reviewsPath = profile.run?.corpus?.reviewsPath;
   const reviews = await readFailureReviews(reviewsPath ? resolve(cwd, reviewsPath) : undefined);
-  const records = applyFailureReviews(
+  const records = governCorpusRecords(applyFailureReviews(
     loaded.flatMap(({ result, path, raw }) => recordsFromAgentCertResult(result, path, profile.subject.name, raw)),
     reviews,
-  );
+  ), { consent: "private", consentSource: "agentcert-runner-default" });
   const outputs: AgentCertRunManifest["outputs"] = { monitor: [], reviewedDataset: [] };
 
   const reportEnabled = profile.run?.report?.enabled ?? true;
