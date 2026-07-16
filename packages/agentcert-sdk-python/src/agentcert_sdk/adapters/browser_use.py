@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sized
+from typing import Any
 
 from ..client import AgentCertClient
 from ..envelope import event_envelope, new_trace_context
@@ -9,7 +10,14 @@ from ..envelope import event_envelope, new_trace_context
 class BrowserUseAdapter:
     """Creates browser-use step hooks while recording only bounded, serializable state."""
 
-    def __init__(self, client: AgentCertClient, *, agent_id: str, run_id: str, agent_version: str | None = None):
+    def __init__(
+        self,
+        client: AgentCertClient,
+        *,
+        agent_id: str,
+        run_id: str,
+        agent_version: str | None = None,
+    ):
         self.client = client
         self.agent_id = agent_id
         self.run_id = run_id
@@ -47,10 +55,12 @@ def _bounded_state(agent: Any) -> dict[str, Any]:
     state = getattr(agent, "state", None)
     history = getattr(agent, "history", None)
     return {
-        "currentUrl": _text(getattr(state, "url", None) or getattr(agent, "current_url", None), 2048),
+        "currentUrl": _text(
+            getattr(state, "url", None) or getattr(agent, "current_url", None), 2048
+        ),
         "lastAction": _text(getattr(state, "last_action", None), 1000),
         "lastResult": _text(getattr(state, "last_result", None), 2000),
-        "historyLength": len(history) if hasattr(history, "__len__") else None,
+        "historyLength": len(history) if isinstance(history, Sized) else None,
     }
 
 

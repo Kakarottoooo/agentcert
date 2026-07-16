@@ -9,7 +9,14 @@ from ..envelope import event_envelope, normalize_span_id, normalize_trace_id
 class AgentCertTracingProcessor:
     """Duck-typed OpenAI Agents SDK tracing processor with no SDK dependency."""
 
-    def __init__(self, client: AgentCertClient, *, agent_id: str, run_id: str, agent_version: str | None = None):
+    def __init__(
+        self,
+        client: AgentCertClient,
+        *,
+        agent_id: str,
+        run_id: str,
+        agent_version: str | None = None,
+    ):
         self.client = client
         self.agent_id = agent_id
         self.run_id = run_id
@@ -51,7 +58,12 @@ class AgentCertTracingProcessor:
             event_type=event_type,
             sequence=self.sequence,
             attributes={key: value for key, value in attributes.items() if value is not None},
-            trace={"traceId": trace_id, "spanId": span_id, **({"parentSpanId": normalize_span_id(parent_id)} if parent_id else {}), "traceFlags": 1},
+            trace={
+                "traceId": trace_id,
+                "spanId": span_id,
+                **({"parentSpanId": normalize_span_id(parent_id)} if parent_id else {}),
+                "traceFlags": 1,
+            },
             framework="openai-agents",
             adapter="agentcert.openai_agents.v0.1",
         )

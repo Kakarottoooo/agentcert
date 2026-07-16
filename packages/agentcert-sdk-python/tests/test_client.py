@@ -52,7 +52,9 @@ class ClientTest(unittest.TestCase):
     @patch("urllib.request.urlopen", return_value=FakeResponse())
     def test_send_envelope_uses_idempotency_key(self, urlopen):
         client = AgentCertClient("https://agentcert.example", "project-1", "ac_live_test")
-        client.send_envelope({"envelopeId": "envelope-1", "schemaVersion": "agentcert.envelope.v0.1"})
+        client.send_envelope(
+            {"envelopeId": "envelope-1", "schemaVersion": "agentcert.envelope.v0.1"}
+        )
         request = urlopen.call_args.args[0]
         self.assertEqual(request.headers["Idempotency-key"], "envelope-1")
 
