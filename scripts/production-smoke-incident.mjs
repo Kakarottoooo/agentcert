@@ -79,6 +79,7 @@ function incidentOccurrence(env, repository, runUrl, result) {
   const completedAt = sanitize(result.completedAt ?? new Date().toISOString());
   const sha = sanitize(env.GITHUB_SHA ?? "unknown");
   const attempt = sanitize(env.GITHUB_RUN_ATTEMPT ?? "1");
+  const runbookUrl = sanitize(env.AGENTCERT_RUNBOOK_URL ?? `https://github.com/${repository}/blob/main/docs/trust-operations-runbook.md`);
   return [
     "### Failure occurrence",
     `- Workflow run: [${sanitize(env.GITHUB_RUN_ID)} (attempt ${attempt})](${runUrl})`,
@@ -86,7 +87,7 @@ function incidentOccurrence(env, repository, runUrl, result) {
     `- Recorded: ${completedAt}`,
     `- Error: ${error}`,
     "",
-    `Follow the [Trust Operations incident runbook](https://github.com/${repository}/blob/main/docs/trust-operations-runbook.md) before closing this issue.`,
+    `Follow the [Trust Operations incident runbook](${runbookUrl}) before closing this issue.`,
   ].join("\n");
 }
 
