@@ -30,6 +30,8 @@ import type {
   FailureReviewRecord,
   FailureType,
   IncidentRecord,
+  IncidentTransitionRecord,
+  IncidentStatus,
   LegalHoldRequestRecord,
   RunKind,
   RunRecord,
@@ -39,9 +41,13 @@ import type {
   FailureQualityMetrics,
   SigningKeyRecord,
   TrustHealthSampleRecord,
+  NotificationAlertType,
+  NotificationDestinationRecord,
+  PublicNotificationDestinationRecord,
   WebhookJobRecord,
   WebhookRecord,
 } from "./types.js";
+import { DisabledEmailProvider, type EmailProvider } from "./notifications.js";
 import { EnvelopeValidationError, isSpanId, isTraceId, parseUniversalEnvelope, type UniversalEnvelope } from "./protocol.js";
 import { EvidenceSigner, type EvidenceAttestationPayload } from "./signing.js";
 import type { CoordinationHealth } from "./coordination.js";
@@ -59,6 +65,8 @@ const DEFAULT_WEBHOOK_MAX_ATTEMPTS = 5;
 const DEFAULT_WEBHOOK_LEASE_MS = 60_000;
 const DEFAULT_WEBHOOK_RETRY_BASE_MS = 5_000;
 const MAX_WEBHOOK_RETRY_MS = 60 * 60 * 1000;
+const PRODUCTION_SMOKE_FINGERPRINT = "trust-operations:production-smoke";
+const TRUST_SLO_OBJECTIVE = 0.99;
 
 export class ControlPlaneError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -77,6 +85,8 @@ export class AgentCertControlPlane {
     readonly evidenceSigner?: EvidenceSigner,
     readonly webhookVault?: WebhookSecretVault,
     readonly webhookFetch: typeof fetch = fetch,
+    readonly emailProvider: EmailProvider = new DisabledEmailProvider(),
+    readonly publicUrl = "http://127.0.0.1:8787",
   ) {
     this.platformAdminEmails = new Set([...platformAdminEmails].map((email) => email.trim().toLowerCase()).filter(Boolean));
   }
@@ -257,9 +267,11 @@ export class AgentCertControlPlane {
       metadata: { ...current.metadata, ...record(body.metadata) },
     });
     if (status === "failed") {
+      const incidentAt = new Date().toISOString();
       await this.store.insertIncident({
         id: randomUUID(), projectId, agentId: current.agentId, runId: current.id, severity: "high", type: "run_failure", status: "open",
-        summary: optionalString(body, "summary") ?? `${current.kind} run failed.`, firstDivergence: optionalString(body, "firstDivergence"), createdAt: new Date().toISOString(),
+        summary: optionalString(body, "summary") ?? `${current.kind} run failed.`, firstDivergence: optionalString(body, "firstDivergence"),
+        occurrenceCount: 1, consecutivePasses: 0, createdAt: incidentAt, updatedAt: incidentAt,
       });
     }
     await this.emitWebhook(projectId, "run.completed", next.id, next);
@@ -397,7 +409,8 @@ export class AgentCertControlPlane {
     if (!success) {
       await this.store.insertIncident({
         id: randomUUID(), projectId, agentId: action.agentId, actionId: action.id, severity: "high", type: "verification_gap", status: "open",
-        summary: "Runtime action outcome did not match the expected state.", firstDivergence: firstMismatch(action.expectedState ?? {}, observedState), createdAt: next.updatedAt,
+        summary: "Runtime action outcome did not match the expected state.", firstDivergence: firstMismatch(action.expectedState ?? {}, observedState),
+        occurrenceCount: 1, consecutivePasses: 0, createdAt: next.updatedAt, updatedAt: next.updatedAt,
       });
     }
     await this.emitWebhook(projectId, "action.verified", next.id, next);
@@ -747,13 +760,13 @@ export class AgentCertControlPlane {
         runs: runs.length,
         passingRuns: runs.filter((item) => item.status === "passed").length,
         pendingApprovals: actions.filter((item) => item.status === "PENDING_APPROVAL").length,
-        openIncidents: incidents.filter((item) => item.status === "open").length,
+        openIncidents: incidents.filter((item) => item.status !== "resolved").length,
         evidence: evidence.length,
         taxonomyQuality: quality,
       },
       recentRuns: runs.slice(0, 8),
       recentActions: actions.slice(0, 8),
-      openIncidents: incidents.filter((item) => item.status === "open").slice(0, 8),
+      openIncidents: incidents.filter((item) => item.status !== "resolved").slice(0, 8),
     };
   }
 
@@ -762,7 +775,7 @@ export class AgentCertControlPlane {
     return { schemaVersion: "agentcert.signing_key.v0.1", keyId: this.evidenceSigner.keyId, algorithm: "Ed25519", publicKeyPem: this.evidenceSigner.publicKeyPem };
   }
 
-  async recordTrustHealthSample(auth: AuthContext, projectId: string, input: unknown): Promise<TrustHealthSampleRecord> {
+  async recordTrustHealthSample(auth: AuthContext, projectId: string, input: unknown) {
     await this.authorizeProject(auth, projectId, undefined, "runs:write");
     const body = record(input);
     const externalId = requiredString(body, "externalId");
@@ -783,17 +796,168 @@ export class AgentCertControlPlane {
       if (parsed.protocol !== "https:") throw new ControlPlaneError("workflowRunUrl must be a valid HTTPS URL.");
     }
     const now = new Date().toISOString();
-    return this.store.saveTrustHealthSample({
+    const sample = await this.store.saveTrustHealthSample({
       id: randomUUID(), projectId, externalId, source, status, startedAt, completedAt,
       durationMs: Math.max(0, Date.parse(completedAt) - Date.parse(startedAt)), checks: stringList(body.checks), error,
       workflowRunId: optionalString(body, "workflowRunId"), workflowRunUrl, createdAt: now,
     });
+    const lifecycle = source === "production_smoke" ? await this.applyProductionSmokeOutcome(auth, sample) : {};
+    return { sample, ...lifecycle };
+  }
+
+  private async applyProductionSmokeOutcome(
+    auth: AuthContext,
+    sample: TrustHealthSampleRecord,
+  ): Promise<{ operationalIncident?: IncidentRecord; incidentTransition?: IncidentTransitionRecord }> {
+    const active = await this.store.getActiveIncidentByFingerprint(sample.projectId, PRODUCTION_SMOKE_FINGERPRINT);
+    if (sample.status === "failed") {
+      if (!active) {
+        const now = sample.completedAt;
+        const incident: IncidentRecord = {
+          id: randomUUID(), projectId: sample.projectId, severity: "high", type: "production_smoke", status: "open",
+          summary: "Production trust smoke failed.", firstDivergence: sample.error, fingerprint: PRODUCTION_SMOKE_FINGERPRINT,
+          occurrenceCount: 1, consecutivePasses: 0, lastFailedAt: now, createdAt: now, updatedAt: now,
+        };
+        let inserted: IncidentRecord;
+        try { inserted = await this.store.insertIncident(incident); }
+        catch (error) {
+          if (databaseErrorCode(error) !== "23505") throw error;
+          inserted = await this.store.getActiveIncidentByFingerprint(sample.projectId, PRODUCTION_SMOKE_FINGERPRINT) ?? incident;
+        }
+        if (inserted.id !== incident.id) return this.applyProductionSmokeOutcome(auth, sample);
+        const transition = await this.appendIncidentTransition(inserted, undefined, "open", auth, "Production smoke failure opened the incident.", sampleEvidence(sample));
+        await this.sendIncidentNotification("incident_opened", inserted, transition);
+        return { operationalIncident: inserted, incidentTransition: transition };
+      }
+      const regressed = active.status === "recovered";
+      const next: IncidentRecord = {
+        ...active, status: regressed ? "open" : active.status, occurrenceCount: active.occurrenceCount + 1,
+        consecutivePasses: 0, lastFailedAt: sample.completedAt, firstDivergence: sample.error ?? active.firstDivergence,
+        updatedAt: sample.completedAt,
+      };
+      const updated = await this.store.updateIncident(next);
+      const transition = await this.appendIncidentTransition(
+        updated, active.status, updated.status, auth,
+        regressed ? "Production smoke failed after recovery." : "Another production smoke failure was observed.",
+        sampleEvidence(sample),
+      );
+      if (regressed) await this.sendIncidentNotification("incident_regressed", updated, transition);
+      return { operationalIncident: updated, incidentTransition: transition };
+    }
+
+    if (!active) {
+      const latest = await this.store.getLatestIncidentByFingerprint(sample.projectId, PRODUCTION_SMOKE_FINGERPRINT);
+      return latest?.status === "resolved" ? { operationalIncident: latest } : {};
+    }
+    const consecutivePasses = active.consecutivePasses + 1;
+    const recovered = consecutivePasses >= 2 && (active.status === "open" || active.status === "investigating");
+    const next = await this.store.updateIncident({
+      ...active, status: recovered ? "recovered" : active.status, consecutivePasses, lastPassedAt: sample.completedAt,
+      recoveredAt: recovered ? sample.completedAt : active.recoveredAt, updatedAt: sample.completedAt,
+    });
+    if (!recovered) return { operationalIncident: next };
+    const transition = await this.appendIncidentTransition(
+      next, active.status, "recovered", auth, "Two consecutive production smoke runs passed.",
+      { ...sampleEvidence(sample), consecutivePasses },
+    );
+    await this.sendIncidentNotification("incident_recovered", next, transition);
+    return { operationalIncident: next, incidentTransition: transition };
+  }
+
+  async acknowledgeOperationalIncident(auth: AuthContext, projectId: string, incidentId: string, input: unknown) {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    requireUser(auth);
+    const incident = await this.store.getIncident(projectId, incidentId);
+    if (!incident?.fingerprint) throw new ControlPlaneError("Operational incident was not found.", 404);
+    if (incident.status === "investigating") return { incident, transitions: await this.store.listIncidentTransitions(projectId, incidentId) };
+    if (incident.status !== "open") throw new ControlPlaneError(`Incident cannot be acknowledged from ${incident.status}.`, 409);
+    const reason = reviewReason(input);
+    const now = new Date().toISOString();
+    const updated = await this.store.updateIncident({
+      ...incident, status: "investigating", acknowledgedBy: auth.userId, acknowledgedByEmail: auth.email,
+      acknowledgedAt: now, updatedAt: now,
+    });
+    const transition = await this.appendIncidentTransition(updated, "open", "investigating", auth, reason, {});
+    return { incident: updated, transition, transitions: await this.store.listIncidentTransitions(projectId, incidentId) };
+  }
+
+  async resolveOperationalIncident(auth: AuthContext, projectId: string, incidentId: string, input: unknown) {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    requireUser(auth);
+    const incident = await this.store.getIncident(projectId, incidentId);
+    if (!incident?.fingerprint) throw new ControlPlaneError("Operational incident was not found.", 404);
+    if (incident.status === "resolved") return { incident, transitions: await this.store.listIncidentTransitions(projectId, incidentId) };
+    if (incident.status !== "recovered") throw new ControlPlaneError("Incident must have two consecutive passing smokes before resolution.", 409);
+    const reason = reviewReason(input);
+    const now = new Date().toISOString();
+    const updated = await this.store.updateIncident({
+      ...incident, status: "resolved", resolvedBy: auth.userId, resolvedByEmail: auth.email, resolvedAt: now, updatedAt: now,
+    });
+    const transition = await this.appendIncidentTransition(updated, "recovered", "resolved", auth, reason, {});
+    await this.sendIncidentNotification("incident_resolved", updated, transition);
+    return { incident: updated, transition, transitions: await this.store.listIncidentTransitions(projectId, incidentId) };
+  }
+
+  async linkOperationalIncidentGitHub(auth: AuthContext, projectId: string, incidentId: string, input: unknown) {
+    await this.authorizeProject(auth, projectId, undefined, "runs:write");
+    const incident = await this.store.getIncident(projectId, incidentId);
+    if (!incident?.fingerprint) throw new ControlPlaneError("Operational incident was not found.", 404);
+    const body = record(input);
+    const issueNumber = optionalNonNegativeInteger(body.issueNumber);
+    const issueUrl = optionalString(body, "issueUrl");
+    if (!issueNumber || !issueUrl) throw new ControlPlaneError("issueNumber and issueUrl are required.");
+    let parsed: URL;
+    try { parsed = new URL(issueUrl); } catch { throw new ControlPlaneError("issueUrl must be a valid GitHub HTTPS URL."); }
+    if (parsed.protocol !== "https:" || parsed.hostname !== "github.com") throw new ControlPlaneError("issueUrl must be a valid GitHub HTTPS URL.");
+    return this.store.updateIncident({ ...incident, githubIssueNumber: issueNumber, githubIssueUrl: issueUrl, updatedAt: new Date().toISOString() });
+  }
+
+  async createNotificationDestination(auth: AuthContext, projectId: string, input: unknown): Promise<PublicNotificationDestinationRecord> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    requireUser(auth);
+    if (!this.emailProvider.configured) throw new ControlPlaneError("Email notifications are not configured by the AgentCert platform.", 503);
+    const body = record(input);
+    const email = notificationEmail(requiredString(body, "email"));
+    const alertTypes = notificationAlertTypes(body.alertTypes);
+    const token = randomBytes(32).toString("base64url");
+    const now = new Date();
+    const destination = await this.store.saveNotificationDestination({
+      id: randomUUID(), projectId, email, alertTypes, status: "pending_verification", verificationTokenHash: createHash("sha256").update(token).digest("hex"),
+      verificationExpiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(), createdBy: auth.userId, createdAt: now.toISOString(),
+    });
+    const verificationUrl = `${this.publicUrl.replace(/\/$/, "")}/v1/notification-destinations/verify?token=${encodeURIComponent(token)}`;
+    await this.deliverEmail(destination, "destination_verification", "Verify your AgentCert alert email", {
+      text: `Verify this email for AgentCert project alerts: ${verificationUrl}\n\nThis link expires in 24 hours.`,
+      html: `<p>Verify this email for AgentCert project alerts.</p><p><a href="${escapeHtml(verificationUrl)}">Verify alert email</a></p><p>This link expires in 24 hours.</p>`,
+    }, true);
+    return publicNotificationDestination(destination);
+  }
+
+  async verifyNotificationDestination(token: string): Promise<PublicNotificationDestinationRecord> {
+    if (!token || token.length > 512) throw new ControlPlaneError("Verification token is invalid.");
+    const destination = await this.store.verifyNotificationDestination(createHash("sha256").update(token).digest("hex"), new Date().toISOString());
+    if (!destination) throw new ControlPlaneError("Verification token is invalid or expired.", 400);
+    return publicNotificationDestination(destination);
+  }
+
+  async listNotificationDestinations(auth: AuthContext, projectId: string) {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    return (await this.store.listNotificationDestinations(projectId)).map(publicNotificationDestination);
+  }
+
+  async disableNotificationDestination(auth: AuthContext, projectId: string, destinationId: string) {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    const destination = await this.store.disableNotificationDestination(projectId, destinationId, new Date().toISOString());
+    if (!destination) throw new ControlPlaneError("Notification destination was not found.", 404);
+    return publicNotificationDestination(destination);
   }
 
   async operationsOverview(auth: AuthContext, projectId: string, coordination?: CoordinationHealth, now = new Date()) {
     await this.authorizeProject(auth, projectId, undefined, "runs:read");
     const since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const [jobs, jobCounts, deliveries, signingKeys, smokeSamples, latestSmokeSamples, webhookMetrics] = await Promise.all([
+    const since30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const since90 = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const [jobs, jobCounts, deliveries, signingKeys, smokeSamples, latestSmokeSamples, webhookMetrics, slo30, slo90, incidents] = await Promise.all([
       this.store.listWebhookJobs(projectId, 100),
       this.store.webhookJobCounts(projectId),
       this.store.listWebhookDeliveries(projectId, 100),
@@ -801,6 +965,9 @@ export class AgentCertControlPlane {
       this.store.listTrustHealthSamples(projectId, since, 100),
       this.store.listTrustHealthSamples(projectId, "1970-01-01T00:00:00.000Z", 1),
       this.store.webhookOperationsMetrics(projectId, since),
+      this.store.trustHealthCounts(projectId, since30),
+      this.store.trustHealthCounts(projectId, since90),
+      this.store.listIncidents(projectId, 50),
     ]);
     const activeKey = signingKeys.find((key) => key.status === "active");
     const coordinationState = coordination ?? { backend: "memory" as const, state: "degraded" as const, shared: false };
@@ -833,18 +1000,27 @@ export class AgentCertControlPlane {
       : jobCounts.retrying > 0
         ? alert("warning", `${jobCounts.retrying} webhook deliveries are retrying.`)
         : alert("healthy", "No webhook deliveries require operator action.");
-    const alertStates = [redisAlert.status, signingAlert.status, smokeAlert.status, webhookAlert.status];
-    const status = alertStates.includes("critical") ? "critical" : alertStates.includes("warning") ? "warning" : "healthy";
     const smokeBuckets = trustHealthBuckets(smokeSamples, now, 7);
     const webhookBuckets = fillWebhookBuckets(webhookMetrics.buckets, now, 7);
     const smokePassed = smokeSamples.filter((sample) => sample.status === "passed").length;
+    const operationalIncidents = incidents.filter((incident) => incident.fingerprint);
+    const activeIncident = operationalIncidents.find((incident) => incident.status !== "resolved") ?? null;
+    const incidentAlert = !activeIncident
+      ? alert("healthy", "No active production trust incident.")
+      : activeIncident.status === "recovered"
+        ? alert("warning", "Production trust incident recovered and awaits human resolution.")
+        : alert("critical", `Production trust incident is ${activeIncident.status}.`);
+    const alertStates = [redisAlert.status, signingAlert.status, smokeAlert.status, webhookAlert.status, incidentAlert.status];
+    const status = alertStates.includes("critical") ? "critical" : alertStates.includes("warning") ? "warning" : "healthy";
+    const incidentForLedger = activeIncident ?? operationalIncidents[0] ?? null;
+    const transitions = incidentForLedger ? await this.store.listIncidentTransitions(projectId, incidentForLedger.id) : [];
     return {
-      schemaVersion: "agentcert.trust_operations.v0.3",
+      schemaVersion: "agentcert.trust_operations.v0.4",
       projectId,
       status,
       generatedAt: now.toISOString(),
       coordination: coordinationState,
-      alerts: { redis: redisAlert, signing: signingAlert, scheduledSmoke: smokeAlert, webhooks: webhookAlert },
+      alerts: { redis: redisAlert, signing: signingAlert, scheduledSmoke: smokeAlert, webhooks: webhookAlert, incidents: incidentAlert },
       webhooks: {
         queue: jobCounts,
         recentJobs: jobs.slice(0, 50),
@@ -858,6 +1034,17 @@ export class AgentCertControlPlane {
         keys: signingKeys,
       },
       smoke: { latest: latestSmoke ?? null, recent: smokeSamples.slice(0, 20) },
+      incidents: { active: activeIncident, recent: operationalIncidents.slice(0, 10), transitions },
+      notifications: {
+        provider: this.emailProvider.name,
+        configured: this.emailProvider.configured,
+        destinations: (await this.store.listNotificationDestinations(projectId)).map(publicNotificationDestination),
+        recentDeliveries: await this.store.listNotificationDeliveries(projectId, 20),
+      },
+      slo: {
+        objective: TRUST_SLO_OBJECTIVE,
+        windows: [sloWindow(30, slo30, TRUST_SLO_OBJECTIVE), sloWindow(90, slo90, TRUST_SLO_OBJECTIVE)],
+      },
       trends: {
         windowDays: 7,
         health: smokeBuckets,
@@ -1081,6 +1268,76 @@ export class AgentCertControlPlane {
     });
   }
 
+  private async appendIncidentTransition(
+    incident: IncidentRecord,
+    fromStatus: IncidentStatus | undefined,
+    toStatus: IncidentStatus,
+    auth: AuthContext,
+    reason: string,
+    evidence: Record<string, unknown>,
+  ): Promise<IncidentTransitionRecord> {
+    return this.store.insertIncidentTransition({
+      id: randomUUID(),
+      projectId: incident.projectId,
+      incidentId: incident.id,
+      fromStatus,
+      toStatus,
+      actorType: auth.kind,
+      actorId: auth.userId ?? auth.apiKeyId,
+      actorEmail: auth.email,
+      reason,
+      evidence,
+      occurredAt: new Date().toISOString(),
+    });
+  }
+
+  private async sendIncidentNotification(
+    alertType: Exclude<NotificationAlertType, "destination_verification">,
+    incident: IncidentRecord,
+    transition: IncidentTransitionRecord,
+  ): Promise<void> {
+    if (!this.emailProvider.configured) return;
+    const destinations = (await this.store.listNotificationDestinations(incident.projectId))
+      .filter((destination) => destination.status === "active" && destination.alertTypes.includes(alertType));
+    const label = alertType.replace(/^incident_/, "").replace("regressed", "regressed to open");
+    const subject = `[AgentCert] Production trust incident ${label}`;
+    const details = [
+      `Incident: ${incident.summary}`,
+      `Status: ${incident.status}`,
+      `Occurrences: ${incident.occurrenceCount}`,
+      `Reason: ${transition.reason}`,
+      `Project: ${incident.projectId}`,
+    ].join("\n");
+    await Promise.all(destinations.map((destination) => this.deliverEmail(destination, alertType, subject, {
+      text: `${details}\n\nOpen AgentCert: ${this.publicUrl}`,
+      html: `<p><strong>${escapeHtml(incident.summary)}</strong></p><ul><li>Status: ${escapeHtml(incident.status)}</li><li>Occurrences: ${incident.occurrenceCount}</li><li>Reason: ${escapeHtml(transition.reason)}</li></ul><p><a href="${escapeHtml(this.publicUrl)}">Open AgentCert</a></p>`,
+    })));
+  }
+
+  private async deliverEmail(
+    destination: NotificationDestinationRecord,
+    alertType: NotificationAlertType,
+    subject: string,
+    content: { text: string; html: string },
+    failRequest = false,
+  ): Promise<void> {
+    const attemptedAt = new Date().toISOString();
+    try {
+      const result = await this.emailProvider.send({ to: destination.email, subject, ...content });
+      await this.store.insertNotificationDelivery({
+        id: randomUUID(), projectId: destination.projectId, destinationId: destination.id, alertType, subject,
+        status: "delivered", provider: result.provider, providerMessageId: result.messageId, attemptedAt,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message.slice(0, 2_000) : "Email delivery failed.";
+      await this.store.insertNotificationDelivery({
+        id: randomUUID(), projectId: destination.projectId, destinationId: destination.id, alertType, subject,
+        status: "failed", provider: this.emailProvider.name, error: message, attemptedAt,
+      });
+      if (failRequest) throw new ControlPlaneError(`Verification email could not be delivered: ${message}`, 502);
+    }
+  }
+
   private requirePlatformAdmin(auth: AuthContext): void {
     requireUser(auth);
     if (!auth.email || !this.platformAdminEmails.has(auth.email.toLowerCase())) {
@@ -1124,6 +1381,67 @@ function publicWebhook(webhook: WebhookRecord): PublicWebhookRecord {
 
 type OperationalAlertStatus = "healthy" | "warning" | "critical";
 function alert(status: OperationalAlertStatus, message: string) { return { status, message }; }
+
+function sampleEvidence(sample: TrustHealthSampleRecord): Record<string, unknown> {
+  return {
+    sampleId: sample.id,
+    externalId: sample.externalId,
+    status: sample.status,
+    completedAt: sample.completedAt,
+    workflowRunId: sample.workflowRunId,
+    workflowRunUrl: sample.workflowRunUrl,
+    error: sample.error,
+  };
+}
+
+function reviewReason(input: unknown): string {
+  const reason = requiredString(record(input), "reason");
+  if (reason.length < 10) throw new ControlPlaneError("reason must contain at least 10 characters.");
+  if (reason.length > 2_000) throw new ControlPlaneError("reason cannot exceed 2000 characters.");
+  return reason;
+}
+
+function notificationEmail(value: string): string {
+  const email = value.trim().toLowerCase();
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new ControlPlaneError("email must be a valid address.");
+  return email;
+}
+
+function notificationAlertTypes(value: unknown): NotificationAlertType[] {
+  const allowed = new Set<NotificationAlertType>(["incident_opened", "incident_regressed", "incident_recovered", "incident_resolved"]);
+  const selected = stringList(value);
+  if (selected.length === 0 || selected.some((item) => !allowed.has(item as NotificationAlertType))) {
+    throw new ControlPlaneError("alertTypes must contain one or more supported incident alert types.");
+  }
+  return selected as NotificationAlertType[];
+}
+
+function publicNotificationDestination(destination: NotificationDestinationRecord): PublicNotificationDestinationRecord {
+  const { verificationTokenHash: _verificationTokenHash, ...publicRecord } = destination;
+  return publicRecord;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+}
+
+function sloWindow(
+  days: 30 | 90,
+  counts: { total: number; passed: number; failed: number },
+  objective: number,
+) {
+  if (counts.total === 0) return { days, ...counts, attainment: null, errorBudgetRemaining: null, burnRate: null };
+  const attainment = counts.passed / counts.total;
+  const allowedFailureRate = 1 - objective;
+  const failureRate = counts.failed / counts.total;
+  return {
+    days,
+    ...counts,
+    attainment,
+    errorBudgetRemaining: 1 - failureRate / allowedFailureRate,
+    burnRate: failureRate / allowedFailureRate,
+  };
+}
 
 function compactAge(hours: number): string {
   if (hours < 1) return `${Math.max(1, Math.floor(hours * 60))}m`;

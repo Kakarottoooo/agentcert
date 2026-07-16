@@ -12,6 +12,21 @@ It is an operator procedure, not evidence that an incident is resolved.
 | Redis coordination | None | Redis is not ready or controls are not shared across instances |
 | Signing key | Active key is 90-179 days old | No active key, or active key is at least 180 days old |
 | Webhook delivery | One or more jobs are retrying | One or more jobs are in the dead-letter queue |
+| Production incident | Recovered after two consecutive passes; human resolution pending | Open or investigating |
+
+## Incident State Machine
+
+1. `open`: the first failed production smoke created the incident. Repeated
+   failures increment the same incident instead of creating duplicates.
+2. `investigating`: an owner/admin acknowledged the incident and recorded a
+   rationale.
+3. `recovered`: two consecutive production smokes passed. The transition ledger
+   contains the passing streak and workflow evidence.
+4. `resolved`: an owner/admin reviewed recovery evidence and recorded a final
+   rationale. Only then may GitHub reconciliation close the issue.
+
+A single passing run never recovers or closes an incident. A new failure after
+`recovered` returns the incident to `open` and resets the passing streak.
 
 ## Initial Triage
 
@@ -51,7 +66,9 @@ It is an operator procedure, not evidence that an incident is resolved.
 2. Inspect the corresponding control-plane logs without copying credentials
    into the issue.
 3. Fix or roll back the responsible deploy, then dispatch the smoke workflow.
-4. Require one passing run and a healthy Dashboard sample newer than 36 hours.
+4. Require two consecutive passing runs. Confirm the Dashboard shows
+   `recovered`, both workflow references, and a passing streak of `2/2`.
+5. Review the recovery evidence and record an explicit resolution rationale.
 
 ## Webhook Retry Or DLQ
 
@@ -64,7 +81,8 @@ It is an operator procedure, not evidence that an incident is resolved.
 
 ## Closure Evidence
 
-Close the GitHub incident only when it includes the failed workflow, the fix or
-rollback commit, a passing workflow URL, current Dashboard status, and any DLQ
-redrive result. Keep the sanitized workflow artifacts for their configured
+Resolve the AgentCert incident only when it includes the failed workflow, the
+fix or rollback commit, two consecutive passing workflow URLs, current
+Dashboard status, and any DLQ redrive result. The next smoke reconciliation
+closes the GitHub issue. Keep sanitized workflow artifacts for their configured
 30-day retention. Do not attach private evidence payloads or secrets.

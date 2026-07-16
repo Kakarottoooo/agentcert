@@ -87,7 +87,46 @@ export interface HostedIncident {
   status: string;
   summary: string;
   firstDivergence?: string;
+  fingerprint?: string;
+  occurrenceCount: number;
+  consecutivePasses: number;
+  lastFailedAt?: string;
+  lastPassedAt?: string;
+  acknowledgedByEmail?: string;
+  acknowledgedAt?: string;
+  recoveredAt?: string;
+  resolvedByEmail?: string;
+  resolvedAt?: string;
+  githubIssueNumber?: number;
+  githubIssueUrl?: string;
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface HostedIncidentTransition {
+  id: string;
+  incidentId: string;
+  fromStatus?: "open" | "investigating" | "recovered" | "resolved";
+  toStatus: "open" | "investigating" | "recovered" | "resolved";
+  actorType: "system" | "user" | "api_key";
+  actorEmail?: string;
+  reason: string;
+  evidence: Record<string, unknown>;
+  occurredAt: string;
+}
+
+export type HostedNotificationAlertType = "incident_opened" | "incident_regressed" | "incident_recovered" | "incident_resolved";
+
+export interface HostedNotificationDestination {
+  id: string;
+  projectId: string;
+  email: string;
+  alertTypes: HostedNotificationAlertType[];
+  status: "pending_verification" | "active" | "disabled";
+  verificationExpiresAt?: string;
+  verifiedAt?: string;
+  createdAt: string;
+  disabledAt?: string;
 }
 
 export interface HostedEvidence {
@@ -220,12 +259,12 @@ export interface HostedSigningKey {
 }
 
 export interface HostedOperations {
-  schemaVersion: "agentcert.trust_operations.v0.3";
+  schemaVersion: "agentcert.trust_operations.v0.4";
   projectId: string;
   status: "healthy" | "warning" | "critical";
   generatedAt: string;
   coordination: { backend: "memory" | "redis"; state: "ready" | "degraded"; shared: boolean };
-  alerts: Record<"redis" | "signing" | "scheduledSmoke" | "webhooks", { status: "healthy" | "warning" | "critical"; message: string }>;
+  alerts: Record<"redis" | "signing" | "scheduledSmoke" | "webhooks" | "incidents", { status: "healthy" | "warning" | "critical"; message: string }>;
   webhooks: {
     queue: Record<HostedWebhookJob["status"], number>;
     recentJobs: HostedWebhookJob[];
@@ -239,6 +278,17 @@ export interface HostedOperations {
     keys: HostedSigningKey[];
   };
   smoke: { latest: HostedTrustHealthSample | null; recent: HostedTrustHealthSample[] };
+  incidents: { active: HostedIncident | null; recent: HostedIncident[]; transitions: HostedIncidentTransition[] };
+  notifications: {
+    provider: string;
+    configured: boolean;
+    destinations: HostedNotificationDestination[];
+    recentDeliveries: Array<{ id: string; destinationId: string; alertType: string; subject: string; status: "delivered" | "failed"; provider: string; error?: string; attemptedAt: string }>;
+  };
+  slo: {
+    objective: number;
+    windows: Array<{ days: 30 | 90; total: number; passed: number; failed: number; attainment: number | null; errorBudgetRemaining: number | null; burnRate: number | null }>;
+  };
   trends: {
     windowDays: 7;
     health: Array<{ date: string; total: number; passed: number; failed: number; successRate: number }>;
@@ -481,6 +531,33 @@ export async function reviewHostedAction(session: HostedSession, projectId: stri
 
 export async function loadHostedIncidents(session: HostedSession, projectId: string): Promise<HostedIncident[]> {
   return (await apiRequest<{ incidents: HostedIncident[] }>(session, path(projectId, "incidents"))).incidents;
+}
+
+export async function acknowledgeHostedIncident(session: HostedSession, projectId: string, incidentId: string, reason: string) {
+  return apiRequest(session, path(projectId, `operational-incidents/${encodeURIComponent(incidentId)}/acknowledge`), {
+    method: "POST", body: JSON.stringify({ reason }),
+  });
+}
+
+export async function resolveHostedIncident(session: HostedSession, projectId: string, incidentId: string, reason: string) {
+  return apiRequest(session, path(projectId, `operational-incidents/${encodeURIComponent(incidentId)}/resolve`), {
+    method: "POST", body: JSON.stringify({ reason }),
+  });
+}
+
+export async function createHostedNotificationDestination(
+  session: HostedSession,
+  projectId: string,
+  email: string,
+  alertTypes: HostedNotificationAlertType[],
+): Promise<HostedNotificationDestination> {
+  return apiRequest(session, path(projectId, "notification-destinations"), {
+    method: "POST", body: JSON.stringify({ email, alertTypes }),
+  });
+}
+
+export async function disableHostedNotificationDestination(session: HostedSession, projectId: string, destinationId: string) {
+  return apiRequest(session, path(projectId, `notification-destinations/${encodeURIComponent(destinationId)}`), { method: "DELETE" });
 }
 
 export async function loadHostedEvidence(session: HostedSession, projectId: string): Promise<HostedEvidence[]> {

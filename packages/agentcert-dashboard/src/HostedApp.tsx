@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   bootstrap,
+  acknowledgeHostedIncident,
+  createHostedNotificationDestination,
   createHostedAgent,
   createHostedApiKey,
   createHostedTestWebhook,
   downloadRetentionReport,
+  disableHostedNotificationDestination,
   downloadAdminLegalHoldReport,
   evidenceContentUrl,
   loadHostedActions,
@@ -22,6 +25,7 @@ import {
   readHostedSession,
   requestHostedLegalHold,
   resendSignUpConfirmation,
+  resolveHostedIncident,
   reviewHostedAction,
   reviewAdminLegalHold,
   revokeHostedApiKey,
@@ -42,6 +46,7 @@ import {
   type HostedRun,
   type HostedSession,
   type HostedLegalHoldRequest,
+  type HostedNotificationAlertType,
   type HostedRetentionReport,
 } from "./hosted-api";
 import HostedRunsView from "./HostedRunsView";
@@ -166,7 +171,7 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
     ["overview", "Overview"], ["agents", "Agents", data?.agents.length], ["runs", "Runs", data?.runs.length],
     ["gates", "Release gates", data?.runs.filter((run) => run.kind === "release_gate").length],
     ["actions", "Runtime actions", data?.actions.filter((action) => action.status === "PENDING_APPROVAL").length],
-    ["incidents", "Incidents", data?.incidents.filter((incident) => incident.status === "open").length],
+    ["incidents", "Incidents", data?.incidents.filter((incident) => incident.status !== "resolved").length],
     ["evidence", "Evidence", data?.evidence.length], ["integrations", "Integrations"],
     ...(capabilities?.platformAdmin ? [["governance", "Governance"] as [HostedView, string]] : []),
   ];
@@ -196,7 +201,7 @@ function HostedViewContent({ view, data, project, session, refresh, onNavigate }
   if (view === "runs") return <HostedRunsView runs={data.runs} project={project} session={session} />;
   if (view === "gates") return <RunsTable runs={data.runs.filter((run) => run.kind === "release_gate")} empty="No release-gate runs have been ingested." />;
   if (view === "actions") return <ActionsView actions={data.actions} project={project} session={session} refresh={refresh} />;
-  if (view === "incidents") return <IncidentsView incidents={data.incidents} />;
+  if (view === "incidents") return <IncidentsView incidents={data.incidents} operations={data.operations} project={project} session={session} refresh={refresh} />;
   if (view === "evidence") return <EvidenceView evidence={data.evidence} overview={data.overview} project={project} session={session} refresh={refresh} />;
   if (view === "governance") return <GovernanceView project={project} session={session} />;
   return <IntegrationsView project={project} session={session} operations={data.operations} refresh={refresh} />;
@@ -240,7 +245,7 @@ function HostedOverviewView({ data, project, onNavigate }: { data: ConsoleData; 
       <ControlMetric label="Label precision" value={percent(summary.taxonomyQuality.autoLabelPrecision)} detail={`${summary.taxonomyQuality.correctedFailures} corrections`} />
       <ControlMetric label="Correction rate" value={percent(summary.taxonomyQuality.correctionRate)} detail="Human-reviewed taxonomy" attention={summary.taxonomyQuality.correctionRate > 0.25} />
     </section>
-    <section className="operations-band"><div><SectionTitle title="Runtime queue" caption="Actions waiting for a human decision" /><ActionRows actions={data.actions.filter((action) => action.status === "PENDING_APPROVAL").slice(0, 5)} /></div><div><SectionTitle title="Open incidents" caption="Failed runs and verification gaps" /><IncidentRows incidents={data.incidents.filter((incident) => incident.status === "open").slice(0, 5)} /></div></section>
+    <section className="operations-band"><div><SectionTitle title="Runtime queue" caption="Actions waiting for a human decision" /><ActionRows actions={data.actions.filter((action) => action.status === "PENDING_APPROVAL").slice(0, 5)} /></div><div><SectionTitle title="Active incidents" caption="Open, investigating, and recovered incidents" /><IncidentRows incidents={data.incidents.filter((incident) => incident.status !== "resolved").slice(0, 5)} /></div></section>
     <section className="data-section"><SectionTitle title="Recent runs" caption="Pre-release and runtime assurance activity" /><RunsTable runs={data.runs.slice(0, 8)} /></section>
   </>;
 }
@@ -267,7 +272,48 @@ function ActionsView({ actions, project, session, refresh }: { actions: HostedAc
   return <section className="data-section"><SectionTitle title="Runtime actions" caption="Policy decisions, human approvals, and observed-state verification" />{error ? <div className="console-error">{error}</div> : null}<div className="action-list">{actions.map((action) => <article key={action.id}><div className="action-main"><div><span className="eyebrow">{action.actionType} · {action.targetSystem}</span><strong>{action.externalId}</strong></div><Status value={action.status} /><p>{action.reasons.join(" ")}</p></div><dl><div><dt>Risk</dt><dd>{action.riskLevel} ({action.riskScore})</dd></div><div><dt>Decision</dt><dd>{action.decision}</dd></div><div><dt>Verification</dt><dd>{action.verificationSuccess === undefined ? "Not submitted" : action.verificationSuccess ? "Matched" : "Mismatch"}</dd></div></dl>{action.status === "PENDING_APPROVAL" ? <div className="approval-actions"><button disabled={busy === action.id} onClick={() => void review(action.id, "reject")}>Reject</button><button className="primary-action compact" disabled={busy === action.id} onClick={() => void review(action.id, "approve")}>Approve</button></div> : null}</article>)}{actions.length === 0 ? <EmptyHosted text="No runtime actions have been proposed." /> : null}</div></section>;
 }
 
-function IncidentsView({ incidents }: { incidents: HostedIncident[] }) { return <section className="data-section"><SectionTitle title="Incidents" caption="Failed runs, verification gaps, and first divergence" /><IncidentRows incidents={incidents} /></section>; }
+function IncidentsView({ incidents, operations, project, session, refresh }: {
+  incidents: HostedIncident[];
+  operations: HostedOperations;
+  project: HostedProject;
+  session: HostedSession;
+  refresh: () => Promise<void>;
+}) {
+  const [selected, setSelected] = useState<string>();
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  async function transition(incident: HostedIncident, action: "acknowledge" | "resolve") {
+    if (selected !== incident.id || reason.trim().length < 10) {
+      setSelected(incident.id);
+      setError("Enter an operator rationale of at least 10 characters.");
+      return;
+    }
+    setBusy(true); setError(undefined);
+    try {
+      if (action === "acknowledge") await acknowledgeHostedIncident(session, project.id, incident.id, reason);
+      else await resolveHostedIncident(session, project.id, incident.id, reason);
+      setSelected(undefined); setReason(""); await refresh();
+    } catch (value) { setError(value instanceof Error ? value.message : String(value)); }
+    finally { setBusy(false); }
+  }
+  return <div className="incident-workspace">
+    <section className="data-section"><SectionTitle title="Incident lifecycle" caption="Human acknowledgement, deterministic recovery evidence, and explicit resolution" />
+      {error ? <div className="console-error">{error}</div> : null}
+      <div className="incident-ledger">{incidents.map((incident) => <article key={incident.id}>
+        <div className="incident-heading"><div><span className="eyebrow">{incident.type} · {incident.severity}</span><strong>{incident.summary}</strong></div><Status value={incident.status} /></div>
+        <p>{incident.firstDivergence ?? "No first divergence recorded."}</p>
+        <dl><div><dt>Occurrences</dt><dd>{incident.occurrenceCount}</dd></div><div><dt>Passing streak</dt><dd>{incident.consecutivePasses}/2</dd></div><div><dt>Updated</dt><dd>{compactTime(incident.updatedAt ?? incident.createdAt)}</dd></div><div><dt>GitHub</dt><dd>{incident.githubIssueUrl ? <a href={incident.githubIssueUrl} target="_blank" rel="noreferrer">#{incident.githubIssueNumber}</a> : "Not linked"}</dd></div></dl>
+        {selected === incident.id ? <textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Record the investigation or resolution rationale" /> : null}
+        {incident.fingerprint && incident.status === "open" ? <button className="primary-action compact" disabled={busy} onClick={() => void transition(incident, "acknowledge")}>Acknowledge and investigate</button> : null}
+        {incident.fingerprint && incident.status === "recovered" ? <button className="primary-action compact" disabled={busy} onClick={() => void transition(incident, "resolve")}>Resolve after review</button> : null}
+      </article>)}{incidents.length === 0 ? <EmptyHosted text="No incidents recorded." /> : null}</div>
+    </section>
+    <section className="data-section"><SectionTitle title="Transition evidence" caption="Append-only state changes for the current operational incident" />
+      <div className="transition-ledger">{operations.incidents.transitions.map((transition) => <div key={transition.id}><span>{compactTime(transition.occurredAt)}</span><strong>{transition.fromStatus ?? "created"} → {transition.toStatus}</strong><p>{transition.reason}</p><small>{transition.actorEmail ?? transition.actorType}</small></div>)}{operations.incidents.transitions.length === 0 ? <EmptyHosted text="No operational incident transitions yet." /> : null}</div>
+    </section>
+  </div>;
+}
 function EvidenceView({ evidence, overview, project, session, refresh }: {
   evidence: HostedEvidence[];
   overview: HostedOverview;
@@ -309,7 +355,35 @@ function IntegrationsView({ project, session, operations, refresh }: { project: 
   async function retryWebhook(jobId: string) { try { await retryHostedWebhookJob(session, project.id, jobId); await refresh(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }
   async function enableTestReceiver() { setTestReceiverBusy(true); try { await createHostedTestWebhook(session, project.id); setTestReceiverEnabled(true); await refresh(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } finally { setTestReceiverBusy(false); } }
   const endpoint = window.location.origin;
-  return <div className="integration-layout"><section className="connection-quickstart"><div><span className="eyebrow">Recommended</span><h2>Connect this project once</h2><p>The CLI validates the key before storing it in your user profile. Future push commands reuse the saved connection.</p></div><pre>{`npx agentcert connect --server ${endpoint} --project ${project.id}`}</pre></section><section className="data-section"><div className="section-actions"><SectionTitle title="API access" caption="Project-scoped credentials for agents and CI" /><div className="key-create-controls"><select value={keyMode} onChange={(event) => setKeyMode(event.target.value as "ingest" | "read-only")}><option value="ingest">Ingest + read</option><option value="read-only">Read only</option></select><button className="primary-action compact" onClick={() => void createKey()}>Create API key</button></div></div>{secret ? <div className="secret-box"><div><strong>Copy this key now. It will not be shown again.</strong><button onClick={() => { void navigator.clipboard.writeText(secret); setCopied(true); }}>{copied ? "Copied" : "Copy key"}</button></div><code>{secret}</code></div> : null}{error ? <div className="form-error">{error}</div> : null}<div className="entity-list key-list">{keys.map((key) => <article key={key.id}><div><strong>{key.name}</strong><span>{key.prefix}...</span></div><div><b>{key.revokedAt ? "Revoked" : "Active"}</b><span>{key.scopes.join(", ")}</span></div>{key.revokedAt ? null : pendingRevoke === key.id ? <div className="key-revoke-actions"><button onClick={() => setPendingRevoke(undefined)}>Cancel</button><button className="danger-action" onClick={() => void revokeKey(key.id)}>Confirm revoke</button></div> : <button onClick={() => setPendingRevoke(key.id)}>Revoke</button>}</article>)}{keys.length === 0 ? <EmptyHosted text="No API keys created yet. Create one, then run the connection command above." /> : null}</div></section><section className="data-section"><div className="section-actions"><SectionTitle title="Trust operations" caption="Webhook delivery and historical signing-key state" /><button className="primary-action compact" disabled={testReceiverBusy || testReceiverEnabled} onClick={() => void enableTestReceiver()}>{testReceiverEnabled ? "Self-test receiver ready" : testReceiverBusy ? "Enabling..." : "Enable self-test receiver"}</button></div><div className="trust-ops-list"><article><div><strong>Coordination backend</strong><span>{operations.coordination.backend} / {operations.coordination.state}</span></div><Status value={operations.status} /></article><article><div><strong>Signing key</strong><span>{operations.signing.activeKey?.keyId ?? "Not configured"}</span></div><span>{operations.signing.historicalKeys} retained</span></article>{operations.webhooks.deadLetters.map((job) => <article key={job.id}><div><strong>{job.eventType}</strong><span>{job.lastError ?? "Delivery exhausted"}</span></div><div className="key-revoke-actions"><Status value={job.status} /><button onClick={() => void retryWebhook(job.id)}>Retry</button></div></article>)}{operations.webhooks.deadLetters.length === 0 ? <EmptyHosted text="No webhook deliveries are in the dead-letter queue." /> : null}</div></section><section className="data-section"><SectionTitle title="First upload" caption="Run locally, then send the validated evidence bundle" /><pre>{`npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --push\n# or: npx agentcert push --evidence .agentcert/latest/agentcert-evidence.json`}</pre></section><section className="data-section"><SectionTitle title="CI environment" caption="Use secret-manager variables for ephemeral runners and SDK integrations" /><pre>{`AGENTCERT_BASE_URL=${endpoint}\nAGENTCERT_PROJECT_ID=${project.id}\nAGENTCERT_API_KEY=ac_live_...`}</pre></section></div>;
+  return <div className="integration-layout"><section className="connection-quickstart"><div><span className="eyebrow">Recommended</span><h2>Connect this project once</h2><p>The CLI validates the key before storing it in your user profile. Future push commands reuse the saved connection.</p></div><pre>{`npx agentcert connect --server ${endpoint} --project ${project.id}`}</pre></section><section className="data-section"><div className="section-actions"><SectionTitle title="API access" caption="Project-scoped credentials for agents and CI" /><div className="key-create-controls"><select value={keyMode} onChange={(event) => setKeyMode(event.target.value as "ingest" | "read-only")}><option value="ingest">Ingest + read</option><option value="read-only">Read only</option></select><button className="primary-action compact" onClick={() => void createKey()}>Create API key</button></div></div>{secret ? <div className="secret-box"><div><strong>Copy this key now. It will not be shown again.</strong><button onClick={() => { void navigator.clipboard.writeText(secret); setCopied(true); }}>{copied ? "Copied" : "Copy key"}</button></div><code>{secret}</code></div> : null}{error ? <div className="form-error">{error}</div> : null}<div className="entity-list key-list">{keys.map((key) => <article key={key.id}><div><strong>{key.name}</strong><span>{key.prefix}...</span></div><div><b>{key.revokedAt ? "Revoked" : "Active"}</b><span>{key.scopes.join(", ")}</span></div>{key.revokedAt ? null : pendingRevoke === key.id ? <div className="key-revoke-actions"><button onClick={() => setPendingRevoke(undefined)}>Cancel</button><button className="danger-action" onClick={() => void revokeKey(key.id)}>Confirm revoke</button></div> : <button onClick={() => setPendingRevoke(key.id)}>Revoke</button>}</article>)}{keys.length === 0 ? <EmptyHosted text="No API keys created yet. Create one, then run the connection command above." /> : null}</div></section><section className="data-section"><div className="section-actions"><SectionTitle title="Trust operations" caption="Webhook delivery and historical signing-key state" /><button className="primary-action compact" disabled={testReceiverBusy || testReceiverEnabled} onClick={() => void enableTestReceiver()}>{testReceiverEnabled ? "Self-test receiver ready" : testReceiverBusy ? "Enabling..." : "Enable self-test receiver"}</button></div><div className="trust-ops-list"><article><div><strong>Coordination backend</strong><span>{operations.coordination.backend} / {operations.coordination.state}</span></div><Status value={operations.status} /></article><article><div><strong>Signing key</strong><span>{operations.signing.activeKey?.keyId ?? "Not configured"}</span></div><span>{operations.signing.historicalKeys} retained</span></article>{operations.webhooks.deadLetters.map((job) => <article key={job.id}><div><strong>{job.eventType}</strong><span>{job.lastError ?? "Delivery exhausted"}</span></div><div className="key-revoke-actions"><Status value={job.status} /><button onClick={() => void retryWebhook(job.id)}>Retry</button></div></article>)}{operations.webhooks.deadLetters.length === 0 ? <EmptyHosted text="No webhook deliveries are in the dead-letter queue." /> : null}</div></section><NotificationDestinations project={project} session={session} operations={operations} refresh={refresh} /><section className="data-section"><SectionTitle title="First upload" caption="Run locally, then send the validated evidence bundle" /><pre>{`npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --push\n# or: npx agentcert push --evidence .agentcert/latest/agentcert-evidence.json`}</pre></section><section className="data-section"><SectionTitle title="CI environment" caption="Use secret-manager variables for ephemeral runners and SDK integrations" /><pre>{`AGENTCERT_BASE_URL=${endpoint}\nAGENTCERT_PROJECT_ID=${project.id}\nAGENTCERT_API_KEY=ac_live_...`}</pre></section></div>;
+}
+
+function NotificationDestinations({ project, session, operations, refresh }: { project: HostedProject; session: HostedSession; operations: HostedOperations; refresh: () => Promise<void> }) {
+  const alertTypes: HostedNotificationAlertType[] = ["incident_opened", "incident_regressed", "incident_recovered", "incident_resolved"];
+  const [email, setEmail] = useState("");
+  const [selected, setSelected] = useState<HostedNotificationAlertType[]>(alertTypes);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string>();
+  const [error, setError] = useState<string>();
+  async function submit(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError(undefined); setMessage(undefined);
+    try {
+      await createHostedNotificationDestination(session, project.id, email, selected);
+      setEmail(""); setMessage("Verification email sent. Alerts begin only after the recipient verifies the address."); await refresh();
+    } catch (value) { setError(value instanceof Error ? value.message : String(value)); }
+    finally { setBusy(false); }
+  }
+  async function disable(id: string) {
+    setBusy(true); setError(undefined);
+    try { await disableHostedNotificationDestination(session, project.id, id); await refresh(); }
+    catch (value) { setError(value instanceof Error ? value.message : String(value)); }
+    finally { setBusy(false); }
+  }
+  return <section className="data-section notification-destinations"><SectionTitle title="Email alerts" caption="Verified recipients choose incident alerts; AgentCert owns provider credentials" />
+    {!operations.notifications.configured ? <div className="form-message">Platform email delivery is not configured yet.</div> : <form onSubmit={submit}><label>Email<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="security@example.com" /></label><div className="alert-type-options">{alertTypes.map((type) => <label key={type}><input type="checkbox" checked={selected.includes(type)} onChange={() => setSelected((current) => current.includes(type) ? current.filter((item) => item !== type) : [...current, type])} />{type.replace("incident_", "").replace("_", " ")}</label>)}</div><button className="primary-action compact" disabled={busy || selected.length === 0}>Send verification</button></form>}
+    {message ? <div className="form-message">{message}</div> : null}{error ? <div className="form-error">{error}</div> : null}
+    <div className="entity-list">{operations.notifications.destinations.map((destination) => <article key={destination.id}><div><strong>{destination.email}</strong><span>{destination.alertTypes.map((type) => type.replace("incident_", "")).join(", ")}</span></div><Status value={destination.status} />{destination.status === "disabled" ? null : <button disabled={busy} onClick={() => void disable(destination.id)}>Disable</button>}</article>)}{operations.notifications.destinations.length === 0 ? <EmptyHosted text="No alert recipients configured." /> : null}</div>
+  </section>;
 }
 
 function GovernanceView({ project, session }: { project: HostedProject; session: HostedSession }) {
@@ -340,13 +414,14 @@ function GovernanceView({ project, session }: { project: HostedProject; session:
 }
 
 function ActionRows({ actions }: { actions: HostedAction[] }) { return <div className="compact-list">{actions.map((action) => <div key={action.id}><strong>{action.externalId}</strong><span>{action.actionType} · {action.riskLevel}</span><Status value={action.status} /></div>)}{actions.length === 0 ? <EmptyHosted text="No actions waiting for approval." /> : null}</div>; }
-function IncidentRows({ incidents }: { incidents: HostedIncident[] }) { return <div className="compact-list">{incidents.map((incident) => <div key={incident.id}><strong>{incident.summary}</strong><span>{incident.type}{incident.firstDivergence ? ` · ${incident.firstDivergence}` : ""}</span><Status value={incident.severity} /></div>)}{incidents.length === 0 ? <EmptyHosted text="No open incidents." /> : null}</div>; }
+function IncidentRows({ incidents }: { incidents: HostedIncident[] }) { return <div className="compact-list">{incidents.map((incident) => <div key={incident.id}><strong>{incident.summary}</strong><span>{incident.type}{incident.firstDivergence ? ` · ${incident.firstDivergence}` : ""}</span><Status value={incident.status} /></div>)}{incidents.length === 0 ? <EmptyHosted text="No active incidents." /> : null}</div>; }
 function ControlMetric({ label, value, detail, attention }: { label: string; value: number | string; detail?: string; attention?: boolean }) { return <div className={attention ? "attention" : ""}><span>{label}</span><strong>{value}</strong><em>{detail ?? "Current project"}</em></div>; }
 function AlertSummary({ label, alert }: { label: string; alert: { status: string; message: string } }) { return <div><span>{label}</span><strong><Status value={alert.status} /></strong><em>{alert.message}</em></div>; }
 function OperationsTrends({ operations }: { operations: HostedOperations }) {
   const maxLatency = Math.max(1, ...operations.trends.webhooks.map((item) => item.p95LatencyMs));
   return <section className="operations-trends">
     <div className="trend-heading"><div><span className="eyebrow">Last 7 days</span><h2>Trust health history</h2><p>{operations.alerts.scheduledSmoke.message}</p></div><Status value={operations.alerts.scheduledSmoke.status} /></div>
+    <div className="slo-grid">{operations.slo.windows.map((window) => <article key={window.days}><div><span>{window.days}-day SLO</span><strong>{window.attainment === null ? "No data" : percent(window.attainment)}</strong></div><dl><div><dt>Target</dt><dd>{percent(operations.slo.objective)}</dd></div><div><dt>Error budget</dt><dd>{window.errorBudgetRemaining === null ? "-" : percent(window.errorBudgetRemaining)}</dd></div><div><dt>Burn rate</dt><dd>{window.burnRate === null ? "-" : `${window.burnRate.toFixed(1)}x`}</dd></div><div><dt>Samples</dt><dd>{window.total}</dd></div></dl></article>)}</div>
     <div className="trend-grid">
       <div className="trend-series"><div className="trend-summary"><strong>{percent(operations.trends.summary.smokeSuccessRate)}</strong><span>production smoke pass rate</span></div><div className="trend-bars" aria-label="Daily production smoke pass rate">{operations.trends.health.map((item) => <div key={item.date} title={`${item.date}: ${item.passed}/${item.total} passed`}><i className={item.failed > 0 ? "failed" : item.total === 0 ? "empty" : "passed"} style={{ height: `${item.total ? Math.max(8, item.successRate * 100) : 4}%` }} /><small>{item.date.slice(5)}</small></div>)}</div></div>
       <div className="trend-series"><div className="trend-summary webhook"><span><strong>{compactDuration(operations.trends.summary.p95LatencyMs)}</strong><em>p95 latency</em></span><span><strong>{percent(operations.trends.summary.retryRate)}</strong><em>retry rate</em></span><span><strong>{operations.trends.summary.deadLetterRate === 0 ? "0" : percent(operations.trends.summary.deadLetterRate)}</strong><em>DLQ rate</em></span></div><div className="trend-bars latency" aria-label="Daily webhook p95 latency">{operations.trends.webhooks.map((item) => <div key={item.date} title={`${item.date}: p95 ${compactDuration(item.p95LatencyMs)}, ${item.retried} retried, ${item.deadLetter} DLQ`}><i className={item.deadLetter > 0 ? "failed" : item.retried > 0 ? "warning" : "passed"} style={{ height: `${Math.max(4, item.p95LatencyMs / maxLatency * 100)}%` }} /><small>{item.date.slice(5)}</small></div>)}</div></div>

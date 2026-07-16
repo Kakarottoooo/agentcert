@@ -19,11 +19,16 @@ export async function runProductionSmoke(options = {}) {
   try {
     return await executeProductionSmoke({ env, requestFetch, baseUrl, projectId, auth, requireShared, requireWebhookDelivery, id, startedAt, checks, sleep: options.sleep });
   } catch (error) {
-    await recordSmokeResult(requestFetch, baseUrl, projectId, auth, {
+    const lifecycle = await recordSmokeResult(requestFetch, baseUrl, projectId, auth, {
       externalId: id, source: "production_smoke", status: "failed", startedAt, completedAt: new Date().toISOString(), checks,
       error: error instanceof Error ? error.message : String(error), ...workflowContext(env),
     }).catch(() => undefined);
-    throw error;
+    const failure = error instanceof Error ? error : new Error(String(error));
+    if (lifecycle) Object.assign(failure, {
+      operationalIncident: lifecycle.operationalIncident,
+      incidentTransition: lifecycle.incidentTransition,
+    });
+    throw failure;
   }
 }
 
@@ -90,12 +95,15 @@ async function executeProductionSmoke({ env, requestFetch, baseUrl, projectId, a
   await waitForWebhookDelivery(requestFetch, operationsUrl, auth, runId, requireWebhookDelivery, sleep);
   checks.push("run-completion", ...(requireWebhookDelivery ? ["webhook-delivery"] : []));
   const completedAt = new Date().toISOString();
-  await recordSmokeResult(requestFetch, baseUrl, projectId, auth, {
+  const lifecycle = await recordSmokeResult(requestFetch, baseUrl, projectId, auth, {
     externalId: id, source: "production_smoke", status: "passed", startedAt, completedAt, checks, ...workflowContext(env),
   });
   checks.push("health-history");
   const operations = await json(requestFetch, operationsUrl, { headers: auth });
-  if (requireShared) check(operations.status === "healthy", `Trust Operations reported ${operations.status} instead of healthy`);
+  if (requireShared) {
+    const blocking = ["redis", "signing", "scheduledSmoke", "webhooks"].find((name) => operations.alerts?.[name]?.status === "critical");
+    check(!blocking, `Trust Operations reported a critical ${blocking} alert`);
+  }
   checks.push("trust-operations");
 
   return {
@@ -107,6 +115,8 @@ async function executeProductionSmoke({ env, requestFetch, baseUrl, projectId, a
     runId,
     evidenceId: evidence.id,
     signingKeyId: attestation.keyId,
+    operationalIncident: lifecycle.operationalIncident,
+    incidentTransition: lifecycle.incidentTransition,
     checks,
     completedAt,
   };
@@ -176,7 +186,14 @@ async function main() {
     await writeFile(output, `${JSON.stringify(result, null, 2)}\n`);
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
-    const result = { schemaVersion: "agentcert.production_smoke_result.v0.1", status: "failed", error: error instanceof Error ? error.message : String(error), completedAt: new Date().toISOString() };
+    const result = {
+      schemaVersion: "agentcert.production_smoke_result.v0.1",
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+      operationalIncident: error instanceof Error ? error.operationalIncident : undefined,
+      incidentTransition: error instanceof Error ? error.incidentTransition : undefined,
+      completedAt: new Date().toISOString(),
+    };
     await mkdir(dirname(output), { recursive: true });
     await writeFile(output, `${JSON.stringify(result, null, 2)}\n`);
     process.stderr.write(`${JSON.stringify(result)}\n`);

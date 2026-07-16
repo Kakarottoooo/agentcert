@@ -11,6 +11,7 @@ import { AgentCertControlPlane } from "../src/service.js";
 import { EvidenceSigner, verifyEvidenceAttestation } from "../src/signing.js";
 import { InMemoryControlPlaneStore } from "../src/store.js";
 import type { AuthContext } from "../src/types.js";
+import type { EmailMessage, EmailProvider } from "../src/notifications.js";
 
 const user: AuthContext = { kind: "user", userId: "00000000-0000-4000-8000-000000000001", email: "owner@example.com" };
 
@@ -111,7 +112,7 @@ describe("signing key rotation", () => {
   });
 });
 
-describe("Trust Operations v0.3", () => {
+describe("Trust Operations v0.4", () => {
   it("persists smoke health and reports deterministic health and webhook trends", async () => {
     const store = new InMemoryControlPlaneStore();
     const privateKey = generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" }).toString();
@@ -128,6 +129,10 @@ describe("Trust Operations v0.3", () => {
       externalId: "smoke-passed", source: "production_smoke", status: "passed",
       startedAt: "2026-07-15T07:59:58.000Z", completedAt: "2026-07-15T08:00:00.000Z", checks: ["health", "signature-chain"],
     });
+    await service.recordTrustHealthSample(user, projectId, {
+      externalId: "smoke-passed-2", source: "production_smoke", status: "passed",
+      startedAt: "2026-07-15T08:09:58.000Z", completedAt: "2026-07-15T08:10:00.000Z", checks: ["health", "signature-chain"],
+    });
     await store.enqueueWebhookJob({
       id: "00000000-0000-4000-8000-000000000010", projectId, webhookId: "webhook-1", eventId: "run-1", eventType: "run.completed",
       payload: {}, status: "delivered", attemptCount: 2, maxAttempts: 5, nextAttemptAt: "2026-07-15T07:00:00.000Z",
@@ -138,15 +143,17 @@ describe("Trust Operations v0.3", () => {
       user, projectId, { backend: "redis", state: "ready", shared: true }, new Date("2026-07-15T08:30:00.000Z"),
     );
     expect(operations).toMatchObject({
-      schemaVersion: "agentcert.trust_operations.v0.3", status: "healthy",
+      schemaVersion: "agentcert.trust_operations.v0.4", status: "warning",
       alerts: {
         redis: { status: "healthy" }, signing: { status: "healthy" },
         scheduledSmoke: { status: "healthy" }, webhooks: { status: "healthy" },
       },
-      smoke: { latest: { externalId: "smoke-passed", status: "passed" } },
-      trends: { summary: { smokeSuccessRate: 0.5, webhookSuccessRate: 1, retryRate: 1, averageLatencyMs: 2000 } },
+      smoke: { latest: { externalId: "smoke-passed-2", status: "passed" } },
+      incidents: { active: { status: "recovered", occurrenceCount: 1, consecutivePasses: 2 } },
+      slo: { windows: [{ days: 30, total: 3, passed: 2, failed: 1 }, { days: 90, total: 3, passed: 2, failed: 1 }] },
+      trends: { summary: { smokeSuccessRate: 2 / 3, webhookSuccessRate: 1, retryRate: 1, averageLatencyMs: 2000 } },
     });
-    expect(operations.trends.health.at(-1)).toMatchObject({ date: "2026-07-15", total: 1, passed: 1, successRate: 1 });
+    expect(operations.trends.health.at(-1)).toMatchObject({ date: "2026-07-15", total: 2, passed: 2, successRate: 1 });
   });
 
   it("raises actionable alerts for missing coordination, signing, and scheduled smoke", async () => {
@@ -158,7 +165,73 @@ describe("Trust Operations v0.3", () => {
       redis: { status: "critical" }, signing: { status: "critical" }, scheduledSmoke: { status: "warning" },
     });
   });
+
+  it("requires acknowledgement, two consecutive passes, and human resolution", async () => {
+    const store = new InMemoryControlPlaneStore();
+    const service = new AgentCertControlPlane(store, new MemoryArtifactStore());
+    const projectId = (await service.bootstrap(user)).project.id;
+    const sample = (externalId: string, status: "passed" | "failed", minute: number) => ({
+      externalId, source: "production_smoke", status,
+      startedAt: `2026-07-15T09:${String(minute).padStart(2, "0")}:00.000Z`,
+      completedAt: `2026-07-15T09:${String(minute).padStart(2, "0")}:05.000Z`,
+      checks: ["health"], ...(status === "failed" ? { error: "shared coordination unavailable" } : {}),
+    });
+
+    const failed = await service.recordTrustHealthSample(user, projectId, sample("failure-1", "failed", 0));
+    expect(failed.operationalIncident).toMatchObject({ status: "open", occurrenceCount: 1, consecutivePasses: 0 });
+    const incidentId = failed.operationalIncident!.id;
+    await expect(service.acknowledgeOperationalIncident(user, projectId, incidentId, { reason: "short" })).rejects.toThrow("at least 10");
+    const acknowledged = await service.acknowledgeOperationalIncident(user, projectId, incidentId, { reason: "Investigating the Redis coordination path." });
+    expect(acknowledged.incident.status).toBe("investigating");
+
+    const firstPass = await service.recordTrustHealthSample(user, projectId, sample("pass-1", "passed", 10));
+    expect(firstPass.operationalIncident).toMatchObject({ status: "investigating", consecutivePasses: 1 });
+    await expect(service.resolveOperationalIncident(user, projectId, incidentId, { reason: "Looks healthy after one run." }))
+      .rejects.toMatchObject({ status: 409 });
+    const secondPass = await service.recordTrustHealthSample(user, projectId, sample("pass-2", "passed", 20));
+    expect(secondPass).toMatchObject({ operationalIncident: { status: "recovered", consecutivePasses: 2 }, incidentTransition: { toStatus: "recovered" } });
+
+    const resolved = await service.resolveOperationalIncident(user, projectId, incidentId, { reason: "Reviewed both passing smoke runs and recovery evidence." });
+    expect(resolved.incident).toMatchObject({ status: "resolved", resolvedByEmail: user.email });
+    expect((await store.listIncidentTransitions(projectId, incidentId)).map((item) => item.toStatus))
+      .toEqual(["open", "investigating", "recovered", "resolved"]);
+  });
+
+  it("verifies recipient ownership and records incident email delivery", async () => {
+    const provider = new RecordingEmailProvider();
+    const store = new InMemoryControlPlaneStore();
+    const service = new AgentCertControlPlane(
+      store, new MemoryArtifactStore(), undefined, [], undefined, undefined, fetch, provider, "https://agentcert.example",
+    );
+    const projectId = (await service.bootstrap(user)).project.id;
+    const destination = await service.createNotificationDestination(user, projectId, {
+      email: "Security@Example.com",
+      alertTypes: ["incident_opened", "incident_recovered"],
+    });
+    expect(destination).toMatchObject({ email: "security@example.com", status: "pending_verification" });
+    expect(provider.messages).toHaveLength(1);
+    const token = new URL(provider.messages[0]!.text.match(/https:\/\/\S+/)![0]).searchParams.get("token")!;
+    await expect(service.verifyNotificationDestination(token)).resolves.toMatchObject({ status: "active" });
+
+    await service.recordTrustHealthSample(user, projectId, {
+      externalId: "notification-failure", source: "production_smoke", status: "failed",
+      startedAt: "2026-07-15T10:00:00.000Z", completedAt: "2026-07-15T10:00:05.000Z", checks: [], error: "health failed",
+    });
+    expect(provider.messages).toHaveLength(2);
+    expect(provider.messages[1]).toMatchObject({ to: "security@example.com", subject: expect.stringContaining("opened") });
+    expect(await store.listNotificationDeliveries(projectId)).toMatchObject([
+      { alertType: "incident_opened", status: "delivered" },
+      { alertType: "destination_verification", status: "delivered" },
+    ]);
+  });
 });
+
+class RecordingEmailProvider implements EmailProvider {
+  readonly name = "test";
+  readonly configured = true;
+  readonly messages: EmailMessage[] = [];
+  async send(message: EmailMessage) { this.messages.push(message); return { provider: this.name, messageId: `message-${this.messages.length}` }; }
+}
 
 describe("Redis coordination primitives", () => {
   it.each(["agentcert-coordination:6379", "https://agentcert-coordination:6379", "redis-cli -u redis://host:6379"])(

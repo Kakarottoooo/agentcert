@@ -11,6 +11,7 @@ import type { PublicConfig } from "./types.js";
 import { EvidenceSigner } from "./signing.js";
 import { FixedWindowRateLimiter, WebhookSecretVault } from "./security.js";
 import { LocalIdempotencyCoordinator, createRedisCoordination, type CoordinationRuntime } from "./coordination.js";
+import { DisabledEmailProvider, ResendEmailProvider } from "./notifications.js";
 
 const host = process.env.HOST ?? "127.0.0.1";
 const port = integerEnv("PORT", 8787);
@@ -53,13 +54,17 @@ const evidenceSigner = signingPrivateKey
   : undefined;
 const webhookEncryptionKey = process.env.AGENTCERT_WEBHOOK_ENCRYPTION_KEY;
 const webhookVault = webhookEncryptionKey ? new WebhookSecretVault(webhookEncryptionKey) : undefined;
-const service = new AgentCertControlPlane(store, artifacts, evidencePolicy, platformAdminEmails, evidenceSigner, webhookVault);
+const publicUrl = process.env.AGENTCERT_PUBLIC_URL ?? `http://${host}:${port}`;
+const emailProvider = process.env.RESEND_API_KEY && process.env.AGENTCERT_ALERT_FROM_EMAIL
+  ? new ResendEmailProvider(process.env.RESEND_API_KEY, process.env.AGENTCERT_ALERT_FROM_EMAIL)
+  : new DisabledEmailProvider();
+const service = new AgentCertControlPlane(store, artifacts, evidencePolicy, platformAdminEmails, evidenceSigner, webhookVault, fetch, emailProvider, publicUrl);
 await service.activateSigningKey();
 const authenticator = new Authenticator({ store, supabaseUrl, supabasePublishableKey, devMode });
 const publicConfig: PublicConfig = {
   kind: "agentcert.control_plane_config",
   hosted: true,
-  publicUrl: process.env.AGENTCERT_PUBLIC_URL ?? `http://${host}:${port}`,
+  publicUrl,
   auth: {
     provider: devMode ? "development" : "supabase",
     supabaseUrl: devMode ? undefined : supabaseUrl,

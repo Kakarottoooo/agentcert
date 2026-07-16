@@ -214,11 +214,83 @@ export interface IncidentRecord {
   actionId?: string;
   severity: IncidentSeverity;
   type: string;
-  status: "open" | "resolved";
+  status: IncidentStatus;
   summary: string;
   firstDivergence?: string;
+  fingerprint?: string;
+  occurrenceCount: number;
+  consecutivePasses: number;
+  lastFailedAt?: string;
+  lastPassedAt?: string;
+  acknowledgedBy?: string;
+  acknowledgedByEmail?: string;
+  acknowledgedAt?: string;
+  recoveredAt?: string;
+  resolvedBy?: string;
+  resolvedByEmail?: string;
+  githubIssueNumber?: number;
+  githubIssueUrl?: string;
   createdAt: string;
+  updatedAt: string;
   resolvedAt?: string;
+}
+
+export type IncidentStatus = "open" | "investigating" | "recovered" | "resolved";
+
+export interface IncidentTransitionRecord {
+  id: string;
+  projectId: string;
+  incidentId: string;
+  fromStatus?: IncidentStatus;
+  toStatus: IncidentStatus;
+  actorType: "system" | "user" | "api_key";
+  actorId?: string;
+  actorEmail?: string;
+  reason: string;
+  evidence: Record<string, unknown>;
+  occurredAt: string;
+}
+
+export type NotificationAlertType = "destination_verification" | "incident_opened" | "incident_regressed" | "incident_recovered" | "incident_resolved";
+export type NotificationDestinationStatus = "pending_verification" | "active" | "disabled";
+
+export interface NotificationDestinationRecord {
+  id: string;
+  projectId: string;
+  email: string;
+  alertTypes: NotificationAlertType[];
+  status: NotificationDestinationStatus;
+  verificationTokenHash?: string;
+  verificationExpiresAt?: string;
+  verifiedAt?: string;
+  createdBy: string;
+  createdAt: string;
+  disabledAt?: string;
+}
+
+export type PublicNotificationDestinationRecord = Omit<NotificationDestinationRecord, "verificationTokenHash">;
+
+export interface NotificationDeliveryRecord {
+  id: string;
+  projectId: string;
+  destinationId: string;
+  alertType: NotificationAlertType;
+  subject: string;
+  status: "delivered" | "failed";
+  provider: string;
+  providerMessageId?: string;
+  error?: string;
+  attemptedAt: string;
+}
+
+export interface TrustHealthSloWindow {
+  days: 30 | 90;
+  total: number;
+  passed: number;
+  failed: number;
+  attainment: number | null;
+  errorBudgetRemaining: number | null;
+  burnRate: number | null;
 }
 
 export interface FailureReviewRecord {

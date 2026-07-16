@@ -11,6 +11,7 @@ import type {
   EvidenceStorageUsage,
   FailureReviewRecord,
   IncidentRecord,
+  IncidentTransitionRecord,
   LegalHoldRequestRecord,
   IdempotencyRecord,
   Membership,
@@ -26,6 +27,8 @@ import type {
   SigningKeyRecord,
   TrustHealthSampleRecord,
   WebhookOperationsMetrics,
+  NotificationDestinationRecord,
+  NotificationDeliveryRecord,
 } from "./types.js";
 
 export const CONTROL_PLANE_MIGRATIONS = [
@@ -36,6 +39,7 @@ export const CONTROL_PLANE_MIGRATIONS = [
   "005_universal_assurance.sql",
   "006_trust_operations.sql",
   "007_trust_operations_history.sql",
+  "008_trust_operations_v04.sql",
 ] as const;
 
 export interface BootstrapResult {
@@ -92,8 +96,14 @@ export interface ControlPlaneStore {
   listLegalHoldRequestsForAdmin(status?: LegalHoldRequestRecord["status"], limit?: number): Promise<LegalHoldRequestRecord[]>;
   getApprovedLegalHold(projectId: string): Promise<LegalHoldRequestRecord | undefined>;
   insertIncident(incident: IncidentRecord): Promise<IncidentRecord>;
+  getIncident(projectId: string, incidentId: string): Promise<IncidentRecord | undefined>;
+  updateIncident(incident: IncidentRecord): Promise<IncidentRecord>;
+  getActiveIncidentByFingerprint(projectId: string, fingerprint: string): Promise<IncidentRecord | undefined>;
+  getLatestIncidentByFingerprint(projectId: string, fingerprint: string): Promise<IncidentRecord | undefined>;
   listIncidents(projectId: string, limit?: number): Promise<IncidentRecord[]>;
   listIncidentsForRun(projectId: string, runId: string): Promise<IncidentRecord[]>;
+  insertIncidentTransition(transition: IncidentTransitionRecord): Promise<IncidentTransitionRecord>;
+  listIncidentTransitions(projectId: string, incidentId: string): Promise<IncidentTransitionRecord[]>;
   upsertFailureReview(review: FailureReviewRecord): Promise<FailureReviewRecord>;
   listFailureReviews(projectId: string, runId: string): Promise<FailureReviewRecord[]>;
   listFailureReviewsForProject(projectId: string, limit?: number): Promise<FailureReviewRecord[]>;
@@ -115,6 +125,13 @@ export interface ControlPlaneStore {
   webhookOperationsMetrics(projectId: string, since: string): Promise<WebhookOperationsMetrics>;
   saveTrustHealthSample(sample: TrustHealthSampleRecord): Promise<TrustHealthSampleRecord>;
   listTrustHealthSamples(projectId: string, since: string, limit?: number): Promise<TrustHealthSampleRecord[]>;
+  trustHealthCounts(projectId: string, since: string): Promise<{ total: number; passed: number; failed: number }>;
+  saveNotificationDestination(destination: NotificationDestinationRecord): Promise<NotificationDestinationRecord>;
+  verifyNotificationDestination(tokenHash: string, now: string): Promise<NotificationDestinationRecord | undefined>;
+  listNotificationDestinations(projectId: string): Promise<NotificationDestinationRecord[]>;
+  disableNotificationDestination(projectId: string, destinationId: string, disabledAt: string): Promise<NotificationDestinationRecord | undefined>;
+  insertNotificationDelivery(delivery: NotificationDeliveryRecord): Promise<NotificationDeliveryRecord>;
+  listNotificationDeliveries(projectId: string, limit?: number): Promise<NotificationDeliveryRecord[]>;
   activateSigningKey(key: SigningKeyRecord): Promise<SigningKeyRecord>;
   getSigningKey(keyId: string): Promise<SigningKeyRecord | undefined>;
   listSigningKeys(): Promise<SigningKeyRecord[]>;
@@ -137,6 +154,7 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   private approvals = new Map<string, ApprovalRecord>();
   private evidence = new Map<string, EvidenceRecord>();
   private incidents = new Map<string, IncidentRecord>();
+  private incidentTransitions = new Map<string, IncidentTransitionRecord>();
   private failureReviews = new Map<string, FailureReviewRecord>();
   private apiKeys = new Map<string, ApiKeyRecord>();
   private legalHoldRequests = new Map<string, LegalHoldRequestRecord>();
@@ -146,6 +164,8 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   private webhookDeliveries = new Map<string, WebhookDeliveryRecord>();
   private webhookJobs = new Map<string, WebhookJobRecord>();
   private trustHealthSamples = new Map<string, TrustHealthSampleRecord>();
+  private notificationDestinations = new Map<string, NotificationDestinationRecord>();
+  private notificationDeliveries = new Map<string, NotificationDeliveryRecord>();
   private signingKeys = new Map<string, SigningKeyRecord>();
   private retentionLocks = new Map<string, Promise<void>>();
 
@@ -416,6 +436,25 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
     return incident;
   }
 
+  async getIncident(projectId: string, incidentId: string): Promise<IncidentRecord | undefined> {
+    const incident = this.incidents.get(incidentId);
+    return incident?.projectId === projectId ? incident : undefined;
+  }
+
+  async updateIncident(incident: IncidentRecord): Promise<IncidentRecord> {
+    if (!this.incidents.has(incident.id)) throw new Error(`Incident ${incident.id} was not found.`);
+    this.incidents.set(incident.id, incident);
+    return incident;
+  }
+
+  async getActiveIncidentByFingerprint(projectId: string, fingerprint: string): Promise<IncidentRecord | undefined> {
+    return newest([...this.incidents.values()].filter((item) => item.projectId === projectId && item.fingerprint === fingerprint && item.status !== "resolved"), "createdAt")[0];
+  }
+
+  async getLatestIncidentByFingerprint(projectId: string, fingerprint: string): Promise<IncidentRecord | undefined> {
+    return newest([...this.incidents.values()].filter((item) => item.projectId === projectId && item.fingerprint === fingerprint), "createdAt")[0];
+  }
+
   async listIncidents(projectId: string, limit = 100): Promise<IncidentRecord[]> {
     return newest([...this.incidents.values()].filter((item) => item.projectId === projectId), "createdAt").slice(0, limit);
   }
@@ -425,6 +464,16 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
       [...this.incidents.values()].filter((item) => item.projectId === projectId && item.runId === runId),
       "createdAt",
     );
+  }
+
+  async insertIncidentTransition(transition: IncidentTransitionRecord): Promise<IncidentTransitionRecord> {
+    this.incidentTransitions.set(transition.id, transition);
+    return transition;
+  }
+
+  async listIncidentTransitions(projectId: string, incidentId: string): Promise<IncidentTransitionRecord[]> {
+    return [...this.incidentTransitions.values()].filter((item) => item.projectId === projectId && item.incidentId === incidentId)
+      .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));
   }
 
   async upsertFailureReview(review: FailureReviewRecord): Promise<FailureReviewRecord> {
@@ -549,6 +598,47 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
       [...this.trustHealthSamples.values()].filter((item) => item.projectId === projectId && item.completedAt >= since),
       "completedAt",
     ).slice(0, limit);
+  }
+
+  async trustHealthCounts(projectId: string, since: string): Promise<{ total: number; passed: number; failed: number }> {
+    const samples = [...this.trustHealthSamples.values()].filter((item) => item.projectId === projectId && item.completedAt >= since && item.source === "production_smoke");
+    return { total: samples.length, passed: samples.filter((item) => item.status === "passed").length, failed: samples.filter((item) => item.status === "failed").length };
+  }
+
+  async saveNotificationDestination(destination: NotificationDestinationRecord): Promise<NotificationDestinationRecord> {
+    const existing = [...this.notificationDestinations.values()].find((item) => item.projectId === destination.projectId && item.email === destination.email);
+    const next = existing ? { ...destination, id: existing.id, createdAt: existing.createdAt } : destination;
+    this.notificationDestinations.set(next.id, next);
+    return next;
+  }
+
+  async verifyNotificationDestination(tokenHash: string, now: string): Promise<NotificationDestinationRecord | undefined> {
+    const destination = [...this.notificationDestinations.values()].find((item) => item.verificationTokenHash === tokenHash && item.verificationExpiresAt && item.verificationExpiresAt >= now && item.status === "pending_verification");
+    if (!destination) return undefined;
+    const verified = { ...destination, status: "active" as const, verificationTokenHash: undefined, verificationExpiresAt: undefined, verifiedAt: now };
+    this.notificationDestinations.set(destination.id, verified);
+    return verified;
+  }
+
+  async listNotificationDestinations(projectId: string): Promise<NotificationDestinationRecord[]> {
+    return newest([...this.notificationDestinations.values()].filter((item) => item.projectId === projectId), "createdAt");
+  }
+
+  async disableNotificationDestination(projectId: string, destinationId: string, disabledAt: string): Promise<NotificationDestinationRecord | undefined> {
+    const destination = this.notificationDestinations.get(destinationId);
+    if (!destination || destination.projectId !== projectId) return undefined;
+    const disabled = { ...destination, status: "disabled" as const, disabledAt };
+    this.notificationDestinations.set(destinationId, disabled);
+    return disabled;
+  }
+
+  async insertNotificationDelivery(delivery: NotificationDeliveryRecord): Promise<NotificationDeliveryRecord> {
+    this.notificationDeliveries.set(delivery.id, delivery);
+    return delivery;
+  }
+
+  async listNotificationDeliveries(projectId: string, limit = 100): Promise<NotificationDeliveryRecord[]> {
+    return newest([...this.notificationDeliveries.values()].filter((item) => item.projectId === projectId), "attemptedAt").slice(0, limit);
   }
 
   async activateSigningKey(key: SigningKeyRecord): Promise<SigningKeyRecord> {
@@ -1025,13 +1115,55 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
   }
 
   async insertIncident(incident: IncidentRecord): Promise<IncidentRecord> {
-    await this.pool.query(
-      `INSERT INTO agentcert_incidents (id,project_id,agent_id,run_id,action_id,severity,type,status,summary,first_divergence,created_at,resolved_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_incidents
+       (id,project_id,agent_id,run_id,action_id,severity,type,status,summary,first_divergence,fingerprint,
+        occurrence_count,consecutive_passes,last_failed_at,last_passed_at,acknowledged_by,acknowledged_by_email,
+        acknowledged_at,recovered_at,resolved_by,resolved_by_email,github_issue_number,github_issue_url,created_at,updated_at,resolved_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+       RETURNING *`,
       [incident.id, incident.projectId, incident.agentId ?? null, incident.runId ?? null, incident.actionId ?? null, incident.severity,
-       incident.type, incident.status, incident.summary, incident.firstDivergence ?? null, incident.createdAt, incident.resolvedAt ?? null],
+       incident.type, incident.status, incident.summary, incident.firstDivergence ?? null, incident.fingerprint ?? null,
+       incident.occurrenceCount, incident.consecutivePasses, incident.lastFailedAt ?? null, incident.lastPassedAt ?? null,
+       incident.acknowledgedBy ?? null, incident.acknowledgedByEmail ?? null, incident.acknowledgedAt ?? null,
+       incident.recoveredAt ?? null, incident.resolvedBy ?? null, incident.resolvedByEmail ?? null,
+       incident.githubIssueNumber ?? null, incident.githubIssueUrl ?? null, incident.createdAt, incident.updatedAt, incident.resolvedAt ?? null],
     );
-    return incident;
+    return incidentFromRow(result.rows[0]);
+  }
+
+  async getIncident(projectId: string, incidentId: string): Promise<IncidentRecord | undefined> {
+    return one(this.pool.query("SELECT * FROM agentcert_incidents WHERE project_id=$1 AND id=$2", [projectId, incidentId]), incidentFromRow);
+  }
+
+  async updateIncident(incident: IncidentRecord): Promise<IncidentRecord> {
+    const result = await this.pool.query(
+      `UPDATE agentcert_incidents SET status=$3,summary=$4,first_divergence=$5,occurrence_count=$6,
+       consecutive_passes=$7,last_failed_at=$8,last_passed_at=$9,acknowledged_by=$10,acknowledged_by_email=$11,
+       acknowledged_at=$12,recovered_at=$13,resolved_by=$14,resolved_by_email=$15,github_issue_number=$16,
+       github_issue_url=$17,updated_at=$18,resolved_at=$19 WHERE project_id=$1 AND id=$2 RETURNING *`,
+      [incident.projectId, incident.id, incident.status, incident.summary, incident.firstDivergence ?? null,
+       incident.occurrenceCount, incident.consecutivePasses, incident.lastFailedAt ?? null, incident.lastPassedAt ?? null,
+       incident.acknowledgedBy ?? null, incident.acknowledgedByEmail ?? null, incident.acknowledgedAt ?? null,
+       incident.recoveredAt ?? null, incident.resolvedBy ?? null, incident.resolvedByEmail ?? null,
+       incident.githubIssueNumber ?? null, incident.githubIssueUrl ?? null, incident.updatedAt, incident.resolvedAt ?? null],
+    );
+    if (!result.rows[0]) throw new Error(`Incident ${incident.id} was not found.`);
+    return incidentFromRow(result.rows[0]);
+  }
+
+  async getActiveIncidentByFingerprint(projectId: string, fingerprint: string): Promise<IncidentRecord | undefined> {
+    return one(this.pool.query(
+      "SELECT * FROM agentcert_incidents WHERE project_id=$1 AND fingerprint=$2 AND status<>'resolved' ORDER BY created_at DESC LIMIT 1",
+      [projectId, fingerprint],
+    ), incidentFromRow);
+  }
+
+  async getLatestIncidentByFingerprint(projectId: string, fingerprint: string): Promise<IncidentRecord | undefined> {
+    return one(this.pool.query(
+      "SELECT * FROM agentcert_incidents WHERE project_id=$1 AND fingerprint=$2 ORDER BY created_at DESC LIMIT 1",
+      [projectId, fingerprint],
+    ), incidentFromRow);
   }
 
   async listIncidents(projectId: string, limit = 100): Promise<IncidentRecord[]> {
@@ -1043,6 +1175,25 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
       this.pool.query("SELECT * FROM agentcert_incidents WHERE project_id=$1 AND run_id=$2 ORDER BY created_at DESC", [projectId, runId]),
       incidentFromRow,
     );
+  }
+
+  async insertIncidentTransition(transition: IncidentTransitionRecord): Promise<IncidentTransitionRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_incident_transitions
+       (id,project_id,incident_id,from_status,to_status,actor_type,actor_id,actor_email,reason,evidence,occurred_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      [transition.id, transition.projectId, transition.incidentId, transition.fromStatus ?? null, transition.toStatus,
+       transition.actorType, transition.actorId ?? null, transition.actorEmail ?? null, transition.reason,
+       JSON.stringify(transition.evidence), transition.occurredAt],
+    );
+    return incidentTransitionFromRow(result.rows[0]);
+  }
+
+  async listIncidentTransitions(projectId: string, incidentId: string): Promise<IncidentTransitionRecord[]> {
+    return many(this.pool.query(
+      "SELECT * FROM agentcert_incident_transitions WHERE project_id=$1 AND incident_id=$2 ORDER BY occurred_at ASC",
+      [projectId, incidentId],
+    ), incidentTransitionFromRow);
   }
 
   async upsertFailureReview(review: FailureReviewRecord): Promise<FailureReviewRecord> {
@@ -1286,6 +1437,73 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     ), trustHealthSampleFromRow);
   }
 
+  async trustHealthCounts(projectId: string, since: string): Promise<{ total: number; passed: number; failed: number }> {
+    const result = await this.pool.query(
+      `SELECT count(*)::integer AS total,
+              count(*) FILTER (WHERE status='passed')::integer AS passed,
+              count(*) FILTER (WHERE status='failed')::integer AS failed
+       FROM agentcert_trust_health_samples WHERE project_id=$1 AND source='production_smoke' AND completed_at >= $2`,
+      [projectId, since],
+    );
+    return { total: number(result.rows[0].total), passed: number(result.rows[0].passed), failed: number(result.rows[0].failed) };
+  }
+
+  async saveNotificationDestination(destination: NotificationDestinationRecord): Promise<NotificationDestinationRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_notification_destinations
+       (id,project_id,email,alert_types,status,verification_token_hash,verification_expires_at,verified_at,created_by,created_at,disabled_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       ON CONFLICT (project_id,email) DO UPDATE SET alert_types=EXCLUDED.alert_types,status=EXCLUDED.status,
+       verification_token_hash=EXCLUDED.verification_token_hash,verification_expires_at=EXCLUDED.verification_expires_at,
+       verified_at=NULL,disabled_at=NULL RETURNING *`,
+      [destination.id, destination.projectId, destination.email, destination.alertTypes, destination.status,
+       destination.verificationTokenHash ?? null, destination.verificationExpiresAt ?? null, destination.verifiedAt ?? null,
+       destination.createdBy, destination.createdAt, destination.disabledAt ?? null],
+    );
+    return notificationDestinationFromRow(result.rows[0]);
+  }
+
+  async verifyNotificationDestination(tokenHash: string, now: string): Promise<NotificationDestinationRecord | undefined> {
+    return one(this.pool.query(
+      `UPDATE agentcert_notification_destinations SET status='active',verification_token_hash=NULL,
+       verification_expires_at=NULL,verified_at=$2 WHERE verification_token_hash=$1 AND status='pending_verification'
+       AND verification_expires_at >= $2 RETURNING *`,
+      [tokenHash, now],
+    ), notificationDestinationFromRow);
+  }
+
+  async listNotificationDestinations(projectId: string): Promise<NotificationDestinationRecord[]> {
+    return many(this.pool.query(
+      "SELECT * FROM agentcert_notification_destinations WHERE project_id=$1 ORDER BY created_at DESC",
+      [projectId],
+    ), notificationDestinationFromRow);
+  }
+
+  async disableNotificationDestination(projectId: string, destinationId: string, disabledAt: string): Promise<NotificationDestinationRecord | undefined> {
+    return one(this.pool.query(
+      "UPDATE agentcert_notification_destinations SET status='disabled',disabled_at=$3 WHERE project_id=$1 AND id=$2 RETURNING *",
+      [projectId, destinationId, disabledAt],
+    ), notificationDestinationFromRow);
+  }
+
+  async insertNotificationDelivery(delivery: NotificationDeliveryRecord): Promise<NotificationDeliveryRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_notification_deliveries
+       (id,project_id,destination_id,alert_type,subject,status,provider,provider_message_id,error,attempted_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [delivery.id, delivery.projectId, delivery.destinationId, delivery.alertType, delivery.subject, delivery.status,
+       delivery.provider, delivery.providerMessageId ?? null, delivery.error ?? null, delivery.attemptedAt],
+    );
+    return notificationDeliveryFromRow(result.rows[0]);
+  }
+
+  async listNotificationDeliveries(projectId: string, limit = 100): Promise<NotificationDeliveryRecord[]> {
+    return many(this.pool.query(
+      "SELECT * FROM agentcert_notification_deliveries WHERE project_id=$1 ORDER BY attempted_at DESC LIMIT $2",
+      [projectId, limit],
+    ), notificationDeliveryFromRow);
+  }
+
   async activateSigningKey(key: SigningKeyRecord): Promise<SigningKeyRecord> {
     const client = await this.pool.connect();
     try {
@@ -1420,7 +1638,38 @@ function legalHoldFromRow(row: Record<string, unknown>): LegalHoldRequestRecord 
 function incidentFromRow(row: Record<string, unknown>): IncidentRecord {
   return { id: text(row.id), projectId: text(row.project_id), agentId: optionalText(row.agent_id), runId: optionalText(row.run_id), actionId: optionalText(row.action_id),
     severity: text(row.severity) as IncidentRecord["severity"], type: text(row.type), status: text(row.status) as IncidentRecord["status"], summary: text(row.summary),
-    firstDivergence: optionalText(row.first_divergence), createdAt: iso(row.created_at), resolvedAt: optionalIso(row.resolved_at) };
+    firstDivergence: optionalText(row.first_divergence), fingerprint: optionalText(row.fingerprint), occurrenceCount: optionalNumber(row.occurrence_count) ?? 1,
+    consecutivePasses: optionalNumber(row.consecutive_passes) ?? 0, lastFailedAt: optionalIso(row.last_failed_at), lastPassedAt: optionalIso(row.last_passed_at),
+    acknowledgedBy: optionalText(row.acknowledged_by), acknowledgedByEmail: optionalText(row.acknowledged_by_email), acknowledgedAt: optionalIso(row.acknowledged_at),
+    recoveredAt: optionalIso(row.recovered_at), resolvedBy: optionalText(row.resolved_by), resolvedByEmail: optionalText(row.resolved_by_email),
+    githubIssueNumber: optionalNumber(row.github_issue_number), githubIssueUrl: optionalText(row.github_issue_url),
+    createdAt: iso(row.created_at), updatedAt: row.updated_at ? iso(row.updated_at) : iso(row.created_at), resolvedAt: optionalIso(row.resolved_at) };
+}
+function incidentTransitionFromRow(row: Record<string, unknown>): IncidentTransitionRecord {
+  return {
+    id: text(row.id), projectId: text(row.project_id), incidentId: text(row.incident_id),
+    fromStatus: optionalText(row.from_status) as IncidentTransitionRecord["fromStatus"],
+    toStatus: text(row.to_status) as IncidentTransitionRecord["toStatus"], actorType: text(row.actor_type) as IncidentTransitionRecord["actorType"],
+    actorId: optionalText(row.actor_id), actorEmail: optionalText(row.actor_email), reason: text(row.reason),
+    evidence: object(row.evidence), occurredAt: iso(row.occurred_at),
+  };
+}
+function notificationDestinationFromRow(row: Record<string, unknown>): NotificationDestinationRecord {
+  return {
+    id: text(row.id), projectId: text(row.project_id), email: text(row.email),
+    alertTypes: stringArray(row.alert_types) as NotificationDestinationRecord["alertTypes"],
+    status: text(row.status) as NotificationDestinationRecord["status"], verificationTokenHash: optionalText(row.verification_token_hash),
+    verificationExpiresAt: optionalIso(row.verification_expires_at), verifiedAt: optionalIso(row.verified_at),
+    createdBy: text(row.created_by), createdAt: iso(row.created_at), disabledAt: optionalIso(row.disabled_at),
+  };
+}
+function notificationDeliveryFromRow(row: Record<string, unknown>): NotificationDeliveryRecord {
+  return {
+    id: text(row.id), projectId: text(row.project_id), destinationId: text(row.destination_id),
+    alertType: text(row.alert_type) as NotificationDeliveryRecord["alertType"], subject: text(row.subject),
+    status: text(row.status) as NotificationDeliveryRecord["status"], provider: text(row.provider),
+    providerMessageId: optionalText(row.provider_message_id), error: optionalText(row.error), attemptedAt: iso(row.attempted_at),
+  };
 }
 function apiKeyFromRow(row: Record<string, unknown>): ApiKeyRecord {
   return { id: text(row.id), projectId: text(row.project_id), name: text(row.name), prefix: text(row.prefix), secretHash: text(row.secret_hash), createdBy: text(row.created_by),

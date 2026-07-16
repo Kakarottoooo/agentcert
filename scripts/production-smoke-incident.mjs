@@ -25,11 +25,37 @@ export async function upsertProductionSmokeIncident(options = {}) {
   const existing = Array.isArray(search.items)
     ? search.items.find((item) => item.title === PRODUCTION_SMOKE_INCIDENT_TITLE && !item.pull_request)
     : undefined;
+  const outcome = env.AGENTCERT_SMOKE_OUTCOME?.trim();
+  const failed = result.status === "failed" || outcome === "failure";
+  const recovered = result.incidentTransition?.toStatus === "recovered";
+  const resolved = result.operationalIncident?.status === "resolved";
+
+  if (resolved) {
+    if (!existing?.number) return { action: "noop", reason: "resolved_without_open_github_issue" };
+    await githubJson(requestFetch, `${apiBase}/repos/${repository}/issues/${existing.number}/comments`, {
+      method: "POST", headers, body: JSON.stringify({ body: resolutionOccurrence(env, runUrl, result) }),
+    }, 201);
+    await githubJson(requestFetch, `${apiBase}/repos/${repository}/issues/${existing.number}`, {
+      method: "PATCH", headers, body: JSON.stringify({ state: "closed", state_reason: "completed" }),
+    });
+    return { action: "closed", issueNumber: existing.number, issueUrl: existing.html_url };
+  }
+
+  if (recovered) {
+    if (!existing?.number) return { action: "noop", reason: "recovered_without_open_github_issue" };
+    await githubJson(requestFetch, `${apiBase}/repos/${repository}/issues/${existing.number}/comments`, {
+      method: "POST", headers, body: JSON.stringify({ body: recoveryOccurrence(env, runUrl, result) }),
+    }, 201);
+    return { action: "recovery_commented", issueNumber: existing.number, issueUrl: existing.html_url };
+  }
+
+  if (!failed) return { action: "noop", reason: "passing_smoke_without_incident_transition" };
   const occurrence = incidentOccurrence(env, repository, runUrl, result);
   if (existing?.number) {
     await githubJson(requestFetch, `${apiBase}/repos/${repository}/issues/${existing.number}/comments`, {
       method: "POST", headers, body: JSON.stringify({ body: occurrence }),
     }, 201);
+    await linkControlPlaneIncident(requestFetch, env, result, existing.number, existing.html_url);
     return { action: "commented", issueNumber: existing.number, issueUrl: existing.html_url };
   }
   const created = await githubJson(requestFetch, `${apiBase}/repos/${repository}/issues`, {
@@ -38,6 +64,7 @@ export async function upsertProductionSmokeIncident(options = {}) {
       body: `${INCIDENT_MARKER}\n\nThe scheduled production assurance path failed. Repeated failures are appended to this issue instead of opening duplicates.\n\n${occurrence}`,
     }),
   }, 201);
+  await linkControlPlaneIncident(requestFetch, env, result, created.number, created.html_url);
   return { action: "created", issueNumber: created.number, issueUrl: created.html_url };
 }
 
@@ -61,6 +88,50 @@ function incidentOccurrence(env, repository, runUrl, result) {
     "",
     `Follow the [Trust Operations incident runbook](https://github.com/${repository}/blob/main/docs/trust-operations-runbook.md) before closing this issue.`,
   ].join("\n");
+}
+
+function recoveryOccurrence(env, runUrl, result) {
+  const transition = result.incidentTransition ?? {};
+  return [
+    "### Recovery evidence",
+    `- Workflow run: [${sanitize(env.GITHUB_RUN_ID)}](${runUrl})`,
+    `- Recorded: ${sanitize(transition.occurredAt ?? result.completedAt ?? new Date().toISOString())}`,
+    `- Evidence: ${sanitize(transition.reason ?? "Two consecutive production trust smokes passed.")}`,
+    `- Consecutive passing smokes: ${sanitize(transition.evidence?.consecutivePasses ?? 2)}`,
+    "",
+    "The incident is recovered but remains open until an AgentCert administrator reviews the evidence and resolves it.",
+  ].join("\n");
+}
+
+function resolutionOccurrence(env, runUrl, result) {
+  return [
+    "### Incident resolved",
+    `- Workflow run: [${sanitize(env.GITHUB_RUN_ID)}](${runUrl})`,
+    `- Recorded: ${sanitize(result.operationalIncident?.resolvedAt ?? result.completedAt ?? new Date().toISOString())}`,
+    `- Resolved by: ${sanitize(result.operationalIncident?.resolvedByEmail ?? "AgentCert administrator")}`,
+    "",
+    "AgentCert recorded human resolution after the required recovery evidence. This GitHub incident can now close.",
+  ].join("\n");
+}
+
+async function linkControlPlaneIncident(requestFetch, env, result, issueNumber, issueUrl) {
+  const incidentId = result.operationalIncident?.id;
+  const baseUrl = env.AGENTCERT_BASE_URL?.trim()?.replace(/\/$/, "");
+  const projectId = env.AGENTCERT_PROJECT_ID?.trim();
+  const apiKey = env.AGENTCERT_API_KEY?.trim();
+  if (!incidentId || !baseUrl || !projectId || !apiKey) return;
+  const response = await requestFetch(
+    `${baseUrl}/v1/projects/${encodeURIComponent(projectId)}/operational-incidents/${encodeURIComponent(incidentId)}/github`,
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ issueNumber, issueUrl }),
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    process.stderr.write(`AgentCert incident linkage failed (${response.status}): ${sanitize(body.error ?? "unexpected response")}\n`);
+  }
 }
 
 async function githubJson(requestFetch, url, init, expectedStatus = 200) {
