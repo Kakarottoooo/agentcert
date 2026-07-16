@@ -43,7 +43,11 @@ export const CONTROL_PLANE_MIGRATIONS = [
   "007_trust_operations_history.sql",
   "008_trust_operations_v04.sql",
   "009_trust_operations_v05.sql",
+  "010_default_project_name.sql",
 ] as const;
+
+const DEFAULT_PROJECT_NAME = "Agent assurance project";
+const DEFAULT_PROJECT_SLUG = "agent-assurance";
 
 export interface BootstrapResult {
   organization: Organization;
@@ -204,8 +208,8 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
     const project: Project = {
       id: randomUUID(),
       organizationId: organization.id,
-      name: "First project",
-      slug: "first-project",
+      name: DEFAULT_PROJECT_NAME,
+      slug: DEFAULT_PROJECT_SLUG,
       createdAt: now,
     };
     const membership: Membership = { organizationId: organization.id, userId, role: "owner", createdAt: now };
@@ -802,8 +806,8 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
       const project: Project = {
         id: randomUUID(),
         organizationId: organization.id,
-        name: "First project",
-        slug: "first-project",
+        name: DEFAULT_PROJECT_NAME,
+        slug: DEFAULT_PROJECT_SLUG,
         createdAt: now,
       };
       const membership: Membership = { organizationId: organization.id, userId, role: "owner", createdAt: now };

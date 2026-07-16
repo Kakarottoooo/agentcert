@@ -4,7 +4,7 @@
   "description": "Assurance release gates, runtime evidence, and regression CI for AI agents.",
   "type": "module",
   "license": "Apache-2.0",
-  "homepage": "https://github.com/Kakarottoooo/agentcert#readme",
+  "homepage": "https://agentcert-control-plane.onrender.com/demo",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Kakarottoooo/agentcert.git",

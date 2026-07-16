@@ -6,6 +6,10 @@ AgentCert checks what an agent may do, whether it passed pre-release evidence,
 whether a high-risk runtime action may proceed, and who can verify the observed
 outcome. It writes portable reports and accumulates a local failure corpus.
 
+[Public assurance demo](https://agentcert-control-plane.onrender.com/demo) |
+[Private workspace](https://agentcert-control-plane.onrender.com/app) |
+[GitHub source](https://github.com/Kakarottoooo/agentcert)
+
 ## 5-minute local path
 
 ```bash

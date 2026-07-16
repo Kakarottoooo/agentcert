@@ -17,6 +17,15 @@ async function setup(policy?: EvidenceGovernancePolicy, platformAdminEmails: str
 }
 
 describe("AgentCertControlPlane", () => {
+  it("creates a clearly named default assurance project", async () => {
+    const store = new InMemoryControlPlaneStore();
+    const service = new AgentCertControlPlane(store, new MemoryArtifactStore());
+
+    const result = await service.bootstrap(user);
+
+    expect(result.project).toMatchObject({ name: "Agent assurance project", slug: "agent-assurance" });
+  });
+
   it("requires approval, prevents agent self-approval, verifies the outcome, and retains audit state", async () => {
     const { service, projectId } = await setup();
     const agent = await service.createAgent(user, projectId, {

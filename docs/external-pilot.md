@@ -11,7 +11,7 @@ data.
 The first useful checkpoint is one locally validated evidence bundle visible in
 the hosted control plane.
 
-1. Sign in at [agentcert-control-plane.onrender.com](https://agentcert-control-plane.onrender.com/).
+1. Sign in at the [AgentCert workspace](https://agentcert-control-plane.onrender.com/app).
 2. Open **Integrations**, create a project API key, and keep it out of source
    control and issue reports.
 3. Connect the CLI using the command shown for the project. The API key prompt

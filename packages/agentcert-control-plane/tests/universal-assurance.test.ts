@@ -11,8 +11,8 @@ import type { AuthContext, EvidenceRecord } from "../src/types.js";
 const user: AuthContext = { kind: "user", userId: "00000000-0000-4000-8000-000000000001", email: "owner@example.com" };
 
 describe("control-plane migrations", () => {
-  it("loads the universal assurance migration during startup", () => {
-    expect(CONTROL_PLANE_MIGRATIONS.at(-1)).toBe("009_trust_operations_v05.sql");
+  it("loads the latest production migration during startup", () => {
+    expect(CONTROL_PLANE_MIGRATIONS.at(-1)).toBe("010_default_project_name.sql");
   });
 });
 

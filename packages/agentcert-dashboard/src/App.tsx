@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { compactBytes, compactDate, compactDuration, loadMonitorSnapshot, loadRunDetail, percent, submitFailureReview } from "./data";
 import HostedApp from "./HostedApp";
 import { detectHostedConfig, type HostedConfig } from "./hosted-api";
+import { absoluteSurfaceUrl, isPublicArchiveLocation, resolveHostedSurface } from "./surface-routing";
 import type {
   EvidenceArtifact,
   EvidenceTimelineItem,
@@ -16,6 +17,7 @@ import type {
 } from "./types";
 
 type View = "overview" | "runs" | "patterns";
+type MonitorDeployment = "hosted" | "archive" | "local";
 type FilterState = {
   agent: string;
   fault: string;
@@ -51,12 +53,40 @@ export default function App() {
     return <div className="loading">Loading AgentCert...</div>;
   }
   if (hostedConfig) {
-    return <HostedApp config={hostedConfig} />;
+    return <HostedSurface config={hostedConfig} />;
   }
-  return <MonitorApp />;
+  return <MonitorApp deployment={isPublicArchiveLocation(window.location) ? "archive" : "local"} />;
 }
 
-function MonitorApp() {
+function HostedSurface({ config }: { config: HostedConfig }) {
+  const route = resolveHostedSurface(window.location.pathname, window.location.hash);
+  const [normalized, setNormalized] = useState(!route.normalizedPath);
+
+  useEffect(() => {
+    const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    canonical?.setAttribute("href", absoluteSurfaceUrl(config.publicUrl, route.canonicalPath));
+    document.querySelector<HTMLMetaElement>('meta[name="robots"]')?.setAttribute(
+      "content",
+      route.surface === "workspace" ? "noindex,nofollow" : "index,follow",
+    );
+
+    if (route.normalizedPath) {
+      window.history.replaceState(
+        {},
+        document.title,
+        `${route.normalizedPath}${window.location.search}${window.location.hash}`,
+      );
+      setNormalized(true);
+    }
+  }, [config.publicUrl, route.canonicalPath, route.normalizedPath, route.surface]);
+
+  if (!normalized) return <div className="loading">Opening AgentCert...</div>;
+  if (route.surface === "workspace") return <HostedApp config={config} />;
+  if (route.surface === "public-demo") return <MonitorApp deployment="hosted" />;
+  return <NotFound />;
+}
+
+function MonitorApp({ deployment }: { deployment: MonitorDeployment }) {
   const [snapshot, setSnapshot] = useState<MonitorSnapshot>();
   const [source, setSource] = useState<"api" | "static">("static");
   const [error, setError] = useState<string>();
@@ -75,13 +105,13 @@ function MonitorApp() {
   });
 
   useEffect(() => {
-    loadMonitorSnapshot()
+    loadMonitorSnapshot(deployment === "local")
       .then((result) => {
         setSnapshot(result.snapshot);
         setSource(result.source);
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
-  }, []);
+  }, [deployment]);
 
   const filteredRuns = useMemo(() => {
     if (!snapshot) return [];
@@ -120,7 +150,7 @@ function MonitorApp() {
         taxonomyRationale: input.taxonomyRationale,
       });
       setRunDetail(nextDetail);
-      const refreshed = await loadMonitorSnapshot();
+      const refreshed = await loadMonitorSnapshot(deployment === "local");
       setSnapshot(refreshed.snapshot);
       setSource(refreshed.source);
     } catch (err: unknown) {
@@ -138,10 +168,19 @@ function MonitorApp() {
     return <div className="loading">Loading AgentCert Monitor...</div>;
   }
 
+  const brandHref = deployment === "hosted"
+    ? "/demo"
+    : deployment === "archive"
+      ? "https://agentcert-control-plane.onrender.com/demo"
+      : "https://github.com/Kakarottoooo/agentcert";
+  const publicDetailUrl = snapshot.links.detailUrl
+    ? publicEvidenceUrl(snapshot.links.detailUrl, deployment)
+    : undefined;
+
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="AgentCert navigation">
-        <a className="brand" href="https://github.com/Kakarottoooo/agentcert">
+        <a className="brand" href={brandHref}>
           <span className="brand-mark" aria-hidden="true">
             <svg viewBox="0 0 24 24">
               <path d="M12 2.5 20 6v5.6c0 5.1-3.3 8.8-8 10-4.7-1.2-8-4.9-8-10V6l8-3.5Z" />
@@ -170,6 +209,15 @@ function MonitorApp() {
       </aside>
 
       <main className="workspace">
+        {deployment === "archive" ? (
+          <section className="migration-banner" aria-label="AgentCert public demo migration">
+            <div>
+              <strong>This snapshot is now the public evidence archive.</strong>
+              <span>The current demo and authenticated workspace share one product surface in AgentCert Hosted.</span>
+            </div>
+            <a href="https://agentcert-control-plane.onrender.com/demo">Open current demo</a>
+          </section>
+        ) : null}
         <header className="page-header">
           <div>
             <h1>AgentCert Monitor</h1>
@@ -177,10 +225,11 @@ function MonitorApp() {
           </div>
           <div className="header-actions">
             <span className={`source-badge ${source}`}>{source === "api" ? "Local server" : "Static demo"}</span>
-            <a href={source === "api" ? "/api/corpus/reviewed-dataset" : "../browser-agent-robustness/evidence/reviewed-failure-dataset.jsonl"}>
+            <a href={source === "api" ? "/api/corpus/reviewed-dataset" : publicEvidenceUrl("../browser-agent-robustness/evidence/reviewed-failure-dataset.jsonl", deployment)}>
               Export reviewed dataset
             </a>
-            {snapshot.links.detailUrl ? <a href={snapshot.links.detailUrl}>Open evidence detail</a> : null}
+            {publicDetailUrl ? <a href={publicDetailUrl}>Open evidence detail</a> : null}
+            {deployment === "hosted" ? <a className="workspace-action" href="/app">Open workspace</a> : null}
             <a href="https://github.com/Kakarottoooo/agentcert">GitHub</a>
           </div>
         </header>
@@ -204,6 +253,7 @@ function MonitorApp() {
             reviewError={reviewError}
             onSelectRun={setSelectedRunId}
             onReview={handleFailureReview}
+            detailUrl={publicDetailUrl}
           />
         ) : null}
         {view === "runs" ? (
@@ -218,6 +268,7 @@ function MonitorApp() {
             reviewSaving={reviewSaving}
             reviewError={reviewError}
             onReview={handleFailureReview}
+            detailUrl={publicDetailUrl}
           />
         ) : null}
         {view === "patterns" ? <PatternsView snapshot={snapshot} /> : null}
@@ -236,6 +287,7 @@ function Overview({
   reviewError,
   onSelectRun,
   onReview,
+  detailUrl,
 }: {
   snapshot: MonitorSnapshot;
   runs: MonitorRun[];
@@ -246,6 +298,7 @@ function Overview({
   reviewError?: string;
   onSelectRun: (id: string) => void;
   onReview: (input: FailureReviewInput) => Promise<void>;
+  detailUrl?: string;
 }) {
   return (
     <div className="dashboard-grid">
@@ -294,7 +347,7 @@ function Overview({
         <RunTable runs={runs.slice(0, 8)} selectedRun={selectedRun} onSelectRun={onSelectRun} />
       </section>
 
-      <RunInspector run={selectedRun} detailUrl={snapshot.links.detailUrl} />
+      <RunInspector run={selectedRun} detailUrl={detailUrl} />
 
       <EvidencePreview run={selectedRun} detail={runDetail} source={source} />
       <TaxonomyReviewPanel run={selectedRun} detail={runDetail} source={source} saving={reviewSaving} error={reviewError} onReview={onReview} />
@@ -313,6 +366,7 @@ function RunsView({
   reviewSaving,
   reviewError,
   onReview,
+  detailUrl,
 }: {
   snapshot: MonitorSnapshot;
   runs: MonitorRun[];
@@ -324,6 +378,7 @@ function RunsView({
   reviewSaving: boolean;
   reviewError?: string;
   onReview: (input: FailureReviewInput) => Promise<void>;
+  detailUrl?: string;
 }) {
   return (
     <div className="evidence-grid">
@@ -333,7 +388,7 @@ function RunsView({
       </section>
       <EvidenceTimelinePanel run={selectedRun} detail={runDetail} loading={detailLoading} source={source} />
       <TaxonomyReviewPanel run={selectedRun} detail={runDetail} source={source} saving={reviewSaving} error={reviewError} onReview={onReview} />
-      <ArtifactPanel run={selectedRun} detail={runDetail} detailUrl={snapshot.links.detailUrl} source={source} />
+      <ArtifactPanel run={selectedRun} detail={runDetail} detailUrl={detailUrl} source={source} />
     </div>
   );
 }
@@ -367,6 +422,26 @@ function PatternsView({ snapshot }: { snapshot: MonitorSnapshot }) {
       </section>
     </div>
   );
+}
+
+function NotFound() {
+  return (
+    <main className="surface-not-found">
+      <div className="hosted-brand">AgentCert</div>
+      <h1>Page not found</h1>
+      <p>Open the public assurance demo or sign in to your private workspace.</p>
+      <div>
+        <a href="/demo">Public demo</a>
+        <a href="/app">Workspace</a>
+      </div>
+    </main>
+  );
+}
+
+function publicEvidenceUrl(value: string, deployment: MonitorDeployment): string {
+  if (deployment !== "hosted" || /^https?:\/\//.test(value)) return value;
+  const normalized = value.replace(/^\.\.\//, "").replace(/^\.\//, "").replace(/^\/+/, "");
+  return `https://kakarottoooo.github.io/agentcert/public-demo/${normalized}`;
 }
 
 function LifecycleCard({ gate }: { gate: LifecycleGate }) {

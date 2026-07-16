@@ -15,6 +15,10 @@ and portable evidence. Untested or manually owned controls remain visibly
 `needs-evidence` or `manual-review`; AgentCert never turns them into a silent
 pass.
 
+**Use AgentCert:** [Public assurance demo](https://agentcert-control-plane.onrender.com/demo) |
+[Private workspace](https://agentcert-control-plane.onrender.com/app) |
+[GitHub source](https://github.com/Kakarottoooo/agentcert)
+
 ```bash
 npx agentcert release-gate --config agentcert.config.json --strict
 ```
@@ -139,7 +143,8 @@ API contract: [docs/openapi/control-plane-v1.yaml](docs/openapi/control-plane-v1
 Envelope contract and adapters: [docs/universal-envelope.md](docs/universal-envelope.md).
 Evidence verification chain: [docs/evidence-trust-chain.md](docs/evidence-trust-chain.md).
 Sandbox Adapter Kit: [docs/sandbox-adapter-kit.md](docs/sandbox-adapter-kit.md).
-Public control plane: [agentcert-control-plane.onrender.com](https://agentcert-control-plane.onrender.com/).
+Public demo: [agentcert-control-plane.onrender.com/demo](https://agentcert-control-plane.onrender.com/demo).
+Authenticated workspace: [agentcert-control-plane.onrender.com/app](https://agentcert-control-plane.onrender.com/app).
 
 Once a project API key is created in **Integrations**, connect the CLI once and
 publish the same validated evidence bundle it writes locally:
@@ -417,7 +422,8 @@ reads the aggregated snapshot.
 - Schema guide: [docs/evidence-schema.md](docs/evidence-schema.md)
 - Extended standards/taxonomy notes: [docs/standards/evidence-schema.md](docs/standards/evidence-schema.md)
 - Corpus, review ledger, monitor, and local console reference: [docs/evidence-and-corpus.md](docs/evidence-and-corpus.md)
-- Hosted demo monitor: [AgentCert Monitor](https://kakarottoooo.github.io/agentcert/public-demo/agentcert-monitor/)
+- Public assurance demo: [AgentCert Hosted](https://agentcert-control-plane.onrender.com/demo)
+- Immutable evidence archive: [GitHub Pages snapshot](https://kakarottoooo.github.io/agentcert/public-demo/agentcert-monitor/)
 
 Validate any evidence artifact:
 

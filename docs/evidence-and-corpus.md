@@ -170,15 +170,19 @@ adds API-backed inspection:
 
 ## Public Monitor
 
-Hosted monitor:
+Canonical public demo:
+
+[https://agentcert-control-plane.onrender.com/demo](https://agentcert-control-plane.onrender.com/demo)
+
+Immutable GitHub Pages archive:
 
 [https://kakarottoooo.github.io/agentcert/public-demo/agentcert-monitor/](https://kakarottoooo.github.io/agentcert/public-demo/agentcert-monitor/)
 
 The monitor reads a generated `monitor.json` snapshot from the AgentCert corpus
 and shows lifecycle gate status, accumulated corpus record counts and pass
-rate, filters, top failure patterns, and recent evidence runs. The hosted
-GitHub Pages monitor is intentionally static; for live corpus storage and
-write-back use `npm run agentcert:serve`.
+rate, filters, top failure patterns, and recent evidence runs. The public demo
+is intentionally read-only. Use `/app` for authenticated hosted operations or
+`npm run agentcert:serve` for local corpus write-back.
 
 The checked-in public corpus currently contains 11 records: 1 MCPBench passing
 pre-release run, 9 Tripwire CI browser-agent scenario runs, and 1 Onegent
