@@ -25,8 +25,8 @@
     "entries": [
       {
         "path": "trace.json",
-        "sha256": "424da8c186ce0e6f732a2efa0b2349d4a37562e0c31cba58719aede3ca53b191",
-        "sizeBytes": 25,
+        "sha256": "9d60923b6e8d7d95436bdc8b7124ec9516b76c35bcf8b0d2bda870f563bee170",
+        "sizeBytes": 26,
         "kind": "trace"
       }
     ]
