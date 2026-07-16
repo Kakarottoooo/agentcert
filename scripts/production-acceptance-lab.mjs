@@ -50,7 +50,7 @@ if (hosted) {
   await checkTask("hosted-signed-report-storage", async () => {
     const url = new URL(`${hosted.baseUrl}/v1/projects/${encodeURIComponent(hosted.projectId)}/evidence`);
     url.searchParams.set("fileName", `production-acceptance-${new Date().toISOString().slice(0, 10)}.json`);
-    url.searchParams.set("kind", "production_acceptance");
+    url.searchParams.set("kind", "report");
     url.searchParams.set("schemaVersion", payload.schemaVersion);
     const response = await fetch(url, { method: "POST", headers: { authorization: `Bearer ${hosted.apiKey}`, "content-type": "application/json" }, body: reportBytes });
     const value = await response.json().catch(() => ({}));
@@ -73,8 +73,11 @@ async function checkTask(id, task) {
   try {
     const result = await task();
     checks.push({ id, status: "passed", durationMs: Date.now() - began, summary: tail(result, 600) });
+    process.stdout.write(`[PASS] ${id}\n`);
   } catch (error) {
-    checks.push({ id, status: "failed", durationMs: Date.now() - began, summary: tail(error instanceof Error ? error.message : String(error), 1_000) });
+    const summary = tail(error instanceof Error ? error.message : String(error), 1_000);
+    checks.push({ id, status: "failed", durationMs: Date.now() - began, summary });
+    process.stderr.write(`[FAIL] ${id}: ${summary}\n`);
   }
 }
 function hostedConfiguration() {
