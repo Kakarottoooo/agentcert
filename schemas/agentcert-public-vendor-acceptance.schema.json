@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.dev/schemas/agentcert-public-vendor-acceptance.schema.json",
+  "title": "AgentCert Public Vendor Acceptance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "publishedAt", "subject", "verdict", "summary", "boundary", "evidenceChain", "runs", "disclosure", "limitations"],
+  "properties": {
+    "schemaVersion": { "const": "agentcert.public_vendor_acceptance.v0.1" },
+    "kind": { "const": "agentcert.public_vendor_acceptance" },
+    "publishedAt": { "type": "string", "format": "date-time" },
+    "subject": {
+      "type": "object",
+      "required": ["vendor", "environment", "capability", "mode", "productionAccess"],
+      "properties": {
+        "vendor": { "const": "stripe" },
+        "environment": { "const": "sandbox" },
+        "capability": { "const": "payment_intent.retrieve" },
+        "mode": { "const": "read_only" },
+        "productionAccess": { "const": false }
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "required": ["passed", "score", "level"],
+      "properties": {
+        "passed": { "const": true },
+        "score": { "const": 100 },
+        "level": { "enum": ["baseline", "stable"] }
+      }
+    },
+    "summary": { "type": "object" },
+    "boundary": { "type": "object" },
+    "evidenceChain": { "type": "array", "minItems": 7, "items": { "type": "object" } },
+    "runs": { "type": "array", "minItems": 2, "items": { "type": "object" } },
+    "disclosure": { "type": "object" },
+    "limitations": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+  }
+}

@@ -1,0 +1,163 @@
+{
+  "schemaVersion": "agentcert.public_vendor_acceptance.v0.1",
+  "kind": "agentcert.public_vendor_acceptance",
+  "publishedAt": "2026-07-16T07:54:43.195Z",
+  "subject": {
+    "vendor": "stripe",
+    "environment": "sandbox",
+    "capability": "payment_intent.retrieve",
+    "mode": "read_only",
+    "productionAccess": false
+  },
+  "verdict": {
+    "passed": true,
+    "score": 100,
+    "level": "stable"
+  },
+  "summary": {
+    "totalRuns": 2,
+    "includedRuns": 2,
+    "passingRuns": 2,
+    "passRate": 1,
+    "regressions": 0,
+    "warnings": 0,
+    "redactionFindings": 0,
+    "artifactScanFindings": 0
+  },
+  "boundary": {
+    "allowedOrigins": [
+      "https://api.stripe.com"
+    ],
+    "allowedMethods": [
+      "GET"
+    ],
+    "allowedResources": [
+      "stripe.payment_intent.retrieve"
+    ],
+    "credentialType": "restricted_test_key",
+    "requiredPermission": "PaymentIntents: Read",
+    "redirects": "rejected",
+    "timeoutMs": 5000,
+    "maxRequestsPerMinute": 10,
+    "policySha256": "f66a656683c18ca39e2e1ac14a29296b021c32528a3a1489d4e996804a35df0d"
+  },
+  "evidenceChain": [
+    {
+      "sequence": 1,
+      "type": "environment_approval",
+      "status": "passed",
+      "detail": "GitHub vendor-sandbox approval released the protected secrets."
+    },
+    {
+      "sequence": 2,
+      "type": "bounded_vendor_read",
+      "status": "passed",
+      "detail": "One allowlisted HTTPS GET observed a Stripe sandbox PaymentIntent."
+    },
+    {
+      "sequence": 3,
+      "type": "redacted_v0_4_report",
+      "status": "passed",
+      "detail": "The runtime retained only the bounded v0.4 observation and request audit."
+    },
+    {
+      "sequence": 4,
+      "type": "pre_upload_redaction",
+      "status": "passed",
+      "detail": "Credential patterns, forbidden fields, and exact secret values produced zero findings."
+    },
+    {
+      "sequence": 5,
+      "type": "production_retention",
+      "status": "passed",
+      "detail": "The validated report was retained by the AgentCert production Control Plane."
+    },
+    {
+      "sequence": 6,
+      "type": "history_comparison",
+      "status": "passed",
+      "detail": "The second protected run matched the prior schema and egress policy."
+    },
+    {
+      "sequence": 7,
+      "type": "final_artifact_scan",
+      "status": "passed",
+      "detail": "Every publishable workflow artifact passed a second aggregate scan."
+    }
+  ],
+  "runs": [
+    {
+      "workflowRunId": 29481436126,
+      "workflowUrl": "https://github.com/Kakarottoooo/agentcert/actions/runs/29481436126",
+      "attempt": 1,
+      "startedAt": "2026-07-16T07:53:22.063Z",
+      "status": "passed",
+      "score": 100,
+      "trend": "baseline",
+      "schemaVersion": "agentcert.sandbox_vendor_egress.v0.4",
+      "requestDurationMs": 288,
+      "reportSha256": "3177d0d0e67471c31aa7c4f11ce36652bafb9c163acee02efe25a9623f4f5bad",
+      "policySha256": "f66a656683c18ca39e2e1ac14a29296b021c32528a3a1489d4e996804a35df0d",
+      "scans": {
+        "preUpload": {
+          "passed": true,
+          "findings": 0
+        },
+        "finalArtifacts": {
+          "passed": true,
+          "findings": 0
+        }
+      }
+    },
+    {
+      "workflowRunId": 29481517989,
+      "workflowUrl": "https://github.com/Kakarottoooo/agentcert/actions/runs/29481517989",
+      "attempt": 1,
+      "startedAt": "2026-07-16T07:54:41.410Z",
+      "status": "passed",
+      "score": 100,
+      "trend": "stable",
+      "schemaVersion": "agentcert.sandbox_vendor_egress.v0.4",
+      "requestDurationMs": 269,
+      "reportSha256": "ff9b7fd8a92a1498e58991de85467e6bf994dc59cb5fce6d98e08164166b6bf0",
+      "policySha256": "f66a656683c18ca39e2e1ac14a29296b021c32528a3a1489d4e996804a35df0d",
+      "scans": {
+        "preUpload": {
+          "passed": true,
+          "findings": 0
+        },
+        "finalArtifacts": {
+          "passed": true,
+          "findings": 0
+        }
+      }
+    }
+  ],
+  "disclosure": {
+    "anonymized": true,
+    "publicFields": [
+      "workflow run",
+      "timestamps",
+      "verdict",
+      "latency",
+      "schema",
+      "SHA-256 digests",
+      "scan counts"
+    ],
+    "omittedFields": [
+      "PaymentIntent ID",
+      "API keys",
+      "Authorization headers",
+      "raw vendor response",
+      "client secret",
+      "metadata"
+    ],
+    "sourceReportsPublic": false,
+    "reason": "The public report proves the acceptance chain without publishing vendor object identifiers or credentials."
+  },
+  "limitations": [
+    "This proves one fixed Stripe sandbox read-only boundary, not live-mode or write safety.",
+    "It does not independently attest the permissions configured in the Stripe Dashboard.",
+    "It is reproducible assurance evidence, not certification of Stripe or the calling application."
+  ]
+}

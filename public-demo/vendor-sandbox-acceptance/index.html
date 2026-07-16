@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AgentCert Stripe Sandbox Acceptance</title>
+    <meta name="description" content="An anonymized, reproducible AgentCert acceptance report for a real read-only Stripe sandbox integration.">
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="../agentcert-monitor/">AgentCert</a>
+      <nav aria-label="Evidence navigation">
+        <a href="./report.json">Raw JSON</a>
+        <a href="../real-agent-robustness/">Robustness Lab</a>
+        <a href="https://github.com/Kakarottoooo/agentcert">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <header class="report-header">
+        <div>
+          <p class="eyebrow">Real Vendor Acceptance · Stripe Sandbox</p>
+          <h1>AgentCert Stripe sandbox acceptance</h1>
+          <p class="lede">A real restricted-key read crossed a fixed network boundary, produced redacted v0.4 evidence, passed two secret scans, reached the production Control Plane, and remained stable on repeat.</p>
+        </div>
+        <div class="verdict" aria-label="Latest acceptance verdict">
+          <span>Latest verdict</span>
+          <strong id="verdict-level">Loading</strong>
+          <small id="published-at"></small>
+        </div>
+      </header>
+
+      <section class="metric-strip" id="metrics" aria-label="Acceptance summary"></section>
+
+      <section class="report-section" aria-labelledby="chain-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">Evidence chain</p><h2 id="chain-title">What happened, in order</h2></div>
+          <p>Every step is deterministic and independently observable. A failed redaction gate prevents publication.</p>
+        </div>
+        <ol class="evidence-chain" id="evidence-chain"></ol>
+      </section>
+
+      <section class="report-section" aria-labelledby="runs-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">Regression history</p><h2 id="runs-title">Two protected runs</h2></div>
+          <p>The first run established a baseline. The second repeated the same schema and policy with no regression.</p>
+        </div>
+        <div class="run-table-wrap">
+          <table>
+            <thead><tr><th>Workflow</th><th>Started</th><th>Verdict</th><th>Trend</th><th>Latency</th><th>Report SHA-256</th><th>Scans</th></tr></thead>
+            <tbody id="run-history"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="boundary-band" aria-labelledby="boundary-title">
+        <div class="boundary-enforced">
+          <p class="eyebrow">Enforced boundary</p>
+          <h2 id="boundary-title">Read-only by construction</h2>
+          <dl id="boundary"></dl>
+        </div>
+        <div class="boundary-excluded">
+          <p class="eyebrow">Not claimed</p>
+          <h2>Deliberate limits</h2>
+          <ul id="limitations"></ul>
+        </div>
+      </section>
+
+      <section class="report-section disclosure" aria-labelledby="disclosure-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">Public disclosure</p><h2 id="disclosure-title">Proof without credentials</h2></div>
+          <span class="status-chip">Anonymized</span>
+        </div>
+        <div class="disclosure-grid">
+          <div><h3>Published</h3><ul id="public-fields"></ul></div>
+          <div><h3>Always omitted</h3><ul id="omitted-fields"></ul></div>
+        </div>
+        <p class="disclosure-note" id="disclosure-note"></p>
+      </section>
+    </main>
+
+    <footer><span>AgentCert public evidence</span><a href="./report.json">agentcert.public_vendor_acceptance.v0.1</a></footer>
+    <noscript>This report requires JavaScript to render its checked-in JSON evidence.</noscript>
+    <script src="./app.js"></script>
+  </body>
+</html>
