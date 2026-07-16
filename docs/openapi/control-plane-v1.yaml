@@ -74,10 +74,21 @@ paths:
         "200": { description: Project overview }
   /v1/projects/{projectId}/operations:
     get:
-      summary: Read Trust Operations health, webhook queue, and signing-key state
+      summary: Read Trust Operations alerts, 7-day health trends, webhook metrics, and signing-key state
       parameters: [{$ref: "#/components/parameters/ProjectId"}]
       responses:
-        "200": {description: Trust Operations v0.2 status}
+        "200": {description: Trust Operations v0.3 status}
+  /v1/projects/{projectId}/operations/smoke-runs:
+    post:
+      summary: Record a production smoke health sample
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/TrustHealthSampleInput"}
+      responses:
+        "201": {description: Persisted health sample}
   /v1/projects/{projectId}/envelopes:
     post:
       summary: Ingest a framework-neutral event or action envelope
@@ -392,6 +403,19 @@ components:
     ApiKeyId: {in: path, name: apiKeyId, required: true, schema: {type: string, format: uuid}}
     IdempotencyKey: {in: header, name: Idempotency-Key, required: false, schema: {type: string, minLength: 1, maxLength: 200}}
   schemas:
+    TrustHealthSampleInput:
+      type: object
+      required: [externalId, source, status, startedAt, completedAt]
+      properties:
+        externalId: {type: string}
+        source: {enum: [production_smoke, manual]}
+        status: {enum: [passed, failed]}
+        startedAt: {type: string, format: date-time}
+        completedAt: {type: string, format: date-time}
+        checks: {type: array, items: {type: string}}
+        error: {type: string, maxLength: 2000}
+        workflowRunId: {type: string}
+        workflowRunUrl: {type: string, format: uri}
     AgentInput:
       type: object
       required: [externalId, name]

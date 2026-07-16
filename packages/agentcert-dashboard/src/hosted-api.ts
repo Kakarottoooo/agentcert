@@ -220,11 +220,12 @@ export interface HostedSigningKey {
 }
 
 export interface HostedOperations {
-  schemaVersion: "agentcert.trust_operations.v0.2";
+  schemaVersion: "agentcert.trust_operations.v0.3";
   projectId: string;
-  status: "healthy" | "degraded";
+  status: "healthy" | "warning" | "critical";
   generatedAt: string;
   coordination: { backend: "memory" | "redis"; state: "ready" | "degraded"; shared: boolean };
+  alerts: Record<"redis" | "signing" | "scheduledSmoke" | "webhooks", { status: "healthy" | "warning" | "critical"; message: string }>;
   webhooks: {
     queue: Record<HostedWebhookJob["status"], number>;
     recentJobs: HostedWebhookJob[];
@@ -237,6 +238,29 @@ export interface HostedOperations {
     historicalKeys: number;
     keys: HostedSigningKey[];
   };
+  smoke: { latest: HostedTrustHealthSample | null; recent: HostedTrustHealthSample[] };
+  trends: {
+    windowDays: 7;
+    health: Array<{ date: string; total: number; passed: number; failed: number; successRate: number }>;
+    webhooks: Array<{ date: string; total: number; delivered: number; retried: number; deadLetter: number; averageLatencyMs: number; p95LatencyMs: number }>;
+    summary: {
+      smokeSuccessRate: number; webhookSuccessRate: number; retryRate: number; deadLetterRate: number;
+      averageLatencyMs: number; p95LatencyMs: number;
+    };
+  };
+}
+
+export interface HostedTrustHealthSample {
+  id: string;
+  externalId: string;
+  source: "production_smoke" | "manual";
+  status: "passed" | "failed";
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  checks: string[];
+  error?: string;
+  workflowRunUrl?: string;
 }
 
 export interface HostedWebhook {

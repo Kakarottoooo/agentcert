@@ -352,13 +352,17 @@ stable 32-byte base64url or 64-hex key:
 AGENTCERT_WEBHOOK_ENCRYPTION_KEY=<32 byte key>
 ```
 
-Trust Operations v0.2 writes each event to a Postgres queue before returning to
+Trust Operations v0.3 writes each event to a Postgres queue before returning to
 the caller. Workers claim jobs with leases and `FOR UPDATE SKIP LOCKED`, record
 every delivery attempt, retry failed requests with bounded exponential backoff,
 and move exhausted jobs to a dead-letter queue after five attempts. Expired
 worker leases are reclaimable, so a process restart does not lose queued work.
 The Dashboard shows pending, retrying, and dead-letter counts plus recent
-failure details. Delivery is at least once; receivers must deduplicate using
+failure details. It also persists scheduled production-smoke outcomes and shows
+7-day smoke success, webhook latency, retry, and dead-letter trends. Redis,
+server signing, scheduled smoke, and webhook delivery each expose a separate
+operator-facing alert with a concrete reason. Delivery is at least once;
+receivers must deduplicate using
 `X-AgentCert-Event-Id`.
 
 For production acceptance without a third-party endpoint, owners can open
@@ -376,6 +380,12 @@ manually. It checks health and shared Redis coordination, idempotent replay and
 conflict handling, evidence upload/download byte equality, historical-key
 signature verification, run completion, signed webhook delivery through the
 self-test receiver, and the Trust Operations status.
+
+Each run persists a sanitized pass/fail health sample before the final status
+check. A failed workflow creates one GitHub issue titled
+`[AgentCert] Production trust smoke failure`; subsequent failures append to the
+same open issue. Operators close it only after following the
+[Trust Operations incident runbook](trust-operations-runbook.md).
 
 Configure these GitHub repository Actions secrets:
 

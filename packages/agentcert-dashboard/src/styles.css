@@ -1510,6 +1510,103 @@ button {
   font-size: 16px;
 }
 
+.operations-trends {
+  margin-bottom: 18px;
+  padding: 18px;
+  background: white;
+  border: 1px solid var(--border);
+}
+
+.trend-heading,
+.trend-summary,
+.trend-summary.webhook {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.trend-heading h2 {
+  margin: 4px 0 0;
+  font-size: 17px;
+}
+
+.trend-heading p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.trend-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.trend-series {
+  min-width: 0;
+  padding: 16px 18px 4px 0;
+}
+
+.trend-series + .trend-series {
+  padding-left: 18px;
+  border-left: 1px solid var(--border);
+}
+
+.trend-summary > strong,
+.trend-summary.webhook strong {
+  font-size: 24px;
+}
+
+.trend-summary > span,
+.trend-summary.webhook em {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.trend-summary.webhook > span {
+  display: grid;
+  gap: 3px;
+}
+
+.trend-bars {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(20px, 1fr));
+  gap: 8px;
+  height: 112px;
+  margin-top: 14px;
+}
+
+.trend-bars > div {
+  display: grid;
+  grid-template-rows: 82px 18px;
+  gap: 5px;
+  align-items: end;
+  min-width: 0;
+  text-align: center;
+}
+
+.trend-bars i {
+  display: block;
+  width: 100%;
+  min-height: 4px;
+  align-self: end;
+  background: var(--teal);
+  border-radius: 2px 2px 0 0;
+}
+
+.trend-bars i.warning { background: var(--amber); }
+.trend-bars i.failed { background: var(--red); }
+.trend-bars i.empty { background: #dbe5ed; }
+
+.trend-bars small {
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
 .control-metrics > div {
   display: grid;
   gap: 7px;
@@ -1672,6 +1769,7 @@ button {
 }
 
 .hosted-status.degraded,
+.hosted-status.warning,
 .hosted-status.retrying,
 .hosted-status.processing,
 .hosted-status.retired {
@@ -2780,6 +2878,14 @@ button {
   .onboarding-band ol,
   .legal-hold-panel {
     grid-template-columns: 1fr;
+  }
+  .trend-grid {
+    grid-template-columns: 1fr;
+  }
+  .trend-series + .trend-series {
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    border-left: 0;
   }
   .onboarding-band > button {
     width: fit-content;

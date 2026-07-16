@@ -361,6 +361,42 @@ export interface SigningKeyRecord {
   revokedAt?: string;
 }
 
+export interface TrustHealthSampleRecord {
+  id: string;
+  projectId: string;
+  externalId: string;
+  source: "production_smoke" | "manual";
+  status: "passed" | "failed";
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  checks: string[];
+  error?: string;
+  workflowRunId?: string;
+  workflowRunUrl?: string;
+  createdAt: string;
+}
+
+export interface WebhookOperationsBucket {
+  date: string;
+  total: number;
+  delivered: number;
+  retried: number;
+  deadLetter: number;
+  averageLatencyMs: number;
+  p95LatencyMs: number;
+}
+
+export interface WebhookOperationsMetrics {
+  total: number;
+  delivered: number;
+  retried: number;
+  deadLetter: number;
+  averageLatencyMs: number;
+  p95LatencyMs: number;
+  buckets: WebhookOperationsBucket[];
+}
+
 export interface FailureQualityMetrics {
   schemaVersion: "agentcert.failure_quality_metrics.v0.1";
   totalFailures: number;

@@ -42,7 +42,7 @@
     "control-plane:test": "npm --prefix packages/agentcert-dashboard test && npm --prefix packages/agentcert-control-plane test && npm --prefix packages/agentcert-sdk test && npm --prefix packages/agentcert-sdk run build && npm --prefix packages/agentcert-mcp-adapter test",
     "control-plane:dev": "npm run control-plane:build && node packages/agentcert-control-plane/dist/cli.js",
     "production-smoke": "node scripts/production-smoke.mjs",
-    "production-smoke:test": "node --test scripts/production-smoke.test.mjs",
+    "production-smoke:test": "node --test scripts/production-smoke.test.mjs scripts/production-smoke-incident.test.mjs",
     "check": "npm run tripwire:build && npm run tripwire:test && npm run onegent:build && npm run onegent:test && npm run agentcert:build && npm run agentcert:test"
   },
   "engines": {

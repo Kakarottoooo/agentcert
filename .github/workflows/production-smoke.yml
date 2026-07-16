@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: agentcert-production-smoke
@@ -24,10 +25,11 @@ jobs:
       AGENTCERT_REQUIRE_WEBHOOK_DELIVERY: "true"
       AGENTCERT_SMOKE_OUTPUT: .agentcert/production-smoke/result.json
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
+          package-manager-cache: false
       - name: Verify required secrets
         shell: bash
         run: |
@@ -37,9 +39,14 @@ jobs:
         run: node scripts/production-smoke.mjs
       - name: Upload sanitized smoke result
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: agentcert-production-smoke-${{ github.run_id }}
           path: .agentcert/production-smoke/result.json
           if-no-files-found: warn
           retention-days: 30
+      - name: Create or update production incident
+        if: failure()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/production-smoke-incident.mjs
