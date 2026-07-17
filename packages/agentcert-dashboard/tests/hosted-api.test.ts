@@ -7,10 +7,12 @@ import {
   loadAdminPilotReport,
   HostedApiError,
   readHostedAuthCallbackError,
+  requestPasswordReset,
   requestHostedLegalHold,
   resendSignUpConfirmation,
   reviewHostedFailure,
   sendHostedTestNotification,
+  updatePassword,
   type HostedConfig,
 } from "../src/hosted-api";
 
@@ -73,6 +75,40 @@ describe("hosted signup recovery", () => {
     });
 
     expect(readHostedAuthCallbackError()).toBeUndefined();
+  });
+
+  it("sends password recovery to the branded account center", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(requestPasswordReset(config, "user@example.com")).resolves.toBe(
+      "Password reset email sent. Use the newest link to choose a new password.",
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://project.supabase.co/auth/v1/recover?redirect_to=https%3A%2F%2Fagentcert.example.com%2Fapp%3Fview%3Daccount%26mode%3Dpassword-recovery",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ email: "user@example.com" }),
+      }),
+    );
+  });
+
+  it("updates a password only through the authenticated Supabase user endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(updatePassword(config, { accessToken: "recovery-token" }, "a-secure-new-password"))
+      .resolves.toBe("Password updated. You can continue using this session.");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://project.supabase.co/auth/v1/user",
+      expect.objectContaining({
+        method: "PUT",
+        headers: expect.objectContaining({ authorization: "Bearer recovery-token" }),
+        body: JSON.stringify({ password: "a-secure-new-password" }),
+      }),
+    );
   });
 });
 
