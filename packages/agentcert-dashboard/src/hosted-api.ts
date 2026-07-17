@@ -574,6 +574,44 @@ export async function resendSignUpConfirmation(config: HostedConfig, email: stri
   return "Confirmation email sent. Use the newest link to finish signing up.";
 }
 
+export async function requestPasswordReset(config: HostedConfig, email: string): Promise<string> {
+  const normalizedEmail = email.trim();
+  if (!normalizedEmail) throw new Error("Enter your email before requesting a password reset.");
+  const redirectUrl = new URL("/app", config.publicUrl);
+  redirectUrl.searchParams.set("view", "account");
+  redirectUrl.searchParams.set("mode", "password-recovery");
+  const response = await supabaseRequest(config, `/auth/v1/recover?redirect_to=${encodeURIComponent(redirectUrl.toString())}`, {
+    method: "POST",
+    body: JSON.stringify({ email: normalizedEmail }),
+  });
+  const value = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(value.msg ?? value.message ?? "Could not send the password reset email.");
+  return "Password reset email sent. Use the newest link to choose a new password.";
+}
+
+export async function loadAuthProfile(config: HostedConfig, session: HostedSession): Promise<{ email?: string }> {
+  if (config.auth.provider === "development") return { email: session.email };
+  const response = await supabaseRequest(config, "/auth/v1/user", {
+    method: "GET",
+    headers: { authorization: `Bearer ${session.accessToken}` },
+  });
+  const value = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(value.msg ?? value.message ?? "Could not load the authenticated account.");
+  return { email: typeof value.email === "string" ? value.email : session.email };
+}
+
+export async function updatePassword(config: HostedConfig, session: HostedSession, password: string): Promise<string> {
+  if (password.length < 12) throw new Error("Use a password with at least 12 characters.");
+  const response = await supabaseRequest(config, "/auth/v1/user", {
+    method: "PUT",
+    headers: { authorization: `Bearer ${session.accessToken}` },
+    body: JSON.stringify({ password }),
+  });
+  const value = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(value.msg ?? value.message ?? "Could not update the password.");
+  return "Password updated. You can continue using this session.";
+}
+
 export async function signIn(config: HostedConfig, email: string, password: string): Promise<HostedSession> {
   const response = await supabaseRequest(config, "/auth/v1/token?grant_type=password", {
     method: "POST",

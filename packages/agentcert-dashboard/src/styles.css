@@ -1900,6 +1900,95 @@ button {
   font-weight: 750;
 }
 
+.account-block .account-link {
+  display: grid;
+  width: 100%;
+  gap: 3px;
+  padding: 9px 10px;
+  text-align: left;
+  border-radius: 6px;
+}
+
+.account-block .account-link:hover,
+.account-block .account-link.active {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.account-block .account-link span {
+  max-width: 100%;
+  overflow: hidden;
+  color: #b8d4ca;
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-block .account-link strong { font-size: 14px; }
+.account-block .sign-out-link { margin-left: 10px; color: #d7e7e1; font-size: 12px; }
+
+.auth-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.account-center { display: grid; gap: 18px; }
+
+.account-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--border);
+  background: white;
+}
+
+.account-summary-grid article {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  padding: 20px;
+  border-right: 1px solid var(--border);
+}
+
+.account-summary-grid article:last-child { border-right: 0; }
+.account-summary-grid span { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.account-summary-grid strong,
+.account-summary-grid small { overflow-wrap: anywhere; }
+.account-summary-grid small { color: var(--muted); line-height: 1.45; }
+
+.account-security,
+.account-session {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.account-security p,
+.account-session p,
+.account-recovery-panel p { margin: 8px 0 0; color: var(--muted); line-height: 1.55; }
+
+.account-security > button,
+.account-session > button { flex: 0 0 auto; }
+
+.account-recovery-panel {
+  padding: 24px;
+  color: white;
+  background: var(--brand-ink);
+  border-left: 4px solid var(--teal);
+}
+
+.account-recovery-panel h2 { margin: 5px 0 0; }
+.account-recovery-panel p { color: #bdd0c8; }
+.account-recovery-panel form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; gap: 14px; align-items: end; margin-top: 20px; }
+.account-recovery-panel label { display: grid; gap: 6px; font-size: 12px; font-weight: 750; }
+.account-recovery-panel input { min-height: 42px; padding: 0 12px; border: 1px solid #658078; border-radius: 5px; }
+
+#email-alerts:focus {
+  outline: 3px solid rgba(0, 132, 98, 0.28);
+  outline-offset: 4px;
+}
+
 .hosted-workspace {
   width: min(1440px, calc(100% - 48px));
   min-width: 0;
@@ -3971,6 +4060,13 @@ button {
     margin-top: 6px;
     padding-top: 10px;
   }
+  .account-block .account-link { flex: 1 1 auto; width: auto; min-width: 0; }
+  .account-block .sign-out-link { flex: 0 0 auto; margin-left: 0; white-space: nowrap; }
+
+  .account-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .account-summary-grid article:nth-child(2) { border-right: 0; }
+  .account-summary-grid article:nth-child(-n + 2) { border-bottom: 1px solid var(--border); }
+  .account-recovery-panel form { grid-template-columns: 1fr; }
   .hosted-workspace {
     width: calc(100% - 24px);
   }
@@ -4091,4 +4187,13 @@ button {
     margin-top: 28px;
     font-size: 38px;
   }
+}
+
+@media (max-width: 640px) {
+  .account-summary-grid { grid-template-columns: 1fr; }
+  .account-summary-grid article,
+  .account-summary-grid article:nth-child(2) { border-right: 0; border-bottom: 1px solid var(--border); }
+  .account-summary-grid article:last-child { border-bottom: 0; }
+  .account-security,
+  .account-session { align-items: flex-start; flex-direction: column; }
 }

@@ -1315,9 +1315,10 @@ export class AgentCertControlPlane {
         "Wait 60 seconds before sending another test alert.",
       );
     }
+    const workspaceUrl = `${this.publicUrl.replace(/\/$/, "")}/app?view=integrations&focus=email-alerts&project=${encodeURIComponent(projectId)}`;
     return this.enqueueEmail(destination, "test_alert", "[AgentCert] Test alert delivery", {
-      text: `This is a test alert for AgentCert project ${projectId}. No incident was created.\n\nOpen AgentCert: ${this.publicUrl}`,
-      html: `<p><strong>AgentCert test alert</strong></p><p>Email delivery is configured for this project. No incident was created.</p><p><a href="${escapeHtml(this.publicUrl)}">Open AgentCert</a></p>`,
+      text: `This is a test alert for AgentCert project ${projectId}. No incident was created.\n\nReview delivery status: ${workspaceUrl}`,
+      html: `<p><strong>AgentCert test alert</strong></p><p>Email delivery is configured for this project. No incident was created.</p><p><a href="${escapeHtml(workspaceUrl)}">Review delivery status</a></p>`,
     }, now);
   }
 

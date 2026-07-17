@@ -307,6 +307,8 @@ describe("Trust Operations v0.5", () => {
     const now = new Date("2026-07-16T20:00:00.000Z");
     const job = await service.sendTestNotification(user, projectId, pending.id, now);
     expect(job).toMatchObject({ alertType: "test_alert", status: "pending", recipient: "security@example.com" });
+    expect(job.text).toContain(`/app?view=integrations&focus=email-alerts&project=${projectId}`);
+    expect(job.html).toContain(`/app?view=integrations&amp;focus=email-alerts&amp;project=${projectId}`);
     await expect(service.sendTestNotification(user, projectId, pending.id, new Date(now.getTime() + 30_000)))
       .rejects.toMatchObject({ status: 429, code: "test_alert_cooldown" });
     await service.processNotificationJobs("test-alert-worker", now);

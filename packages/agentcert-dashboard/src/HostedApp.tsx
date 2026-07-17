@@ -24,9 +24,11 @@ import {
   loadRetentionReport,
   loadOverview,
   loadHostedOperations,
+  loadAuthProfile,
   readHostedAuthCallbackError,
   readHostedSession,
   requestHostedLegalHold,
+  requestPasswordReset,
   resendSignUpConfirmation,
   resolveHostedIncident,
   reviewHostedAction,
@@ -38,6 +40,7 @@ import {
   signIn,
   signOut,
   signUp,
+  updatePassword,
   type HostedAction,
   type HostedAgent,
   type HostedApiKey,
@@ -65,8 +68,12 @@ import HostedAssuranceView from "./HostedAssuranceView";
 import { BrandMark, ProductHeader } from "./Brand";
 import { resolveAuthMode } from "./auth-routing";
 import { isSandboxCertificationRun } from "./sandbox-certifications";
+import { buildHostedWorkspaceUrl, resolveHostedRoute, type HostedFocus, type HostedView } from "./hosted-routing";
 
-type HostedView = "overview" | "agents" | "runs" | "assurance" | "sandbox" | "gates" | "actions" | "incidents" | "evidence" | "integrations" | "governance";
+interface HostedAccountContext {
+  organization: { id: string; name: string };
+  membership: { role: string };
+}
 
 interface ConsoleData {
   overview: HostedOverview;
@@ -118,6 +125,15 @@ function AuthScreen({ config, onAuthenticated }: { config: HostedConfig; onAuthe
     } finally { setBusy(false); }
   }
 
+  async function resetPassword() {
+    setBusy(true); setError(undefined); setMessage(undefined);
+    try {
+      setMessage(await requestPasswordReset(config, email));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally { setBusy(false); }
+  }
+
   return (
     <div className="auth-surface">
       <ProductHeader />
@@ -147,9 +163,10 @@ function AuthScreen({ config, onAuthenticated }: { config: HostedConfig; onAuthe
             {message ? <div className="form-message">{message}</div> : null}
             <button className="primary-action" disabled={busy}>{busy ? "Working..." : mode === "signin" ? "Sign in" : "Create account"}</button>
             {mode === "signin" && config.auth.provider === "supabase" ? (
-              <button type="button" className="auth-secondary-action" disabled={busy || !email.trim()} onClick={() => void resendConfirmation()}>
-                Resend confirmation email
-              </button>
+              <div className="auth-recovery-actions">
+                <button type="button" className="auth-secondary-action" disabled={busy || !email.trim()} onClick={() => void resetPassword()}>Forgot password?</button>
+                <button type="button" className="auth-secondary-action" disabled={busy || !email.trim()} onClick={() => void resendConfirmation()}>Resend confirmation</button>
+              </div>
             ) : null}
           </form>
           <p className="auth-note">Registration is open. Confirmed accounts receive an isolated organization and assurance project.</p>
@@ -160,7 +177,9 @@ function AuthScreen({ config, onAuthenticated }: { config: HostedConfig; onAuthe
 }
 
 function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; session: HostedSession; onSignOut: () => void }) {
-  const [view, setView] = useState<HostedView>("overview");
+  const initialRoute = useMemo(() => resolveHostedRoute(window.location.search), []);
+  const [view, setView] = useState<HostedView>(initialRoute.view);
+  const [focus, setFocus] = useState<HostedFocus | undefined>(initialRoute.focus);
   const [project, setProject] = useState<HostedProject>();
   const [projects, setProjects] = useState<HostedProject[]>([]);
   const [onboarding, setOnboarding] = useState<HostedOnboardingStatus>();
@@ -168,6 +187,27 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [capabilities, setCapabilities] = useState<HostedCapabilities>();
+  const [accountContext, setAccountContext] = useState<HostedAccountContext>();
+
+  const replaceRoute = useCallback((nextView: HostedView, nextProject?: HostedProject, nextFocus?: HostedFocus) => {
+    const target = buildHostedWorkspaceUrl(window.location.origin, {
+      view: nextView,
+      ...(nextFocus ? { focus: nextFocus } : {}),
+      ...(nextProject ? { projectId: nextProject.id } : {}),
+    });
+    window.history.replaceState({}, document.title, target);
+  }, []);
+
+  const navigate = useCallback((nextView: HostedView) => {
+    setView(nextView);
+    setFocus(undefined);
+    replaceRoute(nextView, project);
+  }, [project, replaceRoute]);
+
+  const selectProject = useCallback((nextProject: HostedProject) => {
+    setProject(nextProject);
+    replaceRoute(view, nextProject, focus);
+  }, [focus, replaceRoute, view]);
 
   const refresh = useCallback(async () => {
     if (!project) return;
@@ -188,7 +228,8 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
     Promise.all([bootstrap(session), loadHostedCapabilities(session), loadProjects(session)])
       .then(([result, nextCapabilities, nextProjects]) => {
         setProjects(nextProjects);
-        setProject(nextProjects.find((item) => item.id === result.project.id) ?? nextProjects[0] ?? result.project);
+        setProject(nextProjects.find((item) => item.id === initialRoute.projectId) ?? nextProjects.find((item) => item.id === result.project.id) ?? nextProjects[0] ?? result.project);
+        setAccountContext({ organization: result.organization, membership: result.membership });
         setCapabilities(nextCapabilities);
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
@@ -204,6 +245,15 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
   useEffect(() => {
     if (onboarding?.complete && data && data.overview.summary.evidence === 0) void refresh();
   }, [data, onboarding?.complete, refresh]);
+  useEffect(() => {
+    if (view !== "integrations" || focus !== "email-alerts" || !data) return;
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.getElementById("email-alerts");
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+      target?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [data, focus, view]);
 
   const navigation: Array<[HostedView, string, number?]> = [
     ["overview", "Overview"], ["agents", "Agents", data?.agents.length], ["runs", "Runs", data?.runs.length],
@@ -224,19 +274,71 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
           <span><strong>AgentCert</strong><small>Workspace</small></span>
         </a>
         <div className="workspace-return-links"><a href="/evidence">Public evidence</a><a href="/">Product site</a></div>
-        <HostedProjectSwitcher session={session} projects={projects} current={project} onSelect={setProject} onChange={(nextProjects, selected) => { setProjects(nextProjects); setProject(selected); }} />
-        <nav>{navigation.map(([id, label, count]) => <button key={id} className={view === id ? "active" : ""} onClick={() => setView(id)}><span>{label}</span>{count ? <em>{count}</em> : null}</button>)}</nav>
-        <div className="account-block"><span>{session.email ?? config.auth.provider}</span><button onClick={onSignOut}>Sign out</button></div>
+        <HostedProjectSwitcher session={session} projects={projects} current={project} onSelect={selectProject} onChange={(nextProjects, selected) => { setProjects(nextProjects); selectProject(selected); }} />
+        <nav>{navigation.map(([id, label, count]) => <button key={id} className={view === id ? "active" : ""} onClick={() => navigate(id)}><span>{label}</span>{count ? <em>{count}</em> : null}</button>)}</nav>
+        <div className="account-block">
+          <button className={view === "account" ? "account-link active" : "account-link"} onClick={() => navigate("account")}><span>{session.email ?? config.auth.provider}</span><strong>Account settings</strong></button>
+          <button className="sign-out-link" onClick={onSignOut}>Sign out</button>
+        </div>
       </aside>
       <main className="hosted-workspace">
         <header className="hosted-header"><div><span className="surface-mode">Workspace</span><span className="workspace-project">{project?.slug ?? "project"}</span><h1>{viewTitle(view)}</h1></div><button onClick={() => void refresh()} disabled={loading}>Refresh</button></header>
         {error ? <div className="console-error">{error}</div> : null}
-        {!data || !project ? <div className="loading">Loading control plane...</div> : (
-          <HostedViewContent view={view} data={data} project={project} session={session} onboarding={onboarding} refresh={refresh} onNavigate={setView} />
-        )}
+        {!data || !project ? <div className="loading">Loading control plane...</div> : view === "account" ? (
+          <AccountView config={config} session={session} project={project} context={accountContext} onSignOut={onSignOut} />
+        ) : <HostedViewContent view={view} data={data} project={project} session={session} onboarding={onboarding} refresh={refresh} onNavigate={navigate} />}
       </main>
     </div>
   );
+}
+
+function AccountView({ config, session, project, context, onSignOut }: { config: HostedConfig; session: HostedSession; project: HostedProject; context?: HostedAccountContext; onSignOut: () => void }) {
+  const [email, setEmail] = useState(session.email);
+  const [recoveryMode, setRecoveryMode] = useState(() => new URLSearchParams(window.location.search).get("mode") === "password-recovery");
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string>();
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    void loadAuthProfile(config, session).then((profile) => setEmail(profile.email)).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
+  }, [config, session]);
+
+  async function sendReset() {
+    if (!email) { setError("The authentication provider did not return an email address for this account."); return; }
+    setBusy(true); setError(undefined); setMessage(undefined);
+    try { setMessage(await requestPasswordReset(config, email)); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  }
+
+  async function savePassword(event: FormEvent) {
+    event.preventDefault(); setError(undefined); setMessage(undefined);
+    if (password !== confirmation) { setError("The passwords do not match."); return; }
+    setBusy(true);
+    try {
+      setMessage(await updatePassword(config, session, password));
+      setPassword(""); setConfirmation(""); setRecoveryMode(false);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("mode");
+      window.history.replaceState({}, document.title, url);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  }
+
+  return <div className="account-center">
+    {recoveryMode ? <section className="account-recovery-panel"><span className="eyebrow">Password recovery</span><h2>Choose a new password</h2><p>This one-time recovery session can update the password without displaying the previous password.</p><form onSubmit={savePassword}><input type="email" name="email" autoComplete="username" value={email ?? ""} readOnly hidden /><label>New password<input type="password" minLength={12} required autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label><label>Confirm password<input type="password" minLength={12} required autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label><button className="primary-action" disabled={busy}>{busy ? "Updating..." : "Update password"}</button></form></section> : null}
+    {message ? <div className="form-message">{message}</div> : null}{error ? <div className="form-error">{error}</div> : null}
+    <section className="account-summary-grid">
+      <article><span>Email</span><strong>{email ?? "Authenticated account"}</strong><small>Used for sign-in and security notifications.</small></article>
+      <article><span>Authentication</span><strong>{config.auth.provider === "supabase" ? "Email and password" : "Development session"}</strong><small>{config.auth.provider === "supabase" ? "Managed by Supabase Auth" : "Local development only"}</small></article>
+      <article><span>Organization role</span><strong>{context?.membership.role ?? "Member"}</strong><small>{context?.organization.name ?? project.organizationId}</small></article>
+      <article><span>Current project</span><strong>{project.name}</strong><small>{project.id}</small></article>
+    </section>
+    <section className="data-section account-security"><div><SectionTitle title="Password and access" caption="AgentCert never stores or displays your password" /><p>Password changes use a time-limited Supabase recovery link sent to the authenticated email address.</p></div>{config.auth.provider === "supabase" ? <button onClick={() => void sendReset()} disabled={busy || !email}>{busy ? "Sending..." : "Send password reset email"}</button> : <span className="hosted-status pending">Unavailable in development</span>}</section>
+    <section className="data-section account-session"><div><SectionTitle title="Current session" caption="End this browser session and remove its local token" /><p>Signing out does not revoke project API keys used by CI or external agents.</p></div><button className="danger-action" onClick={onSignOut}>Sign out</button></section>
+  </div>;
 }
 
 function HostedViewContent({ view, data, project, session, onboarding, refresh, onNavigate }: { view: HostedView; data: ConsoleData; project: HostedProject; session: HostedSession; onboarding?: HostedOnboardingStatus; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
@@ -438,7 +540,7 @@ function NotificationDestinations({ project, session, operations, refresh }: { p
     } catch (value) { setError(value instanceof Error ? value.message : String(value)); }
     finally { setTestingId(undefined); }
   }
-  return <section className="data-section notification-destinations"><SectionTitle title="Email alerts" caption="Verified recipients choose incident alerts; AgentCert owns provider credentials" />
+  return <section id="email-alerts" tabIndex={-1} className="data-section notification-destinations"><SectionTitle title="Email alerts" caption="Verified recipients choose incident alerts; AgentCert owns provider credentials" />
     {!operations.notifications.configured ? <div className="form-message">Platform email delivery is not configured yet.</div> : <form onSubmit={submit}><label>Email<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="security@example.com" /></label><div className="alert-type-options">{alertTypes.map((type) => <label key={type}><input type="checkbox" checked={selected.includes(type)} onChange={() => setSelected((current) => current.includes(type) ? current.filter((item) => item !== type) : [...current, type])} />{type.replace("incident_", "").replace("_", " ")}</label>)}</div><button className="primary-action compact" disabled={busy || selected.length === 0}>Send verification</button></form>}
     {message ? <div className="form-message">{message}</div> : null}{error ? <div className="form-error">{error}</div> : null}
     <div className="entity-list">{operations.notifications.destinations.map((destination) => {
@@ -496,7 +598,7 @@ function OperationsTrends({ operations }: { operations: HostedOperations }) {
 function SectionTitle({ title, caption }: { title: string; caption: string }) { return <div className="section-title"><h2>{title}</h2><p>{caption}</p></div>; }
 function Status({ value }: { value: string }) { return <span className={`hosted-status ${value.toLowerCase().replace(/_/g, "-")}`}>{value.replace(/_/g, " ")}</span>; }
 function EmptyHosted({ text }: { text: string }) { return <div className="hosted-empty">{text}</div>; }
-function viewTitle(view: HostedView): string { return ({ overview: "Operational overview", agents: "Agent registry", runs: "Assurance runs", assurance: "Assurance lifecycle", sandbox: "Sandbox certifications", gates: "Release gates", actions: "Runtime actions", incidents: "Incident ledger", evidence: "Evidence registry", integrations: "Integrations", governance: "Governance administration" })[view]; }
+function viewTitle(view: HostedView): string { return ({ overview: "Operational overview", agents: "Agent registry", runs: "Assurance runs", assurance: "Assurance lifecycle", sandbox: "Sandbox certifications", gates: "Release gates", actions: "Runtime actions", incidents: "Incident ledger", evidence: "Evidence registry", integrations: "Integrations", governance: "Governance administration", account: "Account center" })[view]; }
 function compactTime(value: string): string { return new Intl.DateTimeFormat("en", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
 function compactBytes(value: number): string { return value < 1024 ? `${value} B` : value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / 1024 / 1024).toFixed(1)} MB`; }
 function percent(value: number): string { return `${Math.round(value * 100)}%`; }
