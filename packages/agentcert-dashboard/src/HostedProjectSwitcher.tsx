@@ -34,7 +34,7 @@ export default function HostedProjectSwitcher({ session, projects, current, onSe
       const currentProject = current;
       if (mode === "idle" || (mode === "rename" && !currentProject)) return;
       let updated: HostedProject;
-      if (mode === "create") updated = await createHostedProject(session, name);
+      if (mode === "create") updated = await createHostedProject(session, name, currentProject?.organizationId);
       else {
         if (!currentProject) return;
         updated = await renameHostedProject(session, currentProject.id, name);

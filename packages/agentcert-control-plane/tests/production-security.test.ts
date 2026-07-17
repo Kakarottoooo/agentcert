@@ -25,26 +25,26 @@ describe("production RBAC acceptance matrix", () => {
     const projectId = (await service.bootstrap(owner)).project.id;
     const users = {
       admin: { kind: "user", userId: "admin", email: "admin@example.com" } as const,
-      reviewer: { kind: "user", userId: "reviewer", email: "reviewer@example.com" } as const,
+      operator: { kind: "user", userId: "reviewer", email: "reviewer@example.com" } as const,
       viewer: { kind: "user", userId: "viewer", email: "viewer@example.com" } as const,
     };
     store.assignedRoles.set(`${projectId}:admin`, "admin");
-    store.assignedRoles.set(`${projectId}:reviewer`, "reviewer");
+    store.assignedRoles.set(`${projectId}:reviewer`, "operator");
     store.assignedRoles.set(`${projectId}:viewer`, "viewer");
     const run = await service.startRun(owner, projectId, { externalId: "security-run", kind: "custom" });
 
-    for (const auth of [owner, users.admin, users.reviewer, users.viewer]) {
+    for (const auth of [owner, users.admin, users.operator, users.viewer]) {
       await expect(service.listRuns(auth, projectId)).resolves.toHaveLength(1);
     }
     for (const auth of [owner, users.admin]) {
       await expect(service.createApiKey(auth, projectId, { name: `${auth.userId}-key`, scopes: ["runs:read"] }))
         .resolves.toMatchObject({ apiKey: { scopes: ["runs:read"] } });
     }
-    for (const auth of [users.reviewer, users.viewer]) {
+    for (const auth of [users.operator, users.viewer]) {
       await expect(service.createApiKey(auth, projectId, { name: "forbidden" })).rejects.toMatchObject({ status: 403 });
     }
 
-    await expect(service.reviewFailure(users.reviewer, projectId, run.id, {
+    await expect(service.reviewFailure(users.operator, projectId, run.id, {
       patternKey: "timeout-1", type: "timeout", status: "confirmed", confidence: 0.9,
       evidenceContext: {}, taxonomyRationale: { primaryReason: "The agent exceeded the declared execution deadline." },
     })).resolves.toMatchObject({ reviewerId: "reviewer", status: "confirmed" });
@@ -53,7 +53,7 @@ describe("production RBAC acceptance matrix", () => {
       evidenceContext: {}, taxonomyRationale: { primaryReason: "The agent exceeded the declared execution deadline." },
     })).rejects.toMatchObject({ status: 403 });
 
-    for (const [index, auth] of [owner, users.admin, users.reviewer].entries()) {
+    for (const [index, auth] of [owner, users.admin, users.operator].entries()) {
       const action = await service.proposeAction(owner, projectId, {
         externalId: `approval-${index}`, actionType: "SUBMIT", targetSystem: "sandbox-erp", amount: 2_000,
       });

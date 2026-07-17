@@ -1935,6 +1935,41 @@ button {
 
 .account-center { display: grid; gap: 18px; }
 
+.invitation-gate {
+  width: min(680px, calc(100% - 40px));
+  margin: 12vh auto 0;
+  padding: 44px;
+  color: #f4fff9;
+  background: #0b2a20;
+  border: 1px solid #2b6d58;
+}
+.invitation-gate h1 { margin: 18px 0 10px; font-size: 36px; }
+.invitation-gate p { color: #cde8dd; line-height: 1.6; }
+.invitation-actions { display: flex; gap: 10px; margin-top: 24px; }
+.invitation-actions a, .invitation-actions button { padding: 11px 14px; border: 1px solid #8fc7b4; color: inherit; background: transparent; text-decoration: none; }
+
+.team-access-layout { display: grid; gap: 18px; }
+.team-summary { display: flex; align-items: center; justify-content: space-between; padding: 24px; background: #0d3025; color: #f5fff9; border-left: 4px solid #35c99b; }
+.team-summary h2 { margin: 6px 0; font-size: 25px; }
+.team-summary p { margin: 0; color: #cde8dd; }
+.team-invite-form { display: grid; grid-template-columns: minmax(240px, 2fr) minmax(150px, 1fr); gap: 14px; align-items: end; margin-top: 18px; }
+.team-invite-form > label, .team-member-list article > label { display: grid; gap: 6px; font-size: 12px; font-weight: 700; }
+.team-invite-form input, .team-invite-form select, .team-member-list select { min-height: 40px; padding: 8px 10px; border: 1px solid var(--border); background: #fff; }
+.team-invite-form fieldset { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 12px 20px; margin: 0; padding: 12px; border: 1px solid var(--border); }
+.team-invite-form fieldset label, .team-project-grants label { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.team-access-note { margin: 0; color: var(--muted); }
+.team-member-list { display: grid; gap: 1px; margin-top: 18px; background: var(--border); border: 1px solid var(--border); }
+.team-member-list > article { display: grid; grid-template-columns: minmax(230px, 1.4fr) minmax(130px, .6fr) minmax(260px, 1.5fr) auto; gap: 16px; align-items: center; padding: 16px; background: #fff; }
+.team-member-identity { display: grid; gap: 4px; min-width: 0; }
+.team-member-identity strong { overflow-wrap: anywhere; }
+.team-member-identity span, .team-member-list article > span { color: var(--muted); font-size: 12px; }
+.team-project-grants { display: flex; flex-wrap: wrap; gap: 8px 14px; }
+.team-member-actions { display: flex; gap: 7px; }
+.team-audit-list { margin-top: 16px; border-top: 1px solid var(--border); }
+.team-audit-list > div { display: grid; grid-template-columns: 150px 210px 1fr 1fr; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.team-audit-list p, .team-audit-list small { margin: 0; overflow-wrap: anywhere; }
+.team-audit-list small { color: var(--muted); }
+
 .account-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3981,6 +4016,10 @@ button {
 }
 
 @media (max-width: 1100px) {
+  .team-member-list > article { grid-template-columns: minmax(220px, 1fr) minmax(140px, .5fr); }
+  .team-project-grants, .team-member-actions { grid-column: span 1; }
+  .team-audit-list > div { grid-template-columns: 130px 180px 1fr; }
+  .team-audit-list > div small { grid-column: 2 / -1; }
   .trust-operations-band {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -4013,6 +4052,9 @@ button {
 }
 
 @media (max-width: 820px) {
+  .team-invite-form, .team-member-list > article, .team-audit-list > div { grid-template-columns: 1fr; }
+  .team-invite-form fieldset, .team-audit-list > div small { grid-column: auto; }
+  .team-member-actions { justify-content: flex-start; }
   .verification-page {
     grid-template-columns: 1fr;
     gap: 36px;
@@ -4190,6 +4232,10 @@ button {
 }
 
 @media (max-width: 640px) {
+  .invitation-gate { width: calc(100% - 24px); margin-top: 30px; padding: 28px 22px; }
+  .invitation-gate h1 { font-size: 30px; }
+  .invitation-actions { align-items: stretch; flex-direction: column; }
+  .team-summary { align-items: flex-start; flex-direction: column; gap: 12px; }
   .account-summary-grid { grid-template-columns: 1fr; }
   .account-summary-grid article,
   .account-summary-grid article:nth-child(2) { border-right: 0; border-bottom: 1px solid var(--border); }

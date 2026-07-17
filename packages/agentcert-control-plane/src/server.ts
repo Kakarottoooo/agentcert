@@ -158,6 +158,30 @@ async function handleRequest(
     sendJson(response, 200, options.service.capabilities(auth));
     return;
   }
+  if (request.method === "POST" && url.pathname === "/v1/invitations/accept") {
+    sendJson(response, 200, await options.service.acceptTeamInvitation(auth, await readJson(request)));
+    return;
+  }
+  if (segments[1] === "organizations" && segments[2]) {
+    const organizationId = segments[2];
+    const collection = segments[3];
+    const entityId = segments[4];
+    if (collection === "team" && request.method === "GET" && !entityId) {
+      sendJson(response, 200, await options.service.teamSnapshot(auth, organizationId));
+    } else if (collection === "invitations" && request.method === "POST" && !entityId) {
+      sendJson(response, 201, await options.service.createTeamInvitation(auth, organizationId, await readJson(request)));
+    } else if (collection === "invitations" && request.method === "DELETE" && entityId) {
+      sendJson(response, 200, await options.service.revokeTeamInvitation(auth, organizationId, entityId));
+    } else if (collection === "members" && request.method === "PATCH" && entityId) {
+      sendJson(response, 200, await options.service.updateTeamMember(auth, organizationId, entityId, await readJson(request)));
+    } else if (collection === "members" && request.method === "DELETE" && entityId) {
+      await options.service.removeTeamMember(auth, organizationId, entityId);
+      sendJson(response, 200, { removed: true });
+    } else {
+      throw new ControlPlaneError("Team management route was not found.", 404, "route_not_found");
+    }
+    return;
+  }
 
   if (segments[1] === "admin" && segments[2] === "legal-hold-requests") {
     const requestId = segments[3];

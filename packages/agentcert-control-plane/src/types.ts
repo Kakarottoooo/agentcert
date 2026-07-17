@@ -1,4 +1,4 @@
-export type MemberRole = "owner" | "admin" | "reviewer" | "viewer";
+export type MemberRole = "owner" | "admin" | "operator" | "viewer";
 export type RunKind = "mcpbench" | "tripwire" | "release_gate" | "runtime" | "custom";
 export type RunStatus = "running" | "passed" | "failed" | "needs_evidence" | "manual_review";
 export type ActionDecision = "ALLOW" | "DENY" | "REQUIRE_APPROVAL";
@@ -42,8 +42,65 @@ export interface Organization {
 export interface Membership {
   organizationId: string;
   userId: string;
+  email?: string;
   role: MemberRole;
   createdAt: string;
+}
+
+export type TeamInvitationStatus = "pending" | "accepted" | "revoked" | "expired";
+export type TeamInvitationDeliveryStatus = "pending" | "sent" | "failed";
+
+export interface TeamInvitationRecord {
+  id: string;
+  organizationId: string;
+  email: string;
+  role: MemberRole;
+  projectIds: string[];
+  tokenHash: string;
+  status: TeamInvitationStatus;
+  deliveryStatus: TeamInvitationDeliveryStatus;
+  deliveryError?: string;
+  invitedBy: string;
+  invitedByEmail?: string;
+  expiresAt: string;
+  createdAt: string;
+  sentAt?: string;
+  acceptedBy?: string;
+  acceptedAt?: string;
+  revokedAt?: string;
+}
+
+export type TeamAuditAction =
+  | "invitation_created"
+  | "invitation_delivery_failed"
+  | "invitation_revoked"
+  | "invitation_accepted"
+  | "member_role_changed"
+  | "member_project_access_changed"
+  | "member_removed";
+
+export interface TeamAuditRecord {
+  id: string;
+  organizationId: string;
+  action: TeamAuditAction;
+  actorId: string;
+  actorEmail?: string;
+  targetUserId?: string;
+  targetEmail?: string;
+  metadata: Record<string, unknown>;
+  occurredAt: string;
+}
+
+export interface TeamMemberRecord extends Membership {
+  projectIds: string[];
+}
+
+export interface TeamSnapshot {
+  organization: Organization;
+  currentMembership: TeamMemberRecord;
+  members: TeamMemberRecord[];
+  invitations: Array<Omit<TeamInvitationRecord, "tokenHash">>;
+  audit: TeamAuditRecord[];
 }
 
 export interface Project {

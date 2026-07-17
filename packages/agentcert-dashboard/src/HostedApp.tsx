@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   bootstrap,
+  acceptHostedInvitation,
   acknowledgeHostedIncident,
   createHostedNotificationDestination,
   createHostedAgent,
   createHostedApiKey,
   createHostedTestWebhook,
+  createHostedTeamInvitation,
   downloadRetentionReport,
   disableHostedNotificationDestination,
   downloadAdminLegalHoldReport,
@@ -17,6 +19,7 @@ import {
   loadHostedAssuranceCases,
   loadHostedIncidents,
   loadHostedRuns,
+  loadHostedTeam,
   loadHostedCapabilities,
   loadHostedOnboarding,
   loadProjects,
@@ -34,6 +37,7 @@ import {
   reviewHostedAction,
   reviewAdminLegalHold,
   revokeHostedApiKey,
+  revokeHostedTeamInvitation,
   retryHostedWebhookJob,
   retryHostedNotificationJob,
   sendHostedTestNotification,
@@ -41,6 +45,8 @@ import {
   signOut,
   signUp,
   updatePassword,
+  updateHostedTeamMember,
+  removeHostedTeamMember,
   type HostedAction,
   type HostedAgent,
   type HostedApiKey,
@@ -58,6 +64,9 @@ import {
   type HostedLegalHoldRequest,
   type HostedNotificationAlertType,
   type HostedRetentionReport,
+  type HostedMemberRole,
+  type HostedTeamMember,
+  type HostedTeamSnapshot,
 } from "./hosted-api";
 import HostedRunsView from "./HostedRunsView";
 import HostedSandboxView from "./HostedSandboxView";
@@ -89,12 +98,27 @@ interface ConsoleData {
 export default function HostedApp({ config }: { config: HostedConfig }) {
   useEffect(() => { document.title = "AgentCert Control Plane"; }, []);
   const [session, setSession] = useState(() => readHostedSession(config));
+  const [inviteToken, setInviteToken] = useState(() => new URLSearchParams(window.location.search).get("invite") ?? undefined);
+  const completeInvitation = useCallback((projectId: string) => {
+    const url = new URL("/app", window.location.origin); url.searchParams.set("project", projectId);
+    window.history.replaceState({}, document.title, url); setInviteToken(undefined);
+  }, []);
   if (!session) return <AuthScreen config={config} onAuthenticated={setSession} />;
+  if (inviteToken) return <InvitationAcceptanceGate session={session} token={inviteToken} onAccepted={completeInvitation} onSignOut={() => { void signOut(config, session).finally(() => setSession(undefined)); }} />;
   return <HostedConsole config={config} session={session} onSignOut={() => { void signOut(config, session).finally(() => setSession(undefined)); }} />;
 }
 
+function InvitationAcceptanceGate({ session, token, onAccepted, onSignOut }: { session: HostedSession; token: string; onAccepted: (projectId: string) => void; onSignOut: () => void }) {
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    void acceptHostedInvitation(session, token).then((result) => onAccepted(result.projectId)).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
+  }, [onAccepted, session, token]);
+  return <div className="auth-surface"><ProductHeader /><main className="invitation-gate"><span className="surface-mode inverse">Team invitation</span><h1>{error ? "Invitation needs attention" : "Joining your AgentCert team..."}</h1><p>{error ?? "Verifying the invitation, your signed-in email, and project access."}</p>{error ? <div className="invitation-actions"><button onClick={onSignOut}>Sign in with another account</button><a href="/app">Open current workspace</a></div> : <div className="loading">Applying project access...</div>}</main></div>;
+}
+
 function AuthScreen({ config, onAuthenticated }: { config: HostedConfig; onAuthenticated: (session: HostedSession) => void }) {
-  const [mode, setMode] = useState<"signin" | "signup">(() => resolveAuthMode(window.location.search));
+  const inviteToken = new URLSearchParams(window.location.search).get("invite");
+  const [mode, setMode] = useState<"signin" | "signup">(() => inviteToken ? "signup" : resolveAuthMode(window.location.search));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -107,7 +131,7 @@ function AuthScreen({ config, onAuthenticated }: { config: HostedConfig; onAuthe
     try {
       if (mode === "signin") onAuthenticated(await signIn(config, email, password));
       else {
-        const result = await signUp(config, email, password);
+        const result = await signUp(config, email, password, authRedirectUrl(config, inviteToken));
         setMessage(result.message);
         if (result.session) onAuthenticated(result.session);
       }
@@ -119,7 +143,7 @@ function AuthScreen({ config, onAuthenticated }: { config: HostedConfig; onAuthe
   async function resendConfirmation() {
     setBusy(true); setError(undefined); setMessage(undefined);
     try {
-      setMessage(await resendSignUpConfirmation(config, email));
+      setMessage(await resendSignUpConfirmation(config, email, authRedirectUrl(config, inviteToken)));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally { setBusy(false); }
@@ -156,6 +180,7 @@ function AuthScreen({ config, onAuthenticated }: { config: HostedConfig; onAuthe
             <button className={mode === "signup" ? "active" : ""} onClick={() => setMode("signup")}>Create account</button>
           </div>
           <h2>{mode === "signin" ? "Sign in to AgentCert" : "Start an AgentCert workspace"}</h2>
+          {inviteToken ? <div className="form-message">Sign in or create an account with the exact email address that received this team invitation.</div> : null}
           <form onSubmit={submit}>
             <label>Email<input type="email" required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
             <label>Password<input type="password" required minLength={10} autoComplete={mode === "signin" ? "current-password" : "new-password"} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
@@ -236,6 +261,10 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
   }, [session]);
   useEffect(() => { if (project) { setData(undefined); setOnboarding(undefined); void refresh(); } }, [project, refresh]);
   useEffect(() => {
+    if (!project) return;
+    void loadHostedTeam(session, project.organizationId).then((team) => setAccountContext({ organization: team.organization, membership: team.currentMembership })).catch(() => undefined);
+  }, [project, session]);
+  useEffect(() => {
     if (!project || onboarding?.complete) return;
     const timer = window.setInterval(() => {
       void loadHostedOnboarding(session, project.id).then(setOnboarding).catch(() => undefined);
@@ -263,6 +292,7 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
     ["actions", "Runtime actions", data?.actions.filter((action) => action.status === "PENDING_APPROVAL").length],
     ["incidents", "Incidents", data?.incidents.filter((incident) => incident.status !== "resolved").length],
     ["evidence", "Evidence", data?.evidence.length], ["integrations", "Integrations"],
+    ["team", "Team & access"],
     ...(capabilities?.platformAdmin ? [["governance", "Governance"] as [HostedView, string]] : []),
   ];
 
@@ -286,7 +316,7 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
         {error ? <div className="console-error">{error}</div> : null}
         {!data || !project ? <div className="loading">Loading control plane...</div> : view === "account" ? (
           <AccountView config={config} session={session} project={project} context={accountContext} onSignOut={onSignOut} />
-        ) : <HostedViewContent view={view} data={data} project={project} session={session} onboarding={onboarding} refresh={refresh} onNavigate={navigate} />}
+        ) : <HostedViewContent view={view} data={data} project={project} projects={projects} session={session} onboarding={onboarding} refresh={refresh} onNavigate={navigate} />}
       </main>
     </div>
   );
@@ -341,7 +371,7 @@ function AccountView({ config, session, project, context, onSignOut }: { config:
   </div>;
 }
 
-function HostedViewContent({ view, data, project, session, onboarding, refresh, onNavigate }: { view: HostedView; data: ConsoleData; project: HostedProject; session: HostedSession; onboarding?: HostedOnboardingStatus; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
+function HostedViewContent({ view, data, project, projects, session, onboarding, refresh, onNavigate }: { view: HostedView; data: ConsoleData; project: HostedProject; projects: HostedProject[]; session: HostedSession; onboarding?: HostedOnboardingStatus; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
   if (view === "overview") return <HostedOverviewView data={data} project={project} session={session} onboarding={onboarding} refresh={refresh} onNavigate={onNavigate} />;
   if (view === "agents") return <AgentsView agents={data.agents} project={project} session={session} refresh={refresh} />;
   if (view === "runs") return <HostedRunsView runs={data.runs} project={project} session={session} />;
@@ -351,6 +381,7 @@ function HostedViewContent({ view, data, project, session, onboarding, refresh, 
   if (view === "actions") return <ActionsView actions={data.actions} project={project} session={session} refresh={refresh} />;
   if (view === "incidents") return <IncidentsView incidents={data.incidents} operations={data.operations} project={project} session={session} refresh={refresh} />;
   if (view === "evidence") return <EvidenceView evidence={data.evidence} overview={data.overview} project={project} session={session} refresh={refresh} />;
+  if (view === "team") return <TeamView project={project} projects={projects.filter((item) => item.organizationId === project.organizationId)} session={session} />;
   if (view === "governance") return <GovernanceView project={project} session={session} />;
   return <IntegrationsView project={project} session={session} operations={data.operations} refresh={refresh} />;
 }
@@ -552,6 +583,58 @@ function NotificationDestinations({ project, session, operations, refresh }: { p
   </section>;
 }
 
+function TeamView({ project, projects, session }: { project: HostedProject; projects: HostedProject[]; session: HostedSession }) {
+  const [team, setTeam] = useState<HostedTeamSnapshot>();
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<HostedMemberRole>("viewer");
+  const [projectIds, setProjectIds] = useState<string[]>([project.id]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string>();
+  const [error, setError] = useState<string>();
+  const refreshTeam = useCallback(async () => {
+    try { setTeam(await loadHostedTeam(session, project.organizationId)); setError(undefined); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+  }, [project.organizationId, session]);
+  useEffect(() => { void refreshTeam(); }, [refreshTeam]);
+  const canManage = team?.currentMembership.role === "owner" || team?.currentMembership.role === "admin";
+  const assignableRoles: HostedMemberRole[] = team?.currentMembership.role === "owner" ? ["owner", "admin", "operator", "viewer"] : ["operator", "viewer"];
+  useEffect(() => { if (!assignableRoles.includes(role)) setRole(assignableRoles[0] ?? "viewer"); }, [assignableRoles.join("|"), role]);
+  async function invite(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError(undefined); setMessage(undefined);
+    try {
+      await createHostedTeamInvitation(session, project.organizationId, { email, role, projectIds: role === "operator" || role === "viewer" ? projectIds : [] });
+      setEmail(""); setMessage(`Invitation sent to ${email}.`); await refreshTeam();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  }
+  async function revoke(invitationId: string) {
+    setBusy(true); setError(undefined);
+    try { await revokeHostedTeamInvitation(session, project.organizationId, invitationId); await refreshTeam(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  }
+  if (!team) return <section className="data-section"><SectionTitle title="Team & access" caption="Loading organization membership and project grants" />{error ? <div className="console-error">{error}</div> : <div className="loading">Loading team...</div>}</section>;
+  return <div className="team-access-layout">
+    <section className="team-summary"><div><span className="eyebrow">Organization</span><h2>{team.organization.name}</h2><p>{team.members.length} members · {team.invitations.filter((item) => item.status === "pending").length} pending invitations</p></div><Status value={team.currentMembership.role} /></section>
+    {canManage ? <section className="data-section"><SectionTitle title="Invite a member" caption="Invitations expire after 7 days and are bound to the recipient email" /><form className="team-invite-form" onSubmit={invite}><label>Email<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="teammate@company.com" /></label><label>Role<select value={role} onChange={(event) => setRole(event.target.value as HostedMemberRole)}>{assignableRoles.map((item) => <option key={item}>{item}</option>)}</select></label>{role === "operator" || role === "viewer" ? <fieldset><legend>Project access</legend>{projects.map((item) => <label key={item.id}><input type="checkbox" checked={projectIds.includes(item.id)} onChange={() => setProjectIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} />{item.name}</label>)}</fieldset> : <p className="team-access-note">Owners and admins can access every project in this organization.</p>}<button className="primary-action compact" disabled={busy || ((role === "operator" || role === "viewer") && projectIds.length === 0)}>{busy ? "Sending..." : "Send invitation"}</button></form>{message ? <div className="form-message">{message}</div> : null}{error ? <div className="form-error">{error}</div> : null}</section> : null}
+    <section className="data-section"><SectionTitle title="Members" caption="Organization roles with explicit project grants for operators and viewers" /><div className="team-member-list">{team.members.map((member) => <TeamMemberEditor key={member.userId} member={member} actor={team.currentMembership} projects={projects} session={session} organizationId={project.organizationId} onChanged={refreshTeam} />)}</div></section>
+    <section className="data-section"><SectionTitle title="Pending invitations" caption="Delivery status and expiry are visible without exposing invitation secrets" /><div className="entity-list">{team.invitations.filter((item) => item.status === "pending").map((invitation) => <article key={invitation.id}><div><strong>{invitation.email}</strong><span>{invitation.role} · expires {compactTime(invitation.expiresAt)}</span></div><div><Status value={invitation.deliveryStatus} />{invitation.deliveryError ? <span>{invitation.deliveryError}</span> : null}</div>{canManage ? <button disabled={busy} onClick={() => void revoke(invitation.id)}>Revoke</button> : null}</article>)}{team.invitations.every((item) => item.status !== "pending") ? <EmptyHosted text="No pending invitations." /> : null}</div></section>
+    <section className="data-section"><SectionTitle title="Access audit" caption="Append-only invitation, role, project access, and removal history" /><div className="team-audit-list">{team.audit.map((entry) => <div key={entry.id}><span>{compactTime(entry.occurredAt)}</span><strong>{entry.action.replace(/_/g, " ")}</strong><p>{entry.targetEmail ?? entry.targetUserId ?? "organization"}</p><small>{entry.actorEmail ?? entry.actorId}</small></div>)}{team.audit.length === 0 ? <EmptyHosted text="No team access changes recorded." /> : null}</div></section>
+  </div>;
+}
+
+function TeamMemberEditor({ member, actor, projects, session, organizationId, onChanged }: { member: HostedTeamMember; actor: HostedTeamMember; projects: HostedProject[]; session: HostedSession; organizationId: string; onChanged: () => Promise<void> }) {
+  const [role, setRole] = useState(member.role);
+  const [projectIds, setProjectIds] = useState(member.projectIds);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const canManage = actor.role === "owner" || (actor.role === "admin" && member.role !== "owner" && member.role !== "admin");
+  const roles: HostedMemberRole[] = actor.role === "owner" ? ["owner", "admin", "operator", "viewer"] : ["operator", "viewer"];
+  async function save() { setBusy(true); setError(undefined); try { await updateHostedTeamMember(session, organizationId, member.userId, { role, projectIds: role === "operator" || role === "viewer" ? projectIds : [] }); await onChanged(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } finally { setBusy(false); } }
+  async function remove() { if (!window.confirm(`Remove ${member.email ?? member.userId} from this organization?`)) return; setBusy(true); setError(undefined); try { await removeHostedTeamMember(session, organizationId, member.userId); await onChanged(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } finally { setBusy(false); } }
+  return <article><div className="team-member-identity"><strong>{member.email ?? "Authenticated member"}</strong><span>Joined {compactTime(member.createdAt)}</span></div>{canManage ? <><label>Role<select value={role} onChange={(event) => setRole(event.target.value as HostedMemberRole)}>{roles.map((item) => <option key={item}>{item}</option>)}</select></label>{role === "operator" || role === "viewer" ? <div className="team-project-grants">{projects.map((item) => <label key={item.id}><input type="checkbox" checked={projectIds.includes(item.id)} onChange={() => setProjectIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} />{item.name}</label>)}</div> : <span>All organization projects</span>}<div className="team-member-actions"><button disabled={busy || ((role === "operator" || role === "viewer") && projectIds.length === 0)} onClick={() => void save()}>Save</button><button className="danger-action" disabled={busy} onClick={() => void remove()}>Remove</button></div></> : <><Status value={member.role} /><span>{member.role === "owner" || member.role === "admin" ? "All organization projects" : `${member.projectIds.length} project${member.projectIds.length === 1 ? "" : "s"}`}</span></>}{error ? <div className="form-error">{error}</div> : null}</article>;
+}
+
 function GovernanceView({ project, session }: { project: HostedProject; session: HostedSession }) {
   const [holds, setHolds] = useState<HostedLegalHoldRequest[]>([]);
   const [report, setReport] = useState<HostedRetentionReport>();
@@ -598,9 +681,13 @@ function OperationsTrends({ operations }: { operations: HostedOperations }) {
 function SectionTitle({ title, caption }: { title: string; caption: string }) { return <div className="section-title"><h2>{title}</h2><p>{caption}</p></div>; }
 function Status({ value }: { value: string }) { return <span className={`hosted-status ${value.toLowerCase().replace(/_/g, "-")}`}>{value.replace(/_/g, " ")}</span>; }
 function EmptyHosted({ text }: { text: string }) { return <div className="hosted-empty">{text}</div>; }
-function viewTitle(view: HostedView): string { return ({ overview: "Operational overview", agents: "Agent registry", runs: "Assurance runs", assurance: "Assurance lifecycle", sandbox: "Sandbox certifications", gates: "Release gates", actions: "Runtime actions", incidents: "Incident ledger", evidence: "Evidence registry", integrations: "Integrations", governance: "Governance administration", account: "Account center" })[view]; }
+function viewTitle(view: HostedView): string { return ({ overview: "Operational overview", agents: "Agent registry", runs: "Assurance runs", assurance: "Assurance lifecycle", sandbox: "Sandbox certifications", gates: "Release gates", actions: "Runtime actions", incidents: "Incident ledger", evidence: "Evidence registry", integrations: "Integrations", team: "Team & access", governance: "Governance administration", account: "Account center" })[view]; }
 function compactTime(value: string): string { return new Intl.DateTimeFormat("en", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
 function compactBytes(value: number): string { return value < 1024 ? `${value} B` : value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / 1024 / 1024).toFixed(1)} MB`; }
 function percent(value: number): string { return `${Math.round(value * 100)}%`; }
 function compactDuration(value: number): string { return value >= 1_000 ? `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}s` : `${Math.round(value)}ms`; }
+function authRedirectUrl(config: HostedConfig, inviteToken: string | null): string {
+  if (!inviteToken) return config.publicUrl;
+  const url = new URL("/app", config.publicUrl); url.searchParams.set("invite", inviteToken); return url.toString();
+}
 async function downloadEvidence(session: HostedSession, url: string, fileName: string) { const response = await fetch(url, { headers: { authorization: `Bearer ${session.accessToken}` } }); if (!response.ok) throw new Error("Evidence download failed."); const href = URL.createObjectURL(await response.blob()); const link = document.createElement("a"); link.href = href; link.download = fileName; link.click(); URL.revokeObjectURL(href); }

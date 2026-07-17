@@ -4,6 +4,7 @@ import { hashSecret } from "./auth.js";
 import {
   EvidenceQuotaExceededError,
   LegalHoldStateConflictError,
+  TeamStateConflictError,
   type BootstrapResult,
   type ControlPlaneStore,
 } from "./store.js";
@@ -60,12 +61,18 @@ import type {
   AssuranceCaseRecord,
   AssuranceCaseDecisionRecord,
   AssuranceCaseStatus,
+  MemberRole,
+  TeamAuditAction,
+  TeamAuditRecord,
+  TeamInvitationRecord,
+  TeamSnapshot,
 } from "./types.js";
 import { DisabledEmailProvider, type EmailProvider } from "./notifications.js";
 import { EnvelopeValidationError, isSpanId, isTraceId, parseUniversalEnvelope, type UniversalEnvelope } from "./protocol.js";
 import { EvidenceSigner, type EvidenceAttestationPayload } from "./signing.js";
 import { buildAssuranceReport, canTransitionAssuranceCase, evaluationPlanDigest, missingRequiredEvidence } from "./assurance.js";
 import type { CoordinationHealth } from "./coordination.js";
+import { canInviteRole, canManageMember, roleNeedsExplicitProjects, rolesForHumanScope } from "./rbac.js";
 import {
   DEFAULT_API_KEY_SCOPES,
   WebhookSecretVault,
@@ -139,27 +146,168 @@ export class AgentCertControlPlane {
     return this.store.listProjectsForUser(auth.userId);
   }
 
+  async teamSnapshot(auth: AuthContext, organizationId: string): Promise<TeamSnapshot> {
+    const membership = await this.authorizeOrganization(auth, organizationId);
+    const [organization, members, invitations, audit] = await Promise.all([
+      this.store.getOrganization(organizationId), this.store.listTeamMembers(organizationId),
+      this.store.listTeamInvitations(organizationId), this.store.listTeamAudit(organizationId),
+    ]);
+    if (!organization) throw new ControlPlaneError("Organization was not found.", 404, "organization_not_found");
+    const currentMembership = members.find((item) => item.userId === membership.userId);
+    if (!currentMembership) throw new ControlPlaneError("Organization access denied.", 403, "organization_access_denied");
+    return { organization, currentMembership, members, invitations: invitations.map(publicTeamInvitation), audit };
+  }
+
+  async createTeamInvitation(auth: AuthContext, organizationId: string, input: unknown): Promise<Omit<TeamInvitationRecord, "tokenHash">> {
+    const actor = await this.authorizeOrganization(auth, organizationId, ["owner", "admin"]);
+    const body = record(input);
+    const email = normalizedEmail(requiredString(body, "email"));
+    const role = memberRole(body.role);
+    if (!canInviteRole(actor.role, role)) throw new ControlPlaneError(
+      `An ${actor.role} cannot invite an ${role}.`, 403, "team_role_assignment_forbidden",
+      "Organization owners can manage every role; admins can invite operators and viewers.",
+    );
+    const projectIds = await this.validateTeamProjectIds(organizationId, role, stringList(body.projectIds));
+    const [organization, members, existingInvitations] = await Promise.all([
+      this.store.getOrganization(organizationId), this.store.listTeamMembers(organizationId), this.store.listTeamInvitations(organizationId),
+    ]);
+    if (!organization) throw new ControlPlaneError("Organization was not found.", 404, "organization_not_found");
+    if (members.some((item) => item.email?.toLowerCase() === email)) throw new ControlPlaneError("This email is already a team member.", 409, "team_member_exists");
+    for (const existing of existingInvitations) {
+      if (existing.status === "pending" && existing.email.toLowerCase() === email && Date.parse(existing.expiresAt) <= Date.now()) {
+        await this.store.updateTeamInvitation({ ...existing, status: "expired" });
+      }
+    }
+    const token = randomBytes(32).toString("base64url");
+    const now = new Date();
+    const invitation: TeamInvitationRecord = {
+      id: randomUUID(), organizationId, email, role, projectIds, tokenHash: createHash("sha256").update(token).digest("hex"),
+      status: "pending", deliveryStatus: "pending", invitedBy: actor.userId, invitedByEmail: auth.email,
+      expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(), createdAt: now.toISOString(),
+    };
+    try {
+      await this.store.saveTeamInvitation(invitation);
+    } catch (error) {
+      throw this.teamConflict(error);
+    }
+    await this.store.appendTeamAudit(this.teamAudit(organizationId, "invitation_created", auth, {
+      targetEmail: email, metadata: { invitationId: invitation.id, role, projectIds },
+    }));
+    const invitationUrl = `${this.publicUrl.replace(/\/$/, "")}/app?invite=${encodeURIComponent(token)}`;
+    try {
+      await this.emailProvider.send({
+        to: email,
+        subject: `Join ${organization.name} on AgentCert`,
+        text: `${auth.email ?? "An AgentCert administrator"} invited you to join ${organization.name} as ${role}. Accept within 7 days: ${invitationUrl}`,
+        html: `<p>${escapeHtml(auth.email ?? "An AgentCert administrator")} invited you to join <strong>${escapeHtml(organization.name)}</strong> as <strong>${escapeHtml(role)}</strong>.</p><p><a href="${escapeHtml(invitationUrl)}">Accept invitation</a></p><p>This link expires in 7 days. The signed-in email must match ${escapeHtml(email)}.</p>`,
+      });
+      const sent = await this.store.updateTeamInvitation({ ...invitation, deliveryStatus: "sent", sentAt: new Date().toISOString() });
+      return publicTeamInvitation(sent);
+    } catch (error) {
+      const message = error instanceof Error ? error.message.slice(0, 500) : "Email delivery failed.";
+      const failed = await this.store.updateTeamInvitation({ ...invitation, deliveryStatus: "failed", deliveryError: message });
+      await this.store.appendTeamAudit(this.teamAudit(organizationId, "invitation_delivery_failed", auth, {
+        targetEmail: email, metadata: { invitationId: invitation.id, provider: this.emailProvider.name },
+      }));
+      throw new ControlPlaneError(
+        "The invitation was created, but its email could not be delivered.", 502, "team_invitation_delivery_failed",
+        `Revoke the failed invitation and retry after email delivery is restored. Invitation: ${failed.id}`,
+      );
+    }
+  }
+
+  async revokeTeamInvitation(auth: AuthContext, organizationId: string, invitationId: string): Promise<Omit<TeamInvitationRecord, "tokenHash">> {
+    const actor = await this.authorizeOrganization(auth, organizationId, ["owner", "admin"]);
+    const invitation = (await this.store.listTeamInvitations(organizationId)).find((item) => item.id === invitationId);
+    if (!invitation || invitation.status !== "pending") throw new ControlPlaneError("Pending invitation was not found.", 404, "team_invitation_not_found");
+    if (!canInviteRole(actor.role, invitation.role)) throw new ControlPlaneError("You cannot revoke this invitation.", 403, "team_invitation_revoke_forbidden");
+    const revoked = await this.store.updateTeamInvitation({ ...invitation, status: "revoked", revokedAt: new Date().toISOString() });
+    await this.store.appendTeamAudit(this.teamAudit(organizationId, "invitation_revoked", auth, {
+      targetEmail: invitation.email, metadata: { invitationId, role: invitation.role },
+    }));
+    return publicTeamInvitation(revoked);
+  }
+
+  async acceptTeamInvitation(auth: AuthContext, input: unknown): Promise<{ organizationId: string; projectId: string }> {
+    requireUser(auth);
+    const token = requiredString(record(input), "token");
+    const invitation = await this.store.getTeamInvitationByTokenHash(createHash("sha256").update(token).digest("hex"));
+    if (!invitation || invitation.status !== "pending") throw new ControlPlaneError("Invitation is invalid or no longer available.", 410, "team_invitation_unavailable");
+    if (Date.parse(invitation.expiresAt) <= Date.now()) {
+      await this.store.updateTeamInvitation({ ...invitation, status: "expired" });
+      throw new ControlPlaneError("Invitation has expired.", 410, "team_invitation_expired", "Ask an organization owner or admin to send a new invitation.");
+    }
+    if (!auth.email || auth.email.toLowerCase() !== invitation.email.toLowerCase()) throw new ControlPlaneError(
+      `This invitation is for ${invitation.email}.`, 403, "team_invitation_email_mismatch",
+      "Sign out and use the invited email address, or ask an owner to invite the correct address.",
+    );
+    const membership = { organizationId: invitation.organizationId, userId: auth.userId, email: auth.email, role: invitation.role, createdAt: new Date().toISOString() };
+    const audit = this.teamAudit(invitation.organizationId, "invitation_accepted", auth, {
+      targetUserId: auth.userId, targetEmail: auth.email, metadata: { invitationId: invitation.id, role: invitation.role, projectIds: invitation.projectIds },
+    });
+    try {
+      await this.store.acceptTeamInvitation(invitation.id, membership, invitation.projectIds, audit);
+    } catch (error) {
+      throw this.teamConflict(error);
+    }
+    const projects = (await this.store.listProjectsForUser(auth.userId)).filter((item) => item.organizationId === invitation.organizationId);
+    const project = projects[0];
+    if (!project) throw new ControlPlaneError("Invitation did not grant access to a project.", 409, "team_project_access_missing");
+    return { organizationId: invitation.organizationId, projectId: project.id };
+  }
+
+  async updateTeamMember(auth: AuthContext, organizationId: string, userId: string, input: unknown) {
+    const actor = await this.authorizeOrganization(auth, organizationId, ["owner", "admin"]);
+    const target = (await this.store.listTeamMembers(organizationId)).find((item) => item.userId === userId);
+    if (!target) throw new ControlPlaneError("Team member was not found.", 404, "team_member_not_found");
+    const body = record(input);
+    const role = body.role === undefined ? target.role : memberRole(body.role);
+    if (!canManageMember(actor.role, target.role, role)) throw new ControlPlaneError("You cannot change this member.", 403, "team_member_manage_forbidden");
+    const projectIds = await this.validateTeamProjectIds(organizationId, role, body.projectIds === undefined ? target.projectIds : stringList(body.projectIds));
+    const action: TeamAuditAction = role !== target.role ? "member_role_changed" : "member_project_access_changed";
+    const audit = this.teamAudit(organizationId, action, auth, {
+      targetUserId: userId, targetEmail: target.email, metadata: { previousRole: target.role, role, previousProjectIds: target.projectIds, projectIds },
+    });
+    try {
+      return await this.store.updateTeamMember(organizationId, userId, role, projectIds, actor.userId, audit);
+    } catch (error) { throw this.teamConflict(error); }
+  }
+
+  async removeTeamMember(auth: AuthContext, organizationId: string, userId: string): Promise<void> {
+    const actor = await this.authorizeOrganization(auth, organizationId, ["owner", "admin"]);
+    const target = (await this.store.listTeamMembers(organizationId)).find((item) => item.userId === userId);
+    if (!target) throw new ControlPlaneError("Team member was not found.", 404, "team_member_not_found");
+    if (!canManageMember(actor.role, target.role)) throw new ControlPlaneError("You cannot remove this member.", 403, "team_member_manage_forbidden");
+    const audit = this.teamAudit(organizationId, "member_removed", auth, { targetUserId: userId, targetEmail: target.email, metadata: { role: target.role, projectIds: target.projectIds } });
+    try { await this.store.removeTeamMember(organizationId, userId, audit); }
+    catch (error) { throw this.teamConflict(error); }
+  }
+
   async createProject(auth: AuthContext, input: unknown): Promise<Project> {
     requireUser(auth);
-    const bootstrap = await this.store.bootstrapUser(auth.userId, auth.email);
-    if (!new Set(["owner", "admin"]).has(bootstrap.membership.role)) {
-      throw new ControlPlaneError("Only organization owners and admins can create projects.", 403, "project_create_forbidden");
-    }
+    const body = record(input);
+    const requestedOrganizationId = optionalString(body, "organizationId");
+    const bootstrap = requestedOrganizationId ? undefined : await this.store.bootstrapUser(auth.userId, auth.email);
+    const membership = requestedOrganizationId
+      ? await this.authorizeOrganization(auth, requestedOrganizationId, ["owner", "admin"])
+      : bootstrap!.membership;
+    const organizationId = requestedOrganizationId ?? bootstrap!.organization.id;
+    if (!new Set(["owner", "admin"]).has(membership.role)) throw new ControlPlaneError("Only organization owners and admins can create projects.", 403, "project_create_forbidden");
     const existing = (await this.store.listProjectsForUser(auth.userId))
-      .filter((project) => project.organizationId === bootstrap.organization.id);
+      .filter((project) => project.organizationId === organizationId);
     if (existing.length >= 20) {
       throw new ControlPlaneError(
         "This organization has reached the 20 project limit.", 409, "project_limit_reached",
         "Archive an unused project or contact AgentCert support before creating another project.",
       );
     }
-    const name = projectName(record(input));
+    const name = projectName(body);
     const baseSlug = slugifyProject(name);
     const slugs = new Set(existing.map((project) => project.slug));
     let slug = baseSlug;
     while (slugs.has(slug)) slug = `${baseSlug}-${randomUUID().slice(0, 6)}`;
     return this.store.insertProject({
-      id: randomUUID(), organizationId: bootstrap.organization.id, name, slug, createdAt: new Date().toISOString(),
+      id: randomUUID(), organizationId, name, slug, createdAt: new Date().toISOString(),
     });
   }
 
@@ -297,7 +445,7 @@ export class AgentCertControlPlane {
   }
 
   async transitionAssuranceCase(auth: AuthContext, projectId: string, caseId: string, action: string, input: unknown) {
-    const privileged = action === "issue" ? ["owner", "admin", "reviewer"] : ["owner", "admin"];
+    const privileged: MemberRole[] = action === "issue" ? ["owner", "admin", "operator"] : ["owner", "admin"];
     await this.authorizeProject(auth, projectId, privileged);
     requireUser(auth);
     const current = await this.store.getAssuranceCase(projectId, caseId);
@@ -359,7 +507,49 @@ export class AgentCertControlPlane {
     return await this.store.transitionAssuranceCase(next, decision, "issued") ?? await this.store.getAssuranceCase(next.projectId, next.id) ?? next;
   }
 
-  async authorizeProject(auth: AuthContext, projectId: string, roles?: string[], scope?: ApiKeyScope): Promise<void> {
+  private async authorizeOrganization(auth: AuthContext, organizationId: string, roles?: readonly MemberRole[]) {
+    requireUser(auth);
+    const membership = await this.store.membershipForOrganization(auth.userId, organizationId);
+    if (!membership) throw new ControlPlaneError("Organization access denied.", 403, "organization_access_denied");
+    if (roles && !roles.includes(membership.role)) throw new ControlPlaneError(
+      `Organization role ${membership.role} cannot perform this operation.`, 403, "organization_role_insufficient",
+      "Ask an organization owner to perform this operation or update your role.",
+    );
+    return membership;
+  }
+
+  private async validateTeamProjectIds(organizationId: string, role: MemberRole, requested: string[]): Promise<string[]> {
+    if (!roleNeedsExplicitProjects(role)) return [];
+    const normalized = [...new Set(requested)];
+    if (normalized.length === 0) throw new ControlPlaneError(
+      `${role} members require at least one project.`, 400, "team_project_access_required",
+      "Select one or more projects for this member.",
+    );
+    const organizationProjects = await Promise.all(normalized.map((projectId) => this.store.getProject(projectId)));
+    if (organizationProjects.some((project) => !project || project.organizationId !== organizationId)) throw new ControlPlaneError(
+      "One or more project assignments do not belong to this organization.", 400, "team_project_access_invalid",
+    );
+    return normalized;
+  }
+
+  private teamAudit(
+    organizationId: string,
+    action: TeamAuditAction,
+    auth: AuthContext,
+    target: { targetUserId?: string; targetEmail?: string; metadata: Record<string, unknown> },
+  ): TeamAuditRecord {
+    if (!auth.userId) throw new ControlPlaneError("A human account is required.", 403, "human_account_required");
+    return { id: randomUUID(), organizationId, action, actorId: auth.userId, actorEmail: auth.email, ...target, occurredAt: new Date().toISOString() };
+  }
+
+  private teamConflict(error: unknown): ControlPlaneError {
+    if (!(error instanceof TeamStateConflictError)) return new ControlPlaneError("Team state changed while the request was running.", 409, "team_state_conflict", "Refresh the team page and retry.");
+    if (error.reason === "last_owner") return new ControlPlaneError("The last organization owner cannot be removed or demoted.", 409, "team_last_owner", "Promote another member to owner first.");
+    if (error.reason === "member_exists") return new ControlPlaneError("The account is already a member or is no longer available for this operation.", 409, "team_member_exists");
+    return new ControlPlaneError("Invitation is no longer available.", 409, "team_invitation_unavailable", "Refresh the team page and create a new invitation if needed.");
+  }
+
+  async authorizeProject(auth: AuthContext, projectId: string, roles?: readonly MemberRole[], scope?: ApiKeyScope): Promise<void> {
     if (auth.kind === "api_key") {
       if (auth.projectId !== projectId) throw new ControlPlaneError(
         "API key is not scoped to this project.", 403, "api_key_project_mismatch",
@@ -380,7 +570,8 @@ export class AgentCertControlPlane {
     requireUser(auth);
     const role = await this.store.roleForProject(auth.userId, projectId);
     if (!role) throw new ControlPlaneError("Project access denied.", 403, "project_access_denied", "Switch to a project in your organization or ask an owner to grant access.");
-    if (roles && !roles.includes(role)) throw new ControlPlaneError(`Project role ${role} cannot perform this operation.`, 403, "project_role_insufficient", "Ask a project owner to perform this operation or update your membership role.");
+    const allowedRoles = roles ?? rolesForHumanScope(scope);
+    if (!allowedRoles.includes(role)) throw new ControlPlaneError(`Project role ${role} cannot perform this operation.`, 403, "project_role_insufficient", "Ask a project owner to perform this operation or update your membership role.");
   }
 
   async createAgent(auth: AuthContext, projectId: string, input: unknown): Promise<AgentRecord> {
@@ -579,7 +770,7 @@ export class AgentCertControlPlane {
   }
 
   async reviewFailure(auth: AuthContext, projectId: string, runId: string, input: unknown): Promise<FailureReviewRecord> {
-    await this.authorizeProject(auth, projectId, ["owner", "admin", "reviewer"]);
+    await this.authorizeProject(auth, projectId, ["owner", "admin", "operator"]);
     requireUser(auth);
     if (!(await this.store.getRun(projectId, runId))) throw new ControlPlaneError("Run was not found.", 404);
     const body = record(input);
@@ -645,7 +836,7 @@ export class AgentCertControlPlane {
   }
 
   async reviewAction(auth: AuthContext, projectId: string, actionId: string, approved: boolean, input: unknown): Promise<ActionRecord> {
-    await this.authorizeProject(auth, projectId, ["owner", "admin", "reviewer"]);
+    await this.authorizeProject(auth, projectId, ["owner", "admin", "operator"]);
     requireUser(auth);
     const action = await this.store.getAction(projectId, actionId);
     if (!action) throw new ControlPlaneError("Action was not found.", 404);
@@ -1897,6 +2088,22 @@ async function sloBurnEvaluation(
 function publicApiKey(apiKey: ApiKeyRecord): PublicApiKeyRecord {
   const { secretHash: _secretHash, ...publicRecord } = apiKey;
   return publicRecord;
+}
+
+function publicTeamInvitation(invitation: TeamInvitationRecord): Omit<TeamInvitationRecord, "tokenHash"> {
+  const { tokenHash: _tokenHash, ...publicRecord } = invitation;
+  return publicRecord;
+}
+
+function normalizedEmail(value: string): string {
+  const email = value.trim().toLowerCase();
+  if (email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new ControlPlaneError("A valid email address is required.", 400, "team_email_invalid");
+  return email;
+}
+
+function memberRole(value: unknown): MemberRole {
+  if (value === "owner" || value === "admin" || value === "operator" || value === "viewer") return value;
+  throw new ControlPlaneError("role must be owner, admin, operator, or viewer.", 400, "team_role_invalid");
 }
 
 function publicWebhook(webhook: WebhookRecord): PublicWebhookRecord {

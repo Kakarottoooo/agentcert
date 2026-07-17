@@ -15,6 +15,9 @@ import type {
   LegalHoldRequestRecord,
   IdempotencyRecord,
   Membership,
+  TeamAuditRecord,
+  TeamInvitationRecord,
+  TeamMemberRecord,
   Organization,
   Project,
   RunRecord,
@@ -52,6 +55,7 @@ export const CONTROL_PLANE_MIGRATIONS = [
   "011_hosted_onboarding_v02.sql",
   "012_pilot_funnel_indexes.sql",
   "013_assurance_cases.sql",
+  "014_team_access_management.sql",
 ] as const;
 
 const DEFAULT_PROJECT_NAME = "Agent assurance project";
@@ -75,14 +79,33 @@ export class EvidenceQuotaExceededError extends Error {
   }
 }
 
+export class TeamStateConflictError extends Error {
+  constructor(readonly reason: "invitation_unavailable" | "member_exists" | "last_owner") {
+    super(reason);
+    this.name = "TeamStateConflictError";
+  }
+}
+
 export interface ControlPlaneStore {
   migrate(): Promise<void>;
   bootstrapUser(userId: string, email?: string): Promise<BootstrapResult>;
   listProjectsForUser(userId: string): Promise<Project[]>;
   insertProject(project: Project): Promise<Project>;
+  getOrganization(organizationId: string): Promise<Organization | undefined>;
   getProject(projectId: string): Promise<Project | undefined>;
   updateProject(project: Project): Promise<Project>;
   roleForProject(userId: string, projectId: string): Promise<MemberRole | undefined>;
+  membershipForOrganization(userId: string, organizationId: string): Promise<Membership | undefined>;
+  listTeamMembers(organizationId: string): Promise<TeamMemberRecord[]>;
+  listTeamInvitations(organizationId: string): Promise<TeamInvitationRecord[]>;
+  getTeamInvitationByTokenHash(tokenHash: string): Promise<TeamInvitationRecord | undefined>;
+  saveTeamInvitation(invitation: TeamInvitationRecord): Promise<TeamInvitationRecord>;
+  updateTeamInvitation(invitation: TeamInvitationRecord): Promise<TeamInvitationRecord>;
+  acceptTeamInvitation(invitationId: string, membership: Membership, projectIds: string[], audit: TeamAuditRecord): Promise<TeamInvitationRecord>;
+  updateTeamMember(organizationId: string, userId: string, role: MemberRole, projectIds: string[], actorId: string, audit: TeamAuditRecord): Promise<TeamMemberRecord>;
+  removeTeamMember(organizationId: string, userId: string, audit: TeamAuditRecord): Promise<void>;
+  appendTeamAudit(record: TeamAuditRecord): Promise<TeamAuditRecord>;
+  listTeamAudit(organizationId: string, limit?: number): Promise<TeamAuditRecord[]>;
   insertPilotFeedback(feedback: PilotFeedbackRecord): Promise<PilotFeedbackRecord>;
   listPilotFeedback(projectId: string, limit?: number): Promise<PilotFeedbackRecord[]>;
   pilotFunnelSource(since: string): Promise<PilotFunnelSource>;
@@ -184,6 +207,9 @@ export interface ControlPlaneStore {
 export class InMemoryControlPlaneStore implements ControlPlaneStore {
   private organizations = new Map<string, Organization>();
   private memberships = new Map<string, Membership>();
+  private projectMemberships = new Map<string, { projectId: string; userId: string; grantedBy?: string; createdAt: string }>();
+  private teamInvitations = new Map<string, TeamInvitationRecord>();
+  private teamAudit = new Map<string, TeamAuditRecord>();
   private projects = new Map<string, Project>();
   private agents = new Map<string, AgentRecord>();
   private runs = new Map<string, RunRecord>();
@@ -216,11 +242,12 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   async bootstrapUser(userId: string, email?: string): Promise<BootstrapResult> {
     const existing = [...this.memberships.values()].find((item) => item.userId === userId);
     if (existing) {
+      if (email && existing.email !== email) {
+        existing.email = email;
+        this.memberships.set(`${existing.organizationId}:${userId}`, existing);
+      }
       const organization = required(this.organizations.get(existing.organizationId), "organization");
-      const project = required(
-        [...this.projects.values()].find((item) => item.organizationId === organization.id),
-        "project",
-      );
+      const project = required((await this.listProjectsForUser(userId)).find((item) => item.organizationId === organization.id), "project");
       return { organization, project, membership: existing };
     }
     const now = new Date().toISOString();
@@ -238,7 +265,7 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
       slug: DEFAULT_PROJECT_SLUG,
       createdAt: now,
     };
-    const membership: Membership = { organizationId: organization.id, userId, role: "owner", createdAt: now };
+    const membership: Membership = { organizationId: organization.id, userId, email, role: "owner", createdAt: now };
     this.organizations.set(organization.id, organization);
     this.projects.set(project.id, project);
     this.memberships.set(`${organization.id}:${userId}`, membership);
@@ -246,10 +273,10 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   }
 
   async listProjectsForUser(userId: string): Promise<Project[]> {
-    const organizationIds = new Set(
-      [...this.memberships.values()].filter((item) => item.userId === userId).map((item) => item.organizationId),
-    );
-    return [...this.projects.values()].filter((item) => organizationIds.has(item.organizationId));
+    const memberships = [...this.memberships.values()].filter((item) => item.userId === userId);
+    const privilegedOrganizations = new Set(memberships.filter((item) => item.role === "owner" || item.role === "admin").map((item) => item.organizationId));
+    const assignedProjects = new Set([...this.projectMemberships.values()].filter((item) => item.userId === userId).map((item) => item.projectId));
+    return [...this.projects.values()].filter((item) => privilegedOrganizations.has(item.organizationId) || assignedProjects.has(item.id));
   }
 
   async insertProject(project: Project): Promise<Project> {
@@ -265,6 +292,94 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
     if (!this.projects.has(project.id)) throw new Error("Project was not found.");
     this.projects.set(project.id, project);
     return project;
+  }
+
+  async getOrganization(organizationId: string): Promise<Organization | undefined> {
+    const organization = this.organizations.get(organizationId);
+    return organization ? structuredClone(organization) : undefined;
+  }
+
+  async membershipForOrganization(userId: string, organizationId: string): Promise<Membership | undefined> {
+    const membership = this.memberships.get(`${organizationId}:${userId}`);
+    return membership ? structuredClone(membership) : undefined;
+  }
+
+  async listTeamMembers(organizationId: string): Promise<TeamMemberRecord[]> {
+    const organizationProjectIds = [...this.projects.values()].filter((item) => item.organizationId === organizationId).map((item) => item.id);
+    return [...this.memberships.values()].filter((item) => item.organizationId === organizationId).map((item) => ({
+      ...structuredClone(item),
+      projectIds: item.role === "owner" || item.role === "admin"
+        ? organizationProjectIds
+        : [...this.projectMemberships.values()].filter((access) => access.userId === item.userId && organizationProjectIds.includes(access.projectId)).map((access) => access.projectId),
+    }));
+  }
+
+  async listTeamInvitations(organizationId: string): Promise<TeamInvitationRecord[]> {
+    return newest([...this.teamInvitations.values()].filter((item) => item.organizationId === organizationId), "createdAt").map((item) => structuredClone(item));
+  }
+
+  async getTeamInvitationByTokenHash(tokenHash: string): Promise<TeamInvitationRecord | undefined> {
+    const invitation = [...this.teamInvitations.values()].find((item) => item.tokenHash === tokenHash);
+    return invitation ? structuredClone(invitation) : undefined;
+  }
+
+  async saveTeamInvitation(invitation: TeamInvitationRecord): Promise<TeamInvitationRecord> {
+    const duplicate = [...this.teamInvitations.values()].find((item) => item.organizationId === invitation.organizationId && item.email.toLowerCase() === invitation.email.toLowerCase() && item.status === "pending");
+    if (duplicate) throw new TeamStateConflictError("invitation_unavailable");
+    this.teamInvitations.set(invitation.id, structuredClone(invitation));
+    return structuredClone(invitation);
+  }
+
+  async updateTeamInvitation(invitation: TeamInvitationRecord): Promise<TeamInvitationRecord> {
+    if (!this.teamInvitations.has(invitation.id)) throw new TeamStateConflictError("invitation_unavailable");
+    this.teamInvitations.set(invitation.id, structuredClone(invitation));
+    return structuredClone(invitation);
+  }
+
+  async acceptTeamInvitation(invitationId: string, membership: Membership, projectIds: string[], audit: TeamAuditRecord): Promise<TeamInvitationRecord> {
+    const invitation = this.teamInvitations.get(invitationId);
+    if (!invitation || invitation.status !== "pending") throw new TeamStateConflictError("invitation_unavailable");
+    if (this.memberships.has(`${membership.organizationId}:${membership.userId}`)) throw new TeamStateConflictError("member_exists");
+    this.memberships.set(`${membership.organizationId}:${membership.userId}`, structuredClone(membership));
+    for (const projectId of projectIds) this.projectMemberships.set(`${projectId}:${membership.userId}`, { projectId, userId: membership.userId, grantedBy: invitation.invitedBy, createdAt: audit.occurredAt });
+    const accepted = { ...invitation, status: "accepted" as const, acceptedBy: membership.userId, acceptedAt: audit.occurredAt };
+    this.teamInvitations.set(invitationId, accepted);
+    this.teamAudit.set(audit.id, structuredClone(audit));
+    return structuredClone(accepted);
+  }
+
+  async updateTeamMember(organizationId: string, userId: string, role: MemberRole, projectIds: string[], actorId: string, audit: TeamAuditRecord): Promise<TeamMemberRecord> {
+    const key = `${organizationId}:${userId}`;
+    const current = this.memberships.get(key);
+    if (!current) throw new TeamStateConflictError("member_exists");
+    if (current.role === "owner" && role !== "owner" && [...this.memberships.values()].filter((item) => item.organizationId === organizationId && item.role === "owner").length === 1) throw new TeamStateConflictError("last_owner");
+    const next = { ...current, role };
+    this.memberships.set(key, next);
+    const organizationProjectIds = new Set([...this.projects.values()].filter((item) => item.organizationId === organizationId).map((item) => item.id));
+    for (const [accessKey, access] of this.projectMemberships) if (access.userId === userId && organizationProjectIds.has(access.projectId)) this.projectMemberships.delete(accessKey);
+    if (role === "operator" || role === "viewer") for (const projectId of projectIds) this.projectMemberships.set(`${projectId}:${userId}`, { projectId, userId, grantedBy: actorId, createdAt: audit.occurredAt });
+    this.teamAudit.set(audit.id, structuredClone(audit));
+    return { ...structuredClone(next), projectIds: role === "owner" || role === "admin" ? [...organizationProjectIds] : [...projectIds] };
+  }
+
+  async removeTeamMember(organizationId: string, userId: string, audit: TeamAuditRecord): Promise<void> {
+    const key = `${organizationId}:${userId}`;
+    const current = this.memberships.get(key);
+    if (!current) throw new TeamStateConflictError("member_exists");
+    if (current.role === "owner" && [...this.memberships.values()].filter((item) => item.organizationId === organizationId && item.role === "owner").length === 1) throw new TeamStateConflictError("last_owner");
+    this.memberships.delete(key);
+    const organizationProjectIds = new Set([...this.projects.values()].filter((item) => item.organizationId === organizationId).map((item) => item.id));
+    for (const [accessKey, access] of this.projectMemberships) if (access.userId === userId && organizationProjectIds.has(access.projectId)) this.projectMemberships.delete(accessKey);
+    this.teamAudit.set(audit.id, structuredClone(audit));
+  }
+
+  async appendTeamAudit(record: TeamAuditRecord): Promise<TeamAuditRecord> {
+    this.teamAudit.set(record.id, structuredClone(record));
+    return structuredClone(record);
+  }
+
+  async listTeamAudit(organizationId: string, limit = 100): Promise<TeamAuditRecord[]> {
+    return newest([...this.teamAudit.values()].filter((item) => item.organizationId === organizationId), "occurredAt").slice(0, limit).map((item) => structuredClone(item));
   }
 
   async insertPilotFeedback(feedback: PilotFeedbackRecord): Promise<PilotFeedbackRecord> {
@@ -346,7 +461,10 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   async roleForProject(userId: string, projectId: string): Promise<MemberRole | undefined> {
     const project = this.projects.get(projectId);
     if (!project) return undefined;
-    return this.memberships.get(`${project.organizationId}:${userId}`)?.role;
+    const membership = this.memberships.get(`${project.organizationId}:${userId}`);
+    if (!membership) return undefined;
+    if (membership.role === "owner" || membership.role === "admin") return membership.role;
+    return this.projectMemberships.has(`${projectId}:${userId}`) ? membership.role : undefined;
   }
 
   async upsertAgent(agent: AgentRecord): Promise<AgentRecord> {
@@ -886,12 +1004,16 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
   }
 
   async bootstrapUser(userId: string, email?: string): Promise<BootstrapResult> {
+    if (email) await this.pool.query("UPDATE agentcert_memberships SET email=$2 WHERE user_id=$1 AND email IS DISTINCT FROM $2", [userId, email]);
     const existing = await this.pool.query(
-      `SELECT o.*, m.user_id, m.role, m.created_at AS membership_created_at, p.id AS project_id,
+      `SELECT o.*, m.user_id, m.email AS membership_email, m.role, m.created_at AS membership_created_at, p.id AS project_id,
               p.name AS project_name, p.slug AS project_slug, p.created_at AS project_created_at
        FROM agentcert_memberships m
        JOIN agentcert_organizations o ON o.id = m.organization_id
        JOIN agentcert_projects p ON p.organization_id = o.id
+         AND (m.role IN ('owner','admin') OR EXISTS (
+           SELECT 1 FROM agentcert_project_memberships pm WHERE pm.project_id=p.id AND pm.user_id=m.user_id
+         ))
        WHERE m.user_id = $1 ORDER BY p.created_at ASC LIMIT 1`,
       [userId],
     );
@@ -902,11 +1024,14 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
       await client.query("BEGIN");
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [userId]);
       const concurrentExisting = await client.query(
-        `SELECT o.*, m.user_id, m.role, m.created_at AS membership_created_at, p.id AS project_id,
+        `SELECT o.*, m.user_id, m.email AS membership_email, m.role, m.created_at AS membership_created_at, p.id AS project_id,
                 p.name AS project_name, p.slug AS project_slug, p.created_at AS project_created_at
          FROM agentcert_memberships m
          JOIN agentcert_organizations o ON o.id = m.organization_id
          JOIN agentcert_projects p ON p.organization_id = o.id
+           AND (m.role IN ('owner','admin') OR EXISTS (
+             SELECT 1 FROM agentcert_project_memberships pm WHERE pm.project_id=p.id AND pm.user_id=m.user_id
+           ))
          WHERE m.user_id = $1 ORDER BY p.created_at ASC LIMIT 1`,
         [userId],
       );
@@ -929,7 +1054,7 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
         slug: DEFAULT_PROJECT_SLUG,
         createdAt: now,
       };
-      const membership: Membership = { organizationId: organization.id, userId, role: "owner", createdAt: now };
+      const membership: Membership = { organizationId: organization.id, userId, email, role: "owner", createdAt: now };
       await client.query("INSERT INTO agentcert_organizations (id,name,slug,created_at) VALUES ($1,$2,$3,$4)", [
         organization.id,
         organization.name,
@@ -937,8 +1062,8 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
         organization.createdAt,
       ]);
       await client.query(
-        "INSERT INTO agentcert_memberships (organization_id,user_id,role,created_at) VALUES ($1,$2,$3,$4)",
-        [organization.id, userId, membership.role, now],
+        "INSERT INTO agentcert_memberships (organization_id,user_id,email,role,created_at) VALUES ($1,$2,$3,$4,$5)",
+        [organization.id, userId, email ?? null, membership.role, now],
       );
       await client.query(
         "INSERT INTO agentcert_projects (id,organization_id,name,slug,created_at) VALUES ($1,$2,$3,$4,$5)",
@@ -957,7 +1082,9 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
   async listProjectsForUser(userId: string): Promise<Project[]> {
     const result = await this.pool.query(
       `SELECT p.* FROM agentcert_projects p JOIN agentcert_memberships m ON m.organization_id=p.organization_id
-       WHERE m.user_id=$1 ORDER BY p.created_at ASC`,
+       WHERE m.user_id=$1 AND (m.role IN ('owner','admin') OR EXISTS (
+         SELECT 1 FROM agentcert_project_memberships pm WHERE pm.project_id=p.id AND pm.user_id=m.user_id
+       )) ORDER BY p.created_at ASC`,
       [userId],
     );
     return result.rows.map(projectFromRow);
@@ -971,6 +1098,10 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     return projectFromRow(result.rows[0]);
   }
 
+  async getOrganization(organizationId: string): Promise<Organization | undefined> {
+    return one(this.pool.query("SELECT * FROM agentcert_organizations WHERE id=$1", [organizationId]), organizationFromRow);
+  }
+
   async getProject(projectId: string): Promise<Project | undefined> {
     return one(this.pool.query("SELECT * FROM agentcert_projects WHERE id=$1", [projectId]), projectFromRow);
   }
@@ -981,6 +1112,143 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
       projectFromRow,
     );
     return required(updated, "project");
+  }
+
+  async membershipForOrganization(userId: string, organizationId: string): Promise<Membership | undefined> {
+    return one(this.pool.query(
+      "SELECT organization_id,user_id,email,role,created_at FROM agentcert_memberships WHERE organization_id=$1 AND user_id=$2",
+      [organizationId, userId],
+    ), membershipFromRow);
+  }
+
+  async listTeamMembers(organizationId: string): Promise<TeamMemberRecord[]> {
+    const result = await this.pool.query(
+      `SELECT m.*, CASE WHEN m.role IN ('owner','admin')
+         THEN COALESCE((SELECT jsonb_agg(p.id ORDER BY p.created_at) FROM agentcert_projects p WHERE p.organization_id=m.organization_id),'[]'::jsonb)
+         ELSE COALESCE((SELECT jsonb_agg(pm.project_id ORDER BY pm.created_at) FROM agentcert_project_memberships pm
+           JOIN agentcert_projects p ON p.id=pm.project_id WHERE pm.user_id=m.user_id AND p.organization_id=m.organization_id),'[]'::jsonb)
+       END AS project_ids
+       FROM agentcert_memberships m WHERE m.organization_id=$1 ORDER BY m.created_at ASC`,
+      [organizationId],
+    );
+    return result.rows.map(teamMemberFromRow);
+  }
+
+  async listTeamInvitations(organizationId: string): Promise<TeamInvitationRecord[]> {
+    return many(this.pool.query("SELECT * FROM agentcert_team_invitations WHERE organization_id=$1 ORDER BY created_at DESC", [organizationId]), teamInvitationFromRow);
+  }
+
+  async getTeamInvitationByTokenHash(tokenHash: string): Promise<TeamInvitationRecord | undefined> {
+    return one(this.pool.query("SELECT * FROM agentcert_team_invitations WHERE token_hash=$1", [tokenHash]), teamInvitationFromRow);
+  }
+
+  async saveTeamInvitation(invitation: TeamInvitationRecord): Promise<TeamInvitationRecord> {
+    try {
+      const result = await this.pool.query(
+        `INSERT INTO agentcert_team_invitations
+         (id,organization_id,email,role,project_ids,token_hash,status,delivery_status,delivery_error,invited_by,invited_by_email,expires_at,created_at,sent_at,accepted_by,accepted_at,revoked_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+        teamInvitationValues(invitation),
+      );
+      return teamInvitationFromRow(result.rows[0]);
+    } catch (error) {
+      if (isUniqueViolation(error)) throw new TeamStateConflictError("invitation_unavailable");
+      throw error;
+    }
+  }
+
+  async updateTeamInvitation(invitation: TeamInvitationRecord): Promise<TeamInvitationRecord> {
+    const result = await this.pool.query(
+      `UPDATE agentcert_team_invitations SET status=$2,delivery_status=$3,delivery_error=$4,sent_at=$5,
+       accepted_by=$6,accepted_at=$7,revoked_at=$8 WHERE id=$1 RETURNING *`,
+      [invitation.id, invitation.status, invitation.deliveryStatus, invitation.deliveryError ?? null, invitation.sentAt ?? null,
+        invitation.acceptedBy ?? null, invitation.acceptedAt ?? null, invitation.revokedAt ?? null],
+    );
+    if (!result.rows[0]) throw new TeamStateConflictError("invitation_unavailable");
+    return teamInvitationFromRow(result.rows[0]);
+  }
+
+  async acceptTeamInvitation(invitationId: string, membership: Membership, projectIds: string[], audit: TeamAuditRecord): Promise<TeamInvitationRecord> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const locked = await client.query("SELECT * FROM agentcert_team_invitations WHERE id=$1 FOR UPDATE", [invitationId]);
+      if (!locked.rows[0] || locked.rows[0].status !== "pending") throw new TeamStateConflictError("invitation_unavailable");
+      const member = await client.query("SELECT 1 FROM agentcert_memberships WHERE organization_id=$1 AND user_id=$2", [membership.organizationId, membership.userId]);
+      if (member.rows[0]) throw new TeamStateConflictError("member_exists");
+      await client.query(
+        "INSERT INTO agentcert_memberships (organization_id,user_id,email,role,created_at) VALUES ($1,$2,$3,$4,$5)",
+        [membership.organizationId, membership.userId, membership.email ?? null, membership.role, membership.createdAt],
+      );
+      for (const projectId of projectIds) await client.query(
+        "INSERT INTO agentcert_project_memberships (project_id,user_id,granted_by,created_at) VALUES ($1,$2,$3,$4)",
+        [projectId, membership.userId, audit.actorId, audit.occurredAt],
+      );
+      const accepted = await client.query(
+        "UPDATE agentcert_team_invitations SET status='accepted',accepted_by=$2,accepted_at=$3 WHERE id=$1 RETURNING *",
+        [invitationId, membership.userId, audit.occurredAt],
+      );
+      await insertTeamAudit(client, audit);
+      await client.query("COMMIT");
+      return teamInvitationFromRow(accepted.rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      if (isUniqueViolation(error)) throw new TeamStateConflictError("member_exists");
+      throw error;
+    } finally { client.release(); }
+  }
+
+  async updateTeamMember(organizationId: string, userId: string, role: MemberRole, projectIds: string[], actorId: string, audit: TeamAuditRecord): Promise<TeamMemberRecord> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`team:${organizationId}`]);
+      const current = await client.query("SELECT * FROM agentcert_memberships WHERE organization_id=$1 AND user_id=$2 FOR UPDATE", [organizationId, userId]);
+      if (!current.rows[0]) throw new TeamStateConflictError("member_exists");
+      if (current.rows[0].role === "owner" && role !== "owner") await assertNotLastOwner(client, organizationId);
+      await client.query("UPDATE agentcert_memberships SET role=$3 WHERE organization_id=$1 AND user_id=$2", [organizationId, userId, role]);
+      await client.query(`DELETE FROM agentcert_project_memberships pm USING agentcert_projects p
+        WHERE pm.project_id=p.id AND p.organization_id=$1 AND pm.user_id=$2`, [organizationId, userId]);
+      if (role === "operator" || role === "viewer") for (const projectId of projectIds) await client.query(
+        "INSERT INTO agentcert_project_memberships (project_id,user_id,granted_by,created_at) VALUES ($1,$2,$3,$4)",
+        [projectId, userId, actorId, audit.occurredAt],
+      );
+      await insertTeamAudit(client, audit);
+      await client.query("COMMIT");
+      const members = await this.listTeamMembers(organizationId);
+      return required(members.find((item) => item.userId === userId), "team member");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally { client.release(); }
+  }
+
+  async removeTeamMember(organizationId: string, userId: string, audit: TeamAuditRecord): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`team:${organizationId}`]);
+      const current = await client.query("SELECT * FROM agentcert_memberships WHERE organization_id=$1 AND user_id=$2 FOR UPDATE", [organizationId, userId]);
+      if (!current.rows[0]) throw new TeamStateConflictError("member_exists");
+      if (current.rows[0].role === "owner") await assertNotLastOwner(client, organizationId);
+      await client.query(`DELETE FROM agentcert_project_memberships pm USING agentcert_projects p
+        WHERE pm.project_id=p.id AND p.organization_id=$1 AND pm.user_id=$2`, [organizationId, userId]);
+      await client.query("DELETE FROM agentcert_memberships WHERE organization_id=$1 AND user_id=$2", [organizationId, userId]);
+      await insertTeamAudit(client, audit);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally { client.release(); }
+  }
+
+  async appendTeamAudit(record: TeamAuditRecord): Promise<TeamAuditRecord> {
+    await insertTeamAudit(this.pool, record);
+    return record;
+  }
+
+  async listTeamAudit(organizationId: string, limit = 100): Promise<TeamAuditRecord[]> {
+    return many(this.pool.query("SELECT * FROM agentcert_team_audit WHERE organization_id=$1 ORDER BY occurred_at DESC LIMIT $2", [organizationId, limit]), teamAuditFromRow);
   }
 
   async insertPilotFeedback(feedback: PilotFeedbackRecord): Promise<PilotFeedbackRecord> {
@@ -1134,7 +1402,9 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
   async roleForProject(userId: string, projectId: string): Promise<MemberRole | undefined> {
     const result = await this.pool.query(
       `SELECT m.role FROM agentcert_memberships m JOIN agentcert_projects p ON p.organization_id=m.organization_id
-       WHERE m.user_id=$1 AND p.id=$2`,
+       WHERE m.user_id=$1 AND p.id=$2 AND (m.role IN ('owner','admin') OR EXISTS (
+         SELECT 1 FROM agentcert_project_memberships pm WHERE pm.project_id=p.id AND pm.user_id=m.user_id
+       ))`,
       [userId, projectId],
     );
     return result.rows[0]?.role as MemberRole | undefined;
@@ -2068,6 +2338,52 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
 function projectFromRow(row: Record<string, unknown>): Project {
   return { id: text(row.id), organizationId: text(row.organization_id), name: text(row.name), slug: text(row.slug), createdAt: iso(row.created_at) };
 }
+function organizationFromRow(row: Record<string, unknown>): Organization {
+  return { id: text(row.id), name: text(row.name), slug: text(row.slug), createdAt: iso(row.created_at) };
+}
+function membershipFromRow(row: Record<string, unknown>): Membership {
+  return { organizationId: text(row.organization_id), userId: text(row.user_id), email: optionalText(row.email), role: text(row.role) as MemberRole, createdAt: iso(row.created_at) };
+}
+function teamMemberFromRow(row: Record<string, unknown>): TeamMemberRecord {
+  return { ...membershipFromRow(row), projectIds: stringArray(row.project_ids) };
+}
+function teamInvitationValues(record: TeamInvitationRecord): unknown[] {
+  return [record.id, record.organizationId, record.email, record.role, JSON.stringify(record.projectIds), record.tokenHash,
+    record.status, record.deliveryStatus, record.deliveryError ?? null, record.invitedBy, record.invitedByEmail ?? null,
+    record.expiresAt, record.createdAt, record.sentAt ?? null, record.acceptedBy ?? null, record.acceptedAt ?? null, record.revokedAt ?? null];
+}
+function teamInvitationFromRow(row: Record<string, unknown>): TeamInvitationRecord {
+  return {
+    id: text(row.id), organizationId: text(row.organization_id), email: text(row.email), role: text(row.role) as MemberRole,
+    projectIds: stringArray(row.project_ids), tokenHash: text(row.token_hash), status: text(row.status) as TeamInvitationRecord["status"],
+    deliveryStatus: text(row.delivery_status) as TeamInvitationRecord["deliveryStatus"], deliveryError: optionalText(row.delivery_error),
+    invitedBy: text(row.invited_by), invitedByEmail: optionalText(row.invited_by_email), expiresAt: iso(row.expires_at),
+    createdAt: iso(row.created_at), sentAt: optionalIso(row.sent_at), acceptedBy: optionalText(row.accepted_by),
+    acceptedAt: optionalIso(row.accepted_at), revokedAt: optionalIso(row.revoked_at),
+  };
+}
+function teamAuditFromRow(row: Record<string, unknown>): TeamAuditRecord {
+  return {
+    id: text(row.id), organizationId: text(row.organization_id), action: text(row.action) as TeamAuditRecord["action"],
+    actorId: text(row.actor_id), actorEmail: optionalText(row.actor_email), targetUserId: optionalText(row.target_user_id),
+    targetEmail: optionalText(row.target_email), metadata: object(row.metadata), occurredAt: iso(row.occurred_at),
+  };
+}
+async function insertTeamAudit(client: pg.Pool | pg.PoolClient, record: TeamAuditRecord): Promise<void> {
+  await client.query(
+    `INSERT INTO agentcert_team_audit (id,organization_id,action,actor_id,actor_email,target_user_id,target_email,metadata,occurred_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [record.id, record.organizationId, record.action, record.actorId, record.actorEmail ?? null, record.targetUserId ?? null,
+      record.targetEmail ?? null, JSON.stringify(record.metadata), record.occurredAt],
+  );
+}
+async function assertNotLastOwner(client: pg.PoolClient, organizationId: string): Promise<void> {
+  const owners = await client.query("SELECT COUNT(*)::int AS count FROM agentcert_memberships WHERE organization_id=$1 AND role='owner'", [organizationId]);
+  if (Number(owners.rows[0]?.count) <= 1) throw new TeamStateConflictError("last_owner");
+}
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "23505";
+}
 function pilotFeedbackFromRow(row: Record<string, unknown>): PilotFeedbackRecord {
   return {
     id: text(row.id), projectId: text(row.project_id), userId: text(row.user_id),
@@ -2353,7 +2669,7 @@ function failureReviewFromRow(row: Record<string, unknown>): FailureReviewRecord
 function bootstrapFromRow(row: Record<string, unknown>): BootstrapResult {
   const organization: Organization = { id: text(row.id), name: text(row.name), slug: text(row.slug), createdAt: iso(row.created_at) };
   const project: Project = { id: text(row.project_id), organizationId: organization.id, name: text(row.project_name), slug: text(row.project_slug), createdAt: iso(row.project_created_at) };
-  const membership: Membership = { organizationId: organization.id, userId: text(row.user_id), role: text(row.role) as MemberRole, createdAt: iso(row.membership_created_at) };
+  const membership: Membership = { organizationId: organization.id, userId: text(row.user_id), email: optionalText(row.membership_email), role: text(row.role) as MemberRole, createdAt: iso(row.membership_created_at) };
   return { organization, project, membership };
 }
 
