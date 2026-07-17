@@ -43,8 +43,8 @@ process. It provides idempotent local append, signed heartbeat, restart replay,
 receipt reconciliation, key rotation, and a black-box conformance command.
 
 ```bash
-agentcert-collector-gateway
-agentcert-collector-conformance
+npx --package agentcert-sdk agentcert-collector-gateway
+npx --package agentcert-sdk agentcert-collector-conformance
 ```
 
 Required gateway environment variables are `AGENTCERT_PROJECT_ID`,
