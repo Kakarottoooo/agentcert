@@ -121,7 +121,7 @@ and complete the run:
 ```bash
 export AGENTCERT_PROJECT_ID="your-project-id"
 export AGENTCERT_API_KEY="your-scoped-api-key"
-export AGENTCERT_BASE_URL="https://agentcert-control-plane.onrender.com"
+export AGENTCERT_BASE_URL="https://agentcert.app"
 
 onegent-runtime sandbox-conformance --push
 ```
@@ -129,7 +129,7 @@ onegent-runtime sandbox-conformance --push
 For external users, the supported public command is:
 
 ```bash
-npx agentcert connect --server https://agentcert-control-plane.onrender.com --project your-project-id
+npx agentcert connect --server https://agentcert.app --project your-project-id
 npx agentcert sandbox push --adapter ./agentcert.sandbox.mjs
 ```
 

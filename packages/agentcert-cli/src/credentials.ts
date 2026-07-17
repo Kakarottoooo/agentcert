@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
-export const DEFAULT_AGENTCERT_SERVER = "https://agentcert-control-plane.onrender.com";
+export const DEFAULT_AGENTCERT_SERVER = "https://agentcert.app";
 
 export interface HostedConnection {
   server: string;

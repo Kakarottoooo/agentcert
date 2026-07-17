@@ -20,11 +20,11 @@ evidence, separates case creation from issuance review, signs issued reports,
 and keeps suspension, revocation, and expiry observable. It is an auditable
 assurance decision, not an official certification.
 
-**Use AgentCert:** [Product site](https://agentcert-control-plane.onrender.com/) |
-[Public evidence](https://agentcert-control-plane.onrender.com/evidence) |
-[Private workspace](https://agentcert-control-plane.onrender.com/app) |
+**Use AgentCert:** [Product site](https://agentcert.app/) |
+[Public evidence](https://agentcert.app/evidence) |
+[Private workspace](https://agentcert.app/app) |
 [GitHub source](https://github.com/Kakarottoooo/agentcert) |
-[v0.5.2 release](https://github.com/Kakarottoooo/agentcert/releases/tag/v0.5.2)
+[v0.5.3 release](https://github.com/Kakarottoooo/agentcert/releases/tag/v0.5.3)
 
 ```bash
 npx agentcert release-gate --config agentcert.config.json --strict
@@ -160,15 +160,15 @@ Production Acceptance Lab: [docs/production-acceptance-lab.md](docs/production-a
 Corpus governance: [docs/corpus-governance.md](docs/corpus-governance.md).
 Adapter compatibility: [docs/adapter-compatibility.md](docs/adapter-compatibility.md).
 Sandbox Adapter Kit: [docs/sandbox-adapter-kit.md](docs/sandbox-adapter-kit.md).
-Product site: [agentcert-control-plane.onrender.com](https://agentcert-control-plane.onrender.com/).
-Public evidence: [agentcert-control-plane.onrender.com/evidence](https://agentcert-control-plane.onrender.com/evidence).
-Authenticated workspace: [agentcert-control-plane.onrender.com/app](https://agentcert-control-plane.onrender.com/app).
+Product site: [agentcert.app](https://agentcert.app/).
+Public evidence: [agentcert.app/evidence](https://agentcert.app/evidence).
+Authenticated workspace: [agentcert.app/app](https://agentcert.app/app).
 
 Once a project API key is created in **Integrations**, connect the CLI once and
 publish the same validated evidence bundle it writes locally:
 
 ```bash
-npx agentcert connect --server https://agentcert-control-plane.onrender.com --project your-project-id
+npx agentcert connect --server https://agentcert.app --project your-project-id
 npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --push
 ```
 
@@ -193,7 +193,7 @@ cloning this repository or installing a second package:
 ```bash
 npx agentcert sandbox init
 npx agentcert sandbox certify --adapter ./agentcert.sandbox.mjs
-npx agentcert connect --server https://agentcert-control-plane.onrender.com --project your-project-id
+npx agentcert connect --server https://agentcert.app --project your-project-id
 npx agentcert sandbox push --adapter ./agentcert.sandbox.mjs
 ```
 
@@ -443,8 +443,8 @@ reads the aggregated snapshot.
 - Schema guide: [docs/evidence-schema.md](docs/evidence-schema.md)
 - Extended standards/taxonomy notes: [docs/standards/evidence-schema.md](docs/standards/evidence-schema.md)
 - Corpus, review ledger, monitor, and local console reference: [docs/evidence-and-corpus.md](docs/evidence-and-corpus.md)
-- Product site: [AgentCert Hosted](https://agentcert-control-plane.onrender.com/)
-- Public evidence: [AgentCert evidence explorer](https://agentcert-control-plane.onrender.com/evidence)
+- Product site: [AgentCert Hosted](https://agentcert.app/)
+- Public evidence: [AgentCert evidence explorer](https://agentcert.app/evidence)
 - Immutable evidence archive: [GitHub Pages snapshot](https://kakarottoooo.github.io/agentcert/public-demo/agentcert-monitor/)
 
 Validate any evidence artifact:

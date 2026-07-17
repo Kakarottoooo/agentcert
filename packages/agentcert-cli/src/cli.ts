@@ -103,7 +103,7 @@ if (commandHelp) {
 } else if (command === "connect") {
   if (readBoolFlag("--help")) {
     process.stdout.write(`Usage:
-  agentcert connect --server https://agentcert-control-plane.onrender.com --project <project-id>
+  agentcert connect --server https://agentcert.app --project <project-id>
   agentcert connect --name staging --server https://staging.example.com --project <project-id>
 
 The API key is read from AGENTCERT_API_KEY or requested with hidden input.
@@ -555,7 +555,7 @@ Saved connections are reused by agentcert push and agentcert run --push.
 } else {
   process.stdout.write(`Usage:
   agentcert init --subject my-browser-agent
-  agentcert connect --server https://agentcert-control-plane.onrender.com --project <project-id>
+  agentcert connect --server https://agentcert.app --project <project-id>
   agentcert sandbox init
   agentcert sandbox certify --adapter ./agentcert.sandbox.mjs
   agentcert sandbox push --adapter ./agentcert.sandbox.mjs

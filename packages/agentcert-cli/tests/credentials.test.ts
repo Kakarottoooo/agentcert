@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_AGENTCERT_SERVER,
   loadConnection,
   resolveConnection,
   saveConnection,
@@ -16,6 +17,10 @@ const connection: HostedConnection = {
 };
 
 describe("hosted connection credentials", () => {
+  it("uses the canonical AgentCert domain by default", () => {
+    expect(DEFAULT_AGENTCERT_SERVER).toBe("https://agentcert.app");
+  });
+
   it("stores named connections outside the repository and loads the default", async () => {
     const configHome = await mkdtemp(join(tmpdir(), "agentcert-credentials-"));
     const path = await saveConnection("pilot", connection, { configHome });

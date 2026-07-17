@@ -76,7 +76,7 @@ function readFlag(name: string): string | undefined {
 async function uploadIfRequested(report: HostedSandboxReport): Promise<void> {
   if (!process.argv.includes("--push")) return;
   const result = await uploadSandboxCertificationReport(report, {
-    baseUrl: readFlag("--server") ?? process.env.AGENTCERT_BASE_URL ?? "https://agentcert-control-plane.onrender.com",
+    baseUrl: readFlag("--server") ?? process.env.AGENTCERT_BASE_URL ?? "https://agentcert.app",
     projectId: readFlag("--project") ?? process.env.AGENTCERT_PROJECT_ID ?? "",
     apiKey: process.env.AGENTCERT_API_KEY ?? "",
   });

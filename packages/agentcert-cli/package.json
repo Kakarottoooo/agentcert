@@ -1,10 +1,10 @@
 {
   "name": "agentcert",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Assurance release gates, runtime evidence, and regression CI for AI agents.",
   "type": "module",
   "license": "Apache-2.0",
-  "homepage": "https://agentcert-control-plane.onrender.com/demo",
+  "homepage": "https://agentcert.app/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Kakarottoooo/agentcert.git",
