@@ -23,3 +23,7 @@ export * from "./trusted-browser-demo.js";
 export * from "./controlled-adapter.js";
 export * from "./ui.js";
 export * from "./vendor-sandbox-egress.js";
+
+// Public AgentCert names; legacy Onegent names remain exported for compatibility.
+export { createOnegentRuntime as createAgentCertRuntime } from "./sdk.js";
+export { createTrustedActionRuntime as createAgentCertTrustedActionRuntime } from "./trusted-runtime.js";

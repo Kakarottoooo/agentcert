@@ -1,6 +1,6 @@
 {
   "name": "agentcert-sdk",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "TypeScript SDK for AgentCert hosted evidence, remote collectors, and controlled action runtimes.",
   "license": "Apache-2.0",
   "repository": {
