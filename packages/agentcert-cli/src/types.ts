@@ -6,6 +6,15 @@ export const AGENTCERT_EVIDENCE_SCHEMA_VERSION = "agentcert.evidence.v0.1" as co
 export const AGENTCERT_EVIDENCE_SCHEMA_SEMVER = "0.1.0" as const;
 export const AGENTCERT_ARTIFACT_MANIFEST_VERSION = "agentcert.artifact_manifest.v0.1" as const;
 
+export type AgentCertEvidenceStrengthLevel = "reported" | "recorded" | "enforced" | "outcome_verified" | "independently_reviewed";
+
+export interface AgentCertEvidenceStrength {
+  schemaVersion: "agentcert.evidence_strength.v0.1";
+  level: AgentCertEvidenceStrengthLevel;
+  claims: string[];
+  limitations: string[];
+}
+
 export interface AgentCertArtifactManifestEntry {
   path: string;
   sha256: string;
@@ -39,6 +48,7 @@ export interface AgentCertResult {
   passed: boolean;
   certLevel?: string;
   summary?: string;
+  evidenceStrength?: AgentCertEvidenceStrength;
   artifacts: Record<string, string>;
   evidence: AgentCertEvidence[];
 }
@@ -69,6 +79,7 @@ export interface AgentCertBundle {
   evidence: AgentCertEvidence[];
   artifacts: Record<string, string>;
   artifactManifest?: AgentCertArtifactManifest;
+  evidenceStrength?: AgentCertEvidenceStrength;
   standards: Array<{
     id: string;
     name: string;

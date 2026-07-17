@@ -3769,10 +3769,26 @@ button {
 
 .bundle-inspector dl {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   margin: 12px 0;
 }
+
+.evidence-strength-boundary {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.evidence-strength-boundary strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.evidence-strength-boundary strong:first-child { margin-top: 0; }
+.evidence-strength-boundary ul { margin: 5px 0 0; padding-left: 18px; color: var(--muted); }
 
 .bundle-inspector dl div {
   display: grid;

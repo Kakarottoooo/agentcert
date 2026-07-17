@@ -58,4 +58,16 @@ describe("evidence governance", () => {
       },
     })), { fileName: "evidence.json", contentType: "application/json", kind: "evidence_bundle" })).toThrow("parent segments");
   });
+
+  it("extracts declared source evidence strength for hosted assurance reports", () => {
+    const result = validateEvidenceUpload(Buffer.from(JSON.stringify({
+      evidenceStrength: {
+        schemaVersion: "agentcert.evidence_strength.v0.1",
+        level: "outcome_verified",
+        claims: ["A separate read path observed the expected state."],
+        limitations: ["Future behavior is not guaranteed."],
+      },
+    })), { fileName: "evidence.json", contentType: "application/json", kind: "evidence_bundle" });
+    expect(result.evidenceStrength).toMatchObject({ level: "outcome_verified" });
+  });
 });

@@ -8,6 +8,7 @@ import { loadPolicyConfig } from "./policy-config.js";
 import { createInMemorySandboxSystem, runSandboxCertificationSuite, writeSandboxReport } from "./sandbox-harness.js";
 import { runSandboxAdapterConformanceSuite, writeSandboxAdapterConformanceReport } from "./sandbox-adapter-kit.js";
 import { uploadSandboxCertificationReport, type HostedSandboxReport } from "./sandbox-hosted.js";
+import { runTrustedBrowserSubmitDemo } from "./trusted-browser-demo.js";
 
 const command = process.argv[2] ?? "help";
 
@@ -54,11 +55,18 @@ if (command === "procurement-demo") {
   for (const check of report.checks) process.stdout.write(`- ${check.status.toUpperCase()} ${check.id}: ${check.message}\n`);
   await uploadIfRequested(report);
   if (!report.verdict.passed) process.exitCode = 1;
+} else if (command === "trusted-browser-demo") {
+  const result = await runTrustedBrowserSubmitDemo(readFlag("--out") ?? ".onegent/trusted-browser-submit");
+  process.stdout.write(`Trusted browser SUBMIT demo: ${result.evidenceStrength.toUpperCase()}\n`);
+  process.stdout.write(`Audit packet: ${result.auditPacketPath}\n`);
+  process.stdout.write(`Action journal: ${result.journalPath}\n`);
+  process.stdout.write(`Report: ${result.reportPath}\n`);
 } else {
   process.stdout.write(`Usage:
   onegent-runtime procurement-demo --out .onegent/procurement [--policy onegent.policy.json]
   onegent-runtime sandbox-certify --out .onegent/sandbox-certification [--implementation my-sandbox] [--push]
   onegent-runtime sandbox-conformance --out .onegent/sandbox-conformance [--implementation my-adapter] [--push]
+  onegent-runtime trusted-browser-demo --out .onegent/trusted-browser-submit
   onegent-runtime serve --port 3310 [--policy onegent.policy.json]
 
 Hosted upload flags/env:

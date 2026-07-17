@@ -43,6 +43,7 @@ export function captureActionIntent(input: CreateActionIntentInput, options: Act
     sourceAgentRunId: input.sourceAgentRunId,
     principal: input.principal ?? { id: input.sourceAgentName, type: "agent" },
     requestedPermissions: input.requestedPermissions ?? [`${input.targetSystem}:${input.actionType}`],
+    mandateId: input.mandateId,
     actionType: input.actionType,
     targetSystem: input.targetSystem,
     targetUrl: input.targetUrl,
@@ -338,11 +339,11 @@ export function executeMockAction(actionId: string): ActionExecutionSummary {
   };
 }
 
-export function verifyOutcome(actionId: string, observedState?: Record<string, unknown>): VerificationResult {
-  return verifyAction(actionId, observedState);
+export function verifyOutcome(actionId: string, observedState?: Record<string, unknown>, method?: VerificationMethod): VerificationResult {
+  return verifyAction(actionId, observedState, method);
 }
 
-export function verifyAction(actionId: string, observedState?: Record<string, unknown>): VerificationResult {
+export function verifyAction(actionId: string, observedState?: Record<string, unknown>, methodOverride?: VerificationMethod): VerificationResult {
   const action = requireAction(actionId);
   if (action.status !== "EXECUTED" && action.status !== "VERIFIED" && action.status !== "FAILED_VERIFICATION") {
     throw new Error(`Action ${actionId} must be mock-executed before verification.`);
@@ -351,8 +352,8 @@ export function verifyAction(actionId: string, observedState?: Record<string, un
   const effectiveObservedState = observedState ?? observeActionState(action);
   const differences = diffState(action.proposedAfterState, effectiveObservedState);
   const success = differences.length === 0;
-  const method: VerificationMethod =
-    action.businessObjectType === "purchase_order" && action.targetSystem === "MockERP" ? "LOCAL_MOCK_ERP" : "MOCK";
+  const method: VerificationMethod = methodOverride ??
+    (action.businessObjectType === "purchase_order" && action.targetSystem === "MockERP" ? "LOCAL_MOCK_ERP" : "MOCK");
 
   const result: VerificationResult = {
     id: nextId("verify"),

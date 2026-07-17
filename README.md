@@ -457,10 +457,11 @@ npx agentcert validate .agentcert/latest/agentcert-evidence.json --check-artifac
 Evidence schema v0.1 reference: [docs/evidence-schema.md](docs/evidence-schema.md).
 Release gate checklist: [docs/release-gate-checklist.md](docs/release-gate-checklist.md).
 
-## Runtime Action Gating (Preview)
+## Trusted Runtime Action Assurance (Preview)
 
-Onegent Runtime is AgentCert's post-release layer: policy, approval,
-verification, and audit packets around high-risk live actions. **It is in
+Onegent Runtime is AgentCert's post-release layer: mandates, controlled
+execution, independent outcome verification, and signed audit records around
+high-risk live actions. **It is in
 preview.** Today, AgentCert starts with CI tests and evidence bundles; the
 runtime gate ships as a local, mock-only SDK for design partners.
 
@@ -468,12 +469,20 @@ runtime gate ships as a local, mock-only SDK for design partners.
 npm --prefix packages/onegent-runtime ci
 npm --prefix packages/onegent-runtime run build
 npm --prefix packages/onegent-runtime run demo:procurement
+npm --prefix packages/onegent-runtime run demo:trusted-browser
 ```
 
 The demo walks a procurement agent's $4,850 purchase order through risk
 assessment, policy evaluation, human approval, mock ERP execution, expected-vs-
 observed verification, and an exported audit packet. It does not execute real
 payments, send real emails, or touch production systems.
+
+The trusted browser demo adds a source-signed, hash-linked action journal;
+strict sequence and dropped-event accounting; crash-tail recovery; an immutable
+mandate; a credential-isolated write adapter; and a separate outcome probe. Its
+report states an evidence-strength level instead of treating every trace as
+equally trustworthy. Protocol and non-claims:
+[docs/action-assurance-protocol.md](docs/action-assurance-protocol.md).
 
 For safe design-partner trials, Sandbox Certification Harness v0.1 adds
 tenant-isolated synthetic state, seed/reset, deny-by-default network access,
@@ -508,7 +517,7 @@ not a generic static MCP security scanner, and not a security guarantee.
 |---|---|---|
 | Before release | Tripwire CI | Does this browser/computer-use agent survive realistic UI drift, popups, prompt injection, latency, and failures? |
 | Before release | MCPBench | Are this server's tools safe, observable, reliable, and explainable enough to expose to agents? |
-| After release | Onegent Runtime (preview) | Should this specific live action be allowed right now, or does it need approval, rollback, or audit escalation? |
+| After release | Onegent Trusted Runtime (preview) | Was this action authorized by an immutable mandate, forced through the controlled gateway, and independently observed afterward? |
 
 ## Safety Model
 

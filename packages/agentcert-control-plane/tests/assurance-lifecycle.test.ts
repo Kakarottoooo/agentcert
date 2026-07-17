@@ -63,6 +63,7 @@ describe("Assurance Case lifecycle v0.1", () => {
 
     const issued = await service.transitionAssuranceCase(owner, projectId, created.id, "issue", { reason: "Independent review passed.", publish: true });
     const report = issued.assuranceCase.report!;
+    expect(report.evidenceStrength).toMatchObject({ level: "reported", underlyingLevel: "reported" });
     const { attestation, ...payload } = report;
     expect(attestation && verifyCanonicalAttestation(payload, attestation, evidenceSigner.publicKeyPem)).toBe(true);
     expect(issued.assuranceCase.publicVerificationId).toBeTruthy();

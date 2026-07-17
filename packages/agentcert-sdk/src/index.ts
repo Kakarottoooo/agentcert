@@ -87,6 +87,13 @@ export interface ActionInput {
   externalRecipient?: boolean;
   sensitive?: boolean;
   expectedState?: Record<string, unknown>;
+  assurance?: {
+    mandateId: string;
+    mandateDigestSha256: string;
+    sourceReceiptSha256?: string;
+    sourceKeyId?: string;
+    evidenceStrength?: "reported" | "recorded" | "enforced" | "outcome_verified";
+  };
 }
 
 export interface ActionDecision {

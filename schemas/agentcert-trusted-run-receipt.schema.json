@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.app/schemas/agentcert-trusted-run-receipt.schema.json",
+  "title": "AgentCert Trusted Run Receipt v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "collector", "startedAt", "completedAt", "eventCount", "droppedEventCount", "firstEventHash", "lastEventHash", "mandateDigests", "actionIds", "journal", "evidenceStrength", "sourcePublicKeyPem", "receiptSha256", "sourceSignature"],
+  "properties": {
+    "schemaVersion": { "const": "agentcert.trusted_run_receipt.v0.1" },
+    "runId": { "type": "string", "minLength": 1 },
+    "collector": { "type": "object" },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "eventCount": { "type": "integer", "minimum": 2 },
+    "droppedEventCount": { "type": "integer", "minimum": 0 },
+    "firstEventHash": { "$ref": "#/$defs/sha256" },
+    "lastEventHash": { "$ref": "#/$defs/sha256" },
+    "mandateDigests": { "type": "array", "items": { "$ref": "#/$defs/sha256" }, "uniqueItems": true },
+    "actionIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "journal": {
+      "type": "object", "required": ["valid", "complete", "sourceSigned", "gaps", "duplicateSequences", "duplicateRecordIds", "hashMismatches", "signatureFailures", "droppedEventCount", "recoveredTailBytes", "errors"]
+    },
+    "evidenceStrength": { "$ref": "agentcert-evidence-strength.schema.json" },
+    "sourcePublicKeyPem": { "type": "string", "minLength": 1 },
+    "receiptSha256": { "$ref": "#/$defs/sha256" },
+    "sourceSignature": {
+      "type": "object", "required": ["algorithm", "keyId", "signature"],
+      "properties": { "algorithm": { "const": "Ed25519" }, "keyId": { "type": "string" }, "signature": { "type": "string" } }, "additionalProperties": false
+    }
+  },
+  "$defs": { "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }
+}

@@ -5,8 +5,8 @@ const STRIPE_EVIDENCE_URL = "https://kakarottoooo.github.io/agentcert/public-dem
 
 export function LandingPage() {
   useProductMetadata(
-    "AgentCert | Independent Assurance for AI Agents",
-    "Test agents before release, gate high-risk actions at runtime, verify observed outcomes, and preserve portable evidence.",
+    "AgentCert | 7-Day Action Assurance Review",
+    "A fixed-scope independent review for one consequential agent workflow, with runtime controls, observed-outcome verification, and portable evidence.",
     "/",
   );
 
@@ -16,54 +16,54 @@ export function LandingPage() {
       <main>
         <section className="product-hero" aria-labelledby="product-headline">
           <div className="product-hero-copy">
-            <p className="product-eyebrow"><span /> Independent agent assurance</p>
-            <h1 id="product-headline">Evidence for agents that take real actions.</h1>
+            <p className="product-eyebrow"><span /> 7-day action assurance review</p>
+            <h1 id="product-headline">Prove one critical agent workflow before customers ask.</h1>
             <p className="product-lede">
-              Test before release. Gate high-risk actions at runtime. Verify observed outcomes.
-              Preserve an audit-ready record of what happened.
+              We test one consequential workflow, bind high-risk actions to an explicit mandate,
+              verify the real outcome through a separate read path, and deliver a review-ready evidence packet in seven days.
             </p>
             <div className="product-hero-actions">
-              <a className="product-button primary" href="/app?mode=signup">Start free</a>
-              <a className="product-button secondary" href="/evidence">Explore public evidence</a>
+              <a className="product-button primary" href="mailto:ziweiguo666@gmail.com?subject=7-day%20AgentCert%20action%20assurance%20review">Request a private review</a>
+              <a className="product-button secondary" href="/evidence">Inspect example evidence</a>
             </div>
-            <p className="product-hero-note">Open source CLI. Hosted beta. No credit card required.</p>
+            <p className="product-hero-note">Private by default. Fixed scope. No publication without written approval.</p>
           </div>
           <AssuranceConsole />
         </section>
 
         <section className="product-proof-bar" aria-label="AgentCert product facts">
-          <ProductFact value="3" label="lifecycle assurance layers" />
-          <ProductFact value="10" label="release-gate controls" />
-          <ProductFact value="v0.1" label="portable evidence schema" />
-          <ProductFact value="90 days" label="hosted evidence retention" />
+          <ProductFact value="7 days" label="fixed review window" />
+          <ProductFact value="1" label="consequential workflow" />
+          <ProductFact value="5 levels" label="declared evidence strength" />
+          <ProductFact value="Private" label="until written approval" />
         </section>
 
         <section className="product-section lifecycle-section" id="product">
           <SectionHeading
-            eyebrow="One assurance system"
-            title="Before release, during execution, and after the fact."
-            body="AgentCert keeps testing, runtime decisions, and evidence in one lifecycle instead of splitting them across disconnected dashboards."
+            eyebrow="One scoped engagement"
+            title="Test the workflow, control the action, prove the outcome."
+            body="The review follows one workflow end to end. Each phase produces evidence that can be inspected instead of another generic agent score."
           />
           <div className="lifecycle-lines">
             <LifecycleLine
               index="01"
               phase="Before release"
-              title="MCPBench"
-              body="Check MCP servers and agent-exposed tools for reliable behavior, policy violations, and observable failure paths."
+              title="Reproduce and challenge"
+              body="Define the expected behavior and run the workflow against realistic tool, UI, network, and policy failure paths."
               detail="Tools, MCP servers, policy traces"
             />
             <LifecycleLine
               index="02"
               phase="Before release"
-              title="Tripwire CI"
-              body="Run browser and computer-use agents against deterministic UI drift, prompt injection, network faults, and misleading state."
+              title="Bind authority"
+              body="Issue an immutable mandate, require approval where policy demands it, and keep write credentials outside the agent process."
               detail="Browser agents, CI gates, regression evidence"
             />
             <LifecycleLine
               index="03"
               phase="At runtime"
-              title="Onegent Runtime"
-              body="Assess risk, apply policy, request approval, execute through a bounded adapter, verify the outcome, and write the audit packet."
+              title="Verify and report"
+              body="Observe the target system through a separate read path, reconcile the signed action journal, and deliver the assurance case."
               detail="High-risk actions, approval, verification"
             />
           </div>
@@ -71,17 +71,17 @@ export function LandingPage() {
 
         <section className="product-section workflow-section">
           <div className="workflow-copy">
-            <p className="product-eyebrow">From intent to evidence</p>
-            <h2>Do not trust the agent's success message.</h2>
+            <p className="product-eyebrow">Trusted action record</p>
+            <h2>A trace is not proof if the agent can omit or rewrite it.</h2>
             <p>
-              AgentCert compares proposed intent, policy decisions, tool activity, and observed system state.
-              A run can only claim success when the evidence supports it.
+              AgentCert signs run boundaries, links every event by hash and sequence, binds the action to a mandate,
+              controls the execution adapter, and checks the outcome independently.
             </p>
             <ol className="workflow-steps">
-              <li><span>01</span><div><strong>Capture</strong><small>Normalize the event or proposed action.</small></div></li>
-              <li><span>02</span><div><strong>Decide</strong><small>Evaluate risk, policy, and required approval.</small></div></li>
-              <li><span>03</span><div><strong>Verify</strong><small>Compare expected and observed outcome.</small></div></li>
-              <li><span>04</span><div><strong>Prove</strong><small>Retain signed, versioned, portable evidence.</small></div></li>
+              <li><span>01</span><div><strong>Mandate</strong><small>Define who may do what, where, and within which limits.</small></div></li>
+              <li><span>02</span><div><strong>Record</strong><small>Source-sign a gap-detectable, crash-recoverable action journal.</small></div></li>
+              <li><span>03</span><div><strong>Enforce</strong><small>Keep target-system write credentials behind the gateway.</small></div></li>
+              <li><span>04</span><div><strong>Observe</strong><small>Verify the actual system state through an independent probe.</small></div></li>
             </ol>
           </div>
           <div className="evidence-code" aria-label="Example AgentCert assurance event">
@@ -92,10 +92,11 @@ export function LandingPage() {
   "risk": "HIGH",
   "policy": "human_approval_required",
   "approval": "approved",
+  "mandate": "mandate_submit_4850",
   "expectedState": "SUBMITTED",
   "observedState": "SUBMITTED",
   "verification": "passed",
-  "evidenceIntegrity": "complete"
+  "evidenceStrength": "outcome_verified"
 }`}</pre>
             <div className="evidence-code-footer"><span>SHA-256 manifest reconciled</span><span>audit packet ready</span></div>
           </div>
@@ -140,14 +141,14 @@ export function LandingPage() {
 
         <section className="product-cta">
           <div>
-            <p className="product-eyebrow">Five-minute path</p>
-            <h2>Generate your first evidence bundle.</h2>
-            <p>Start locally, keep the artifacts, and connect the hosted workspace only when your team needs shared review and history.</p>
+            <p className="product-eyebrow">Design-partner review</p>
+            <h2>Choose one workflow where a wrong action would matter.</h2>
+            <p>We define the boundary together, run the review privately, and return the evidence, limitations, and remediation priorities within seven days.</p>
           </div>
-          <div className="quickstart-command"><code>npx agentcert init --template browser</code></div>
+          <div className="quickstart-command"><code>scope -&gt; challenge -&gt; mandate -&gt; verify -&gt; evidence</code></div>
           <div className="product-hero-actions">
-            <a className="product-button primary" href="/app?mode=signup">Create workspace</a>
-            <a className="product-button dark" href={`${GITHUB_URL}#5-minute-quickstart`} target="_blank" rel="noreferrer">Read quickstart</a>
+            <a className="product-button primary" href="mailto:ziweiguo666@gmail.com?subject=7-day%20AgentCert%20action%20assurance%20review">Request review</a>
+            <a className="product-button dark" href={`${GITHUB_URL}#5-minute-quickstart`} target="_blank" rel="noreferrer">Use the open-source CLI</a>
           </div>
         </section>
       </main>
@@ -191,11 +192,11 @@ export function PricingPage() {
           />
           <Plan
             name="Design partner"
-            price="Private pilot"
-            cadence="scoped together"
-            description="For one consequential workflow with a real owner."
-            items={["Private assurance case", "Sandbox workflow integration", "Failure review and remediation evidence", "No publication without written approval"]}
-            action={<a className="product-button secondary" href="mailto:ziweiguo666@gmail.com?subject=AgentCert%20design%20partner">Discuss a pilot</a>}
+            price="7-day review"
+            cadence="fixed scope"
+            description="For one consequential workflow with a named owner and expected outcome."
+            items={["Private threat and failure review", "Mandate and controlled execution design", "Independent outcome verification", "Signed evidence packet and remediation priorities"]}
+            action={<a className="product-button secondary" href="mailto:ziweiguo666@gmail.com?subject=7-day%20AgentCert%20action%20assurance%20review">Request review</a>}
           />
         </section>
         <section className="pricing-boundary">
@@ -252,11 +253,11 @@ function AssuranceConsole() {
       </div>
       <div className="console-action"><small>PROPOSED ACTION</small><strong>Submit purchase order</strong><span>$4,850.00 to Acme Industrial Supply</span></div>
       <div className="console-timeline">
-        <ConsoleEvent status="done" label="Intent captured" value="SUBMIT" />
-        <ConsoleEvent status="done" label="Policy evaluated" value="PO over $1,000" />
-        <ConsoleEvent status="done" label="Human approval" value="Approved by reviewer" />
-        <ConsoleEvent status="done" label="Observed outcome" value="DRAFT -> SUBMITTED" />
-        <ConsoleEvent status="done" label="Evidence integrity" value="Complete" />
+        <ConsoleEvent status="done" label="Mandate verified" value="SUBMIT, max $5,000" />
+        <ConsoleEvent status="done" label="Source record" value="Signed, no gaps" />
+        <ConsoleEvent status="done" label="Controlled execution" value="Gateway credentials" />
+        <ConsoleEvent status="done" label="Independent outcome" value="DRAFT -> SUBMITTED" />
+        <ConsoleEvent status="done" label="Evidence strength" value="Outcome verified" />
       </div>
       <div className="console-footer"><span>Expected = observed</span><strong>Verification passed</strong></div>
     </div>

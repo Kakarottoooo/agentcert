@@ -8,7 +8,12 @@ export function renderMarkdownReport(bundle: AgentCertBundle): string {
     `Generated: ${bundle.generatedAt}`,
     `Verdict: ${bundle.verdict.passed ? "PASS" : "FAIL"}`,
     `Score: ${bundle.verdict.score}`,
-    `Level: ${bundle.verdict.level}`,
+    `Evidence strength: ${bundle.evidenceStrength?.level ?? "reported"}`,
+    "",
+    "## Evidence Strength",
+    "",
+    ...(bundle.evidenceStrength?.claims ?? ["A producer supplied a result for this run."]).map((claim) => `- Claim: ${claim}`),
+    ...(bundle.evidenceStrength?.limitations ?? ["This legacy bundle does not declare stronger source controls."]).map((limitation) => `- Limitation: ${limitation}`),
     "",
     "## Results",
     "",
@@ -44,6 +49,11 @@ export function renderMarkdownReport(bundle: AgentCertBundle): string {
 }
 
 export function renderHtmlReport(bundle: AgentCertBundle): string {
+  const strength = bundle.evidenceStrength ?? {
+    level: "reported",
+    claims: ["A producer supplied a result for this run."],
+    limitations: ["This legacy bundle does not declare stronger source controls."],
+  };
   const resultCards = bundle.results
     .map(
       (result) => `<article class="card ${result.passed ? "pass" : "fail"}">
@@ -124,10 +134,17 @@ export function renderHtmlReport(bundle: AgentCertBundle): string {
       <div class="summary">
         <div class="metric"><span>Verdict</span><strong class="${bundle.verdict.passed ? "verdict-pass" : "verdict-fail"}">${bundle.verdict.passed ? "PASS" : "FAIL"}</strong></div>
         <div class="metric"><span>Score</span><strong>${bundle.verdict.score}/100</strong></div>
-        <div class="metric"><span>Level</span><strong>${escapeHtml(bundle.verdict.level)}</strong></div>
+        <div class="metric"><span>Evidence strength</span><strong>${escapeHtml(bundle.evidenceStrength?.level ?? "reported")}</strong></div>
         <div class="metric"><span>Evidence</span><strong>${bundle.summary.totalEvidence}</strong></div>
       </div>
       <div class="cards">${resultCards}</div>
+      <section>
+        <h2>Evidence strength: ${escapeHtml(strength.level)}</h2>
+        <h3>Supported claims</h3>
+        <ul>${strength.claims.map((claim) => `<li>${escapeHtml(claim)}</li>`).join("")}</ul>
+        <h3>Limitations</h3>
+        <ul>${strength.limitations.map((limitation) => `<li>${escapeHtml(limitation)}</li>`).join("")}</ul>
+      </section>
       <section>
         <h2>Evidence</h2>
         <table>

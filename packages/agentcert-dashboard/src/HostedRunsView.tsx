@@ -111,6 +111,7 @@ function RunSummary({ analysis, bundle, divergence }: { analysis: HostedRunAnaly
     <div className="hosted-run-statuses"><RunStatus value={run.status} /><RunStatus value={completeness.status} /></div>
     <dl>
       <div><dt>Score</dt><dd>{score(run.score ?? bundle?.verdict.score)}</dd></div>
+      <div><dt>Evidence strength</dt><dd>{label(bundle?.evidenceStrength?.level ?? "reported")}</dd></div>
       <div><dt>Events</dt><dd>{analysis.events.length}</dd></div>
       <div><dt>Evidence</dt><dd>{completeness.evidenceCount} · {compactBytes(completeness.bytesUsed)}</dd></div>
       <div><dt>Completeness</dt><dd>{label(completeness.status)}</dd></div>
@@ -135,7 +136,8 @@ function BundlePanel({ bundle }: { bundle?: EvidenceBundleDocument }) {
   return <section className="data-section bundle-inspector"><RunSectionTitle title="Evidence bundle" caption={bundle ? bundle.schemaVersion : "No valid AgentCert bundle found"} />
     {bundle ? <>
       <div className="bundle-verdict"><span>{bundle.subject.type}</span><strong>{bundle.subject.name}</strong><RunStatus value={bundle.verdict.passed ? "passed" : "failed"} /></div>
-      <dl><div><dt>Products</dt><dd>{bundle.summary.products.join(", ") || "-"}</dd></div><div><dt>High / critical</dt><dd>{bundle.summary.highEvidence} / {bundle.summary.criticalEvidence}</dd></div><div><dt>Total findings</dt><dd>{bundle.summary.totalEvidence}</dd></div></dl>
+      <dl><div><dt>Evidence strength</dt><dd>{label(bundle.evidenceStrength?.level ?? "reported")}</dd></div><div><dt>Products</dt><dd>{bundle.summary.products.join(", ") || "-"}</dd></div><div><dt>High / critical</dt><dd>{bundle.summary.highEvidence} / {bundle.summary.criticalEvidence}</dd></div><div><dt>Total findings</dt><dd>{bundle.summary.totalEvidence}</dd></div></dl>
+      {bundle.evidenceStrength ? <div className="evidence-strength-boundary"><strong>What this evidence supports</strong><ul>{bundle.evidenceStrength.claims.map((claim) => <li key={claim}>{claim}</li>)}</ul><strong>Limitations</strong><ul>{bundle.evidenceStrength.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul></div> : null}
       <div className="bundle-results">{bundle.results.map((result) => <div key={`${result.product}-${result.runId}`}><span><strong>{result.product}</strong><small>{result.phase}</small></span><RunStatus value={result.passed ? "passed" : "failed"} /><b>{score(result.score)}</b></div>)}</div>
     </> : <div className="hosted-empty">The run is still inspectable through events and uploaded artifacts, but its JSON is not an AgentCert evidence bundle.</div>}
   </section>;

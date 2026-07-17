@@ -832,6 +832,7 @@ export class AgentCertControlPlane {
       status: assessment.decision === "ALLOW" ? "ALLOWED" : assessment.decision === "DENY" ? "DENIED" : "PENDING_APPROVAL",
       policyVersion: POLICY_VERSION, reasons: assessment.reasons, expectedState: optionalRecord(body.expectedState), createdAt: now, updatedAt: now,
       traceId, spanId, parentSpanId,
+      assuranceContext: actionAssuranceContext(body.assurance),
     });
   }
 
@@ -970,6 +971,7 @@ export class AgentCertControlPlane {
         retentionExpiresAt: new Date(Date.parse(createdAt) + this.evidencePolicy.retentionDays * 86_400_000).toISOString(),
         ...(validated.artifactReferenceCount === undefined ? {} : { artifactReferenceCount: validated.artifactReferenceCount }),
         ...(validated.artifactManifest === undefined ? {} : { artifactManifest: validated.artifactManifest }),
+        ...(validated.evidenceStrength === undefined ? {} : { evidenceStrength: validated.evidenceStrength }),
         failurePatternCount: inferFailurePatternCount(bytes, validated.contentType),
         ...(this.evidenceSigner ? {
           serverAttestation: this.evidenceSigner.attest(attestationPayload),
@@ -2451,3 +2453,20 @@ function failureType(value: unknown): FailureType {
   throw new ControlPlaneError("type must be a supported AgentCert failure taxonomy label.");
 }
 function actionTypeValue(value: unknown): ActionRecord["actionType"] { if (value === "SUBMIT" || value === "PAY" || value === "SEND" || value === "UPDATE") return value; throw new ControlPlaneError("actionType must be SUBMIT, PAY, SEND, or UPDATE."); }
+function actionAssuranceContext(value: unknown): ActionRecord["assuranceContext"] {
+  if (value === undefined) return undefined;
+  const input = record(value);
+  const mandateId = requiredString(input, "mandateId");
+  const mandateDigestSha256 = assuranceDigest(input.mandateDigestSha256, "mandateDigestSha256");
+  const sourceReceiptSha256 = input.sourceReceiptSha256 === undefined ? undefined : assuranceDigest(input.sourceReceiptSha256, "sourceReceiptSha256");
+  const sourceKeyId = optionalString(input, "sourceKeyId");
+  const evidenceStrength = input.evidenceStrength;
+  if (evidenceStrength !== undefined && !["reported", "recorded", "enforced", "outcome_verified"].includes(String(evidenceStrength))) {
+    throw new ControlPlaneError("evidenceStrength is not supported.", 422);
+  }
+  return { mandateId, mandateDigestSha256, sourceReceiptSha256, sourceKeyId, evidenceStrength: evidenceStrength as NonNullable<ActionRecord["assuranceContext"]>["evidenceStrength"] };
+}
+function assuranceDigest(value: unknown, key: string): string {
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) throw new ControlPlaneError(`${key} must be a lowercase SHA-256 digest.`, 422);
+  return value;
+}

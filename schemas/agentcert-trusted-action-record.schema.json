@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.app/schemas/agentcert-trusted-action-record.schema.json",
+  "title": "AgentCert Trusted Action Record v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "recordId", "runId", "sequence", "occurredAt", "type", "collector", "payload", "payloadSha256", "eventHash", "sourceSignature"],
+  "properties": {
+    "schemaVersion": { "const": "agentcert.trusted_action_record.v0.1" },
+    "recordId": { "type": "string", "format": "uuid" },
+    "runId": { "type": "string", "minLength": 1 },
+    "sequence": { "type": "integer", "minimum": 0 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "type": { "enum": ["RUN_STARTED", "JOURNAL_RECOVERED", "EVENTS_DROPPED", "MANDATE_BOUND", "ACTION_CAPTURED", "APPROVAL_REQUESTED", "ACTION_APPROVED", "ACTION_REJECTED", "EXECUTION_STARTED", "EXECUTION_COMPLETED", "OUTCOME_OBSERVED", "VERIFICATION_PASSED", "VERIFICATION_FAILED", "RUN_COMPLETED"] },
+    "collector": { "$ref": "#/$defs/collector" },
+    "previousEventHash": { "$ref": "#/$defs/sha256" },
+    "payload": { "type": "object" },
+    "payloadSha256": { "$ref": "#/$defs/sha256" },
+    "eventHash": { "$ref": "#/$defs/sha256" },
+    "sourceSignature": { "$ref": "#/$defs/signature" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "collector": {
+      "type": "object", "additionalProperties": false, "required": ["id", "version", "keyId", "publicKeySha256", "environment"],
+      "properties": { "id": { "type": "string" }, "version": { "type": "string" }, "keyId": { "type": "string" }, "publicKeySha256": { "$ref": "#/$defs/sha256" }, "environment": { "type": "string" } }
+    },
+    "signature": {
+      "type": "object", "additionalProperties": false, "required": ["algorithm", "keyId", "signature"],
+      "properties": { "algorithm": { "const": "Ed25519" }, "keyId": { "type": "string" }, "signature": { "type": "string" } }
+    }
+  }
+}

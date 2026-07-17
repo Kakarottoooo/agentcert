@@ -149,6 +149,9 @@
         }
       }
     },
+    "evidenceStrength": {
+      "$ref": "agentcert-evidence-strength.schema.json"
+    },
     "standards": {
       "type": "array",
       "items": {

@@ -267,6 +267,13 @@ export interface ActionRecord {
   traceId?: string;
   spanId?: string;
   parentSpanId?: string;
+  assuranceContext?: {
+    mandateId: string;
+    mandateDigestSha256: string;
+    sourceReceiptSha256?: string;
+    sourceKeyId?: string;
+    evidenceStrength?: "reported" | "recorded" | "enforced" | "outcome_verified";
+  };
 }
 
 export interface ApprovalRecord {
@@ -345,6 +352,13 @@ export interface AssuranceReportPayload {
   expiresAt: string;
   limitations: string[];
   statement: string;
+  evidenceStrength: {
+    schemaVersion: "agentcert.evidence_strength.v0.1";
+    level: "reported" | "recorded" | "enforced" | "outcome_verified" | "independently_reviewed";
+    underlyingLevel: "reported" | "recorded" | "enforced" | "outcome_verified";
+    claims: string[];
+    limitations: string[];
+  };
 }
 
 export interface AssuranceReport extends AssuranceReportPayload {

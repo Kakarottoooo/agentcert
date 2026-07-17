@@ -13,12 +13,19 @@ const document = {
   evidence: [{ id: "finding-1", kind: "button-text-drift", severity: "high", message: "Button was renamed before the assertion failed.", artifactPath: "screenshots/step-4.png" }],
   artifacts: { result: "tripwire-result.json" },
   standards: [],
+  evidenceStrength: {
+    schemaVersion: "agentcert.evidence_strength.v0.1",
+    level: "recorded",
+    claims: ["The source journal is signed and reconciled."],
+    limitations: ["Execution was not controlled by AgentCert."],
+  },
 };
 
 describe("hosted evidence analysis", () => {
   it("normalizes a v0.1 evidence bundle into reviewable findings and artifact pointers", () => {
     const bundle = parseEvidenceBundle(document);
     expect(bundle?.subject.name).toBe("browser-agent");
+    expect(bundle?.evidenceStrength?.level).toBe("recorded");
     expect(findingsForBundle(bundle, [review])).toEqual([
       expect.objectContaining({ patternKey: "finding-1", suggestedType: "ui_drift", review }),
     ]);
