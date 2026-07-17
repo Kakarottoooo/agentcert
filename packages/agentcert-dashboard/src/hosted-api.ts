@@ -360,6 +360,14 @@ export interface HostedApiKey {
   scopes: string[];
 }
 
+export interface HostedCollectorStatus {
+  schemaVersion: "agentcert.remote_collector_status.v0.2";
+  keys: Array<{ keyId: string; collectorId: string; status: "active" | "retired" | "revoked"; activatedAt: string }>;
+  runs: Array<{ runId: string; collectorId: string; status: "open" | "completed" | "degraded" | "reconciled"; acceptedEventCount: number; droppedEventCount: number; updatedAt: string }>;
+  heartbeats: Array<{ collectorId: string; status: "healthy" | "backlogged"; pendingRecordCount: number; receivedAt: string; stale: boolean }>;
+  alerts: Array<{ id: string; kind: string; severity: string; message: string; createdAt: string }>;
+}
+
 export interface HostedCapabilities {
   platformAdmin: boolean;
   evidenceSigning: boolean;
@@ -732,6 +740,10 @@ export async function loadOverview(session: HostedSession, projectId: string): P
 
 export async function loadHostedOperations(session: HostedSession, projectId: string): Promise<HostedOperations> {
   return apiRequest(session, path(projectId, "operations"));
+}
+
+export async function loadHostedCollectorStatus(session: HostedSession, projectId: string): Promise<HostedCollectorStatus> {
+  return apiRequest(session, path(projectId, "collector-status"));
 }
 
 export async function loadHostedAgents(session: HostedSession, projectId: string): Promise<HostedAgent[]> {

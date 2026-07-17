@@ -101,6 +101,59 @@ paths:
       parameters: [{$ref: "#/components/parameters/ProjectId"}]
       responses:
         "200": { description: Three-step onboarding status with recovery guidance }
+  /v1/projects/{projectId}/collector-keys:
+    get:
+      summary: List customer-owned collector public keys and rotation state
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses: {"200": {description: Active, retired, and revoked collector public keys}}
+    post:
+      summary: Register or rotate an Ed25519 collector public key
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses:
+        "201": {description: Public source key registered}
+        "409": {description: Key ID or rotation predecessor conflicts with stored state}
+  /v1/projects/{projectId}/collector-keys/{keyId}:
+    delete:
+      summary: Revoke a customer-owned collector source key
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: path, name: keyId, required: true, schema: {type: string}}
+      responses:
+        "200": {description: Source key revoked}
+        "404": {description: Source key not found}
+  /v1/projects/{projectId}/trusted-runs/{runId}/records:
+    post:
+      summary: Append and acknowledge a source-signed hash-linked record batch
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: path, name: runId, required: true, schema: {type: string}}
+        - {in: header, name: Idempotency-Key, required: true, schema: {type: string}}
+      responses:
+        "202": {description: Highest accepted sequence/hash ACK plus replay counts and alerts}
+        "401": {description: Source key or signature is invalid}
+        "409": {description: Sequence, replay, key, or hash-chain conflict}
+  /v1/projects/{projectId}/trusted-runs/{runId}/reconcile:
+    post:
+      summary: Reconcile a source-signed run receipt and add server attestation
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: path, name: runId, required: true, schema: {type: string}}
+        - {in: header, name: Idempotency-Key, required: true, schema: {type: string}}
+      responses:
+        "200": {description: Source receipt comparison and AgentCert server attestation}
+        "409": {description: Receipt does not match accepted records}
+  /v1/projects/{projectId}/collector-heartbeats:
+    post:
+      summary: Record a source-signed collector heartbeat and pending queue depth
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses:
+        "202": {description: Heartbeat verified and stored}
+        "401": {description: Heartbeat source key or signature is invalid}
+  /v1/projects/{projectId}/collector-status:
+    get:
+      summary: Read source keys, trusted runs, heartbeat freshness, and dropped-event alerts
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses: {"200": {description: Remote collector operational and reconciliation state}}
   /v1/projects/{projectId}/pilot-feedback:
     get:
       summary: List bounded onboarding feedback for project owners and admins

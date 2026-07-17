@@ -13,10 +13,120 @@ export type ApiKeyScope =
   | "runs:read"
   | "runs:write"
   | "events:write"
+  | "collector:manage"
   | "actions:read"
   | "actions:write"
   | "evidence:read"
   | "evidence:write";
+
+export type CollectorSourceKeyStatus = "active" | "retired" | "revoked";
+export type TrustedCollectorRunStatus = "open" | "completed" | "degraded" | "reconciled";
+export type TrustedCollectorAlertKind = "events_dropped" | "undeclared_gap" | "chain_conflict" | "heartbeat_stale";
+
+export interface CollectorSourceKeyRecord {
+  projectId: string;
+  collectorId: string;
+  keyId: string;
+  algorithm: "Ed25519";
+  publicKeyPem: string;
+  publicKeySha256: string;
+  status: CollectorSourceKeyStatus;
+  previousKeyId?: string;
+  createdAt: string;
+  activatedAt: string;
+  retiredAt?: string;
+  revokedAt?: string;
+}
+
+export interface TrustedSourceRecord {
+  schemaVersion: "agentcert.trusted_action_record.v0.1";
+  recordId: string;
+  runId: string;
+  sequence: number;
+  occurredAt: string;
+  type: string;
+  collector: {
+    id: string;
+    version: string;
+    environment: string;
+    keyId: string;
+    publicKeySha256: string;
+  };
+  previousEventHash?: string;
+  payload: Record<string, unknown>;
+  payloadSha256: string;
+  eventHash: string;
+  sourceSignature: {
+    algorithm: "Ed25519";
+    keyId: string;
+    signature: string;
+  };
+}
+
+export interface TrustedCollectorRecord {
+  projectId: string;
+  runId: string;
+  sequence: number;
+  recordId: string;
+  eventHash: string;
+  previousEventHash?: string;
+  sourceKeyId: string;
+  record: TrustedSourceRecord;
+  receivedAt: string;
+}
+
+export interface TrustedCollectorRunRecord {
+  projectId: string;
+  runId: string;
+  collectorId: string;
+  sourceKeyId: string;
+  status: TrustedCollectorRunStatus;
+  firstSequence: number;
+  lastSequence: number;
+  firstEventHash: string;
+  lastEventHash: string;
+  acceptedEventCount: number;
+  droppedEventCount: number;
+  startedAt: string;
+  completedAt?: string;
+  sourceReceipt?: Record<string, unknown>;
+  reconciliation?: Record<string, unknown>;
+  serverAttestation?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CollectorHeartbeatRecord {
+  projectId: string;
+  collectorId: string;
+  sourceKeyId: string;
+  runId?: string;
+  occurredAt: string;
+  receivedAt: string;
+  pendingRecordCount: number;
+  lastAckSequence?: number;
+  status: "healthy" | "backlogged";
+}
+
+export interface TrustedCollectorAlertRecord {
+  id: string;
+  projectId: string;
+  collectorId: string;
+  runId?: string;
+  kind: TrustedCollectorAlertKind;
+  severity: "warning" | "critical";
+  message: string;
+  details: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface TrustedCollectorAppendResult {
+  run: TrustedCollectorRunRecord;
+  accepted: number;
+  replayed: number;
+  ack: { sequence: number; eventHash: string };
+  alerts: TrustedCollectorAlertRecord[];
+}
 export type DeletionOutcome = "deleted" | "held" | "missing" | "failed";
 export type FailureType =
   | "prompt_injection"

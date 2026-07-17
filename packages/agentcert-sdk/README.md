@@ -1,7 +1,7 @@
 # AgentCert TypeScript SDK
 
 ```ts
-import { AgentCertClient } from "@agentcert/sdk";
+import { AgentCertClient } from "agentcert-sdk";
 
 const agentcert = new AgentCertClient({
   baseUrl: process.env.AGENTCERT_BASE_URL!,
@@ -34,3 +34,20 @@ The SDK also exports `createEventEnvelope()` and `sendEnvelope()` for
 framework-neutral event ingestion. `verifyServerAttestation()` verifies the
 canonical Ed25519 metadata chain returned on hosted evidence records against
 the public key from `GET /v1/signing-keys/current`.
+
+## Customer-owned collector gateway
+
+`agentcert-sdk` v0.2 adds a customer-owned process that holds the source
+signing key, Hosted API key, and durable offline queue outside the agent
+process. It provides idempotent local append, signed heartbeat, restart replay,
+receipt reconciliation, key rotation, and a black-box conformance command.
+
+```bash
+agentcert-collector-gateway
+agentcert-collector-conformance
+```
+
+Required gateway environment variables are `AGENTCERT_PROJECT_ID`,
+`AGENTCERT_API_KEY`, and `AGENTCERT_GATEWAY_TOKEN`. See
+[`docs/customer-owned-collector-gateway.md`](../../docs/customer-owned-collector-gateway.md)
+for Docker deployment, protocol details, and non-claims.

@@ -5,6 +5,7 @@ import {
   EvidenceQuotaExceededError,
   LegalHoldStateConflictError,
   TeamStateConflictError,
+  TrustedCollectorConflictError,
   type BootstrapResult,
   type ControlPlaneStore,
 } from "./store.js";
@@ -66,6 +67,8 @@ import type {
   TeamAuditRecord,
   TeamInvitationRecord,
   TeamSnapshot,
+  CollectorSourceKeyRecord,
+  CollectorHeartbeatRecord,
 } from "./types.js";
 import { DisabledEmailProvider, type EmailProvider } from "./notifications.js";
 import { EnvelopeValidationError, isSpanId, isTraceId, parseUniversalEnvelope, type UniversalEnvelope } from "./protocol.js";
@@ -81,6 +84,15 @@ import {
   parseApiKeyScopes,
   type WebhookEvent,
 } from "./security.js";
+import {
+  parseCollectorKeyRegistration,
+  parseSignedCollectorHeartbeat,
+  parseTrustedRecordBatch,
+  parseTrustedRunReceipt,
+  verifyCollectorHeartbeat,
+  verifyTrustedRunReceiptInput,
+  verifyTrustedSourceRecord,
+} from "./trusted-collector.js";
 
 const POLICY_VERSION = "agentcert.default.v1";
 const DEFAULT_WEBHOOK_MAX_ATTEMPTS = 5;
@@ -1190,6 +1202,174 @@ export class AgentCertControlPlane {
     const revoked = await this.store.revokeApiKey(projectId, apiKeyId, new Date().toISOString());
     if (!revoked) throw new ControlPlaneError("API key was not found.", 404);
     return publicApiKey(revoked);
+  }
+
+  async registerCollectorSourceKey(auth: AuthContext, projectId: string, input: unknown): Promise<CollectorSourceKeyRecord> {
+    if (auth.kind === "user") await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    else await this.authorizeProject(auth, projectId, undefined, "collector:manage");
+    let parsed;
+    try { parsed = parseCollectorKeyRegistration(input); }
+    catch (error) { throw new ControlPlaneError(message(error), 400, "collector_key_invalid"); }
+    const now = new Date().toISOString();
+    try {
+      return await this.store.activateCollectorSourceKey({
+        projectId,
+        collectorId: parsed.collectorId,
+        keyId: parsed.keyId,
+        algorithm: "Ed25519",
+        publicKeyPem: parsed.publicKeyPem,
+        publicKeySha256: parsed.publicKeySha256,
+        status: "active",
+        previousKeyId: parsed.previousKeyId,
+        createdAt: now,
+        activatedAt: now,
+      });
+    } catch (error) {
+      if (error instanceof TrustedCollectorConflictError) throw new ControlPlaneError("Collector key ID or rotation predecessor conflicts with existing key history.", 409, error.reason);
+      throw error;
+    }
+  }
+
+  async listCollectorSourceKeys(auth: AuthContext, projectId: string): Promise<CollectorSourceKeyRecord[]> {
+    if (auth.kind === "user") await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    else await this.authorizeProject(auth, projectId, undefined, "collector:manage");
+    return this.store.listCollectorSourceKeys(projectId);
+  }
+
+  async revokeCollectorSourceKey(auth: AuthContext, projectId: string, keyId: string): Promise<CollectorSourceKeyRecord> {
+    if (auth.kind === "user") await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    else await this.authorizeProject(auth, projectId, undefined, "collector:manage");
+    const revoked = await this.store.revokeCollectorSourceKey(projectId, keyId, new Date().toISOString());
+    if (!revoked) throw new ControlPlaneError("Collector source key was not found.", 404, "collector_key_not_found");
+    return revoked;
+  }
+
+  async appendTrustedCollectorRecords(auth: AuthContext, projectId: string, runId: string, input: unknown) {
+    await this.authorizeProject(auth, projectId, undefined, "events:write");
+    let records;
+    try { records = parseTrustedRecordBatch(input, runId); }
+    catch (error) { throw new ControlPlaneError(message(error), 400, "trusted_record_invalid"); }
+    const collectorId = records[0].collector.id;
+    const sourceKeyId = records[0].sourceSignature.keyId;
+    if (records.some((record) => record.collector.id !== collectorId || record.sourceSignature.keyId !== sourceKeyId)) {
+      throw new ControlPlaneError("A trusted record batch must use one collector identity and source key.", 400, "mixed_collector_batch");
+    }
+    const key = await this.store.getCollectorSourceKey(projectId, sourceKeyId);
+    if (!key) throw new ControlPlaneError("Collector source key is not registered for this project.", 401, "collector_key_unknown");
+    const existingRun = await this.store.getTrustedCollectorRun(projectId, runId);
+    if (key.status === "retired" && !existingRun) throw new ControlPlaneError("A retired collector key cannot start a new run.", 409, "collector_key_retired");
+    try { for (const record of records) verifyTrustedSourceRecord(record, key); }
+    catch (error) { throw new ControlPlaneError(message(error), 401, "trusted_record_signature_invalid"); }
+    try {
+      const result = await this.store.appendTrustedCollectorRecords(projectId, runId, collectorId, sourceKeyId, records, new Date().toISOString());
+      for (const alert of result.alerts) await this.ensureCollectorIncident(projectId, alert.runId ?? runId, alert.collectorId, alert.message, alert.createdAt);
+      return { schemaVersion: "agentcert.remote_collector_ack.v0.2", ...result };
+    } catch (error) {
+      if (error instanceof TrustedCollectorConflictError) {
+        throw new ControlPlaneError(collectorConflictMessage(error.reason), 409, error.reason, "Reopen the local journal, verify its last acknowledged hash, and replay from the server ACK.");
+      }
+      throw error;
+    }
+  }
+
+  async recordCollectorHeartbeat(auth: AuthContext, projectId: string, input: unknown): Promise<CollectorHeartbeatRecord> {
+    await this.authorizeProject(auth, projectId, undefined, "events:write");
+    let heartbeat;
+    try { heartbeat = parseSignedCollectorHeartbeat(input); }
+    catch (error) { throw new ControlPlaneError(message(error), 400, "collector_heartbeat_invalid"); }
+    const key = await this.store.getCollectorSourceKey(projectId, heartbeat.payload.sourceKeyId);
+    if (!key) throw new ControlPlaneError("Collector source key is not registered for this project.", 401, "collector_key_unknown");
+    try { verifyCollectorHeartbeat(heartbeat, key); }
+    catch (error) { throw new ControlPlaneError(message(error), 401, "collector_heartbeat_signature_invalid"); }
+    const receivedAt = new Date().toISOString();
+    return this.store.saveCollectorHeartbeat({
+      projectId,
+      collectorId: heartbeat.payload.collectorId,
+      sourceKeyId: heartbeat.payload.sourceKeyId,
+      runId: heartbeat.payload.runId,
+      occurredAt: heartbeat.payload.occurredAt,
+      receivedAt,
+      pendingRecordCount: heartbeat.payload.pendingRecordCount,
+      lastAckSequence: heartbeat.payload.lastAckSequence,
+      status: heartbeat.payload.pendingRecordCount > 0 ? "backlogged" : "healthy",
+    });
+  }
+
+  async reconcileTrustedCollectorRun(auth: AuthContext, projectId: string, runId: string, input: unknown) {
+    await this.authorizeProject(auth, projectId, undefined, "events:write");
+    if (!this.evidenceSigner) throw new ControlPlaneError("Server attestation is not configured.", 503, "server_attestation_unavailable");
+    let receipt;
+    try { receipt = parseTrustedRunReceipt(input); }
+    catch (error) { throw new ControlPlaneError(message(error), 400, "trusted_receipt_invalid"); }
+    if (receipt.runId !== runId) throw new ControlPlaneError("Receipt runId does not match the route runId.", 400, "trusted_receipt_run_mismatch");
+    const key = await this.store.getCollectorSourceKey(projectId, receipt.sourceSignature.keyId);
+    if (!key) throw new ControlPlaneError("Collector source key is not registered for this project.", 401, "collector_key_unknown");
+    try { verifyTrustedRunReceiptInput(receipt, key); }
+    catch (error) { throw new ControlPlaneError(message(error), 401, "trusted_receipt_signature_invalid"); }
+    const run = await this.store.getTrustedCollectorRun(projectId, runId);
+    if (!run) throw new ControlPlaneError("Trusted collector run was not found.", 404, "trusted_run_not_found");
+    const journal = record(receipt.journal);
+    const complete = journal.complete === true && journal.valid === true;
+    const matches = complete
+      && run.collectorId === receipt.collector.id
+      && run.sourceKeyId === receipt.sourceSignature.keyId
+      && run.acceptedEventCount === receipt.eventCount
+      && run.droppedEventCount === receipt.droppedEventCount
+      && run.firstEventHash === receipt.firstEventHash
+      && run.lastEventHash === receipt.lastEventHash
+      && Boolean(run.completedAt);
+    if (!matches) throw new ControlPlaneError("Source receipt does not reconcile with the server-accepted journal.", 409, "reconciliation_mismatch");
+    const reconciledAt = new Date().toISOString();
+    const reconciliation = {
+      schemaVersion: "agentcert.collector_reconciliation.v0.2",
+      projectId,
+      runId,
+      collectorId: run.collectorId,
+      sourceKeyId: run.sourceKeyId,
+      sourceReceiptSha256: receipt.receiptSha256,
+      acceptedEventCount: run.acceptedEventCount,
+      droppedEventCount: run.droppedEventCount,
+      firstEventHash: run.firstEventHash,
+      lastEventHash: run.lastEventHash,
+      status: run.droppedEventCount ? "degraded" : "complete",
+      reconciledAt,
+    };
+    const serverAttestation = this.evidenceSigner.attestCanonical(reconciliation, reconciledAt);
+    const updated = await this.store.saveTrustedCollectorReconciliation(
+      projectId,
+      runId,
+      receipt,
+      reconciliation,
+      serverAttestation as unknown as Record<string, unknown>,
+      reconciledAt,
+    );
+    return { run: updated, reconciliation, serverAttestation };
+  }
+
+  async trustedCollectorStatus(auth: AuthContext, projectId: string) {
+    await this.authorizeProject(auth, projectId, undefined, "runs:read");
+    const [keys, runs, heartbeats, alerts] = await Promise.all([
+      this.store.listCollectorSourceKeys(projectId), this.store.listTrustedCollectorRuns(projectId, 100),
+      this.store.listCollectorHeartbeats(projectId), this.store.listTrustedCollectorAlerts(projectId, 100),
+    ]);
+    const now = Date.now();
+    return {
+      schemaVersion: "agentcert.remote_collector_status.v0.2",
+      keys,
+      runs,
+      heartbeats: heartbeats.map((heartbeat) => ({ ...heartbeat, stale: now - Date.parse(heartbeat.receivedAt) > 120_000 })),
+      alerts,
+    };
+  }
+
+  private async ensureCollectorIncident(projectId: string, runId: string, collectorId: string, summary: string, occurredAt: string): Promise<void> {
+    const fingerprint = `trusted-collector:events-dropped:${collectorId}:${runId}`;
+    if (await this.store.getActiveIncidentByFingerprint(projectId, fingerprint)) return;
+    await this.store.insertIncident({
+      id: randomUUID(), projectId, runId, severity: "high", type: "trusted_collector_events_dropped", status: "open",
+      summary, firstDivergence: "The customer collector declared a sequence gap.", fingerprint,
+      occurrenceCount: 1, consecutivePasses: 0, lastFailedAt: occurredAt, createdAt: occurredAt, updatedAt: occurredAt,
+    });
   }
 
   async overview(auth: AuthContext, projectId: string) {
@@ -2438,6 +2618,16 @@ function requiredTimestamp(value: Record<string, unknown>, key: string): string 
 }
 function optionalNumber(value: Record<string, unknown>, key: string): number | undefined { return typeof value[key] === "number" && Number.isFinite(value[key]) ? value[key] : undefined; }
 function databaseErrorCode(error: unknown): string | undefined { return error && typeof error === "object" && "code" in error ? String(error.code) : undefined; }
+function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
+function collectorConflictMessage(reason: TrustedCollectorConflictError["reason"]): string {
+  if (reason === "invalid_start") return "A trusted collector run must begin at sequence 0 with RUN_STARTED.";
+  if (reason === "run_closed") return "A completed or reconciled trusted collector run cannot accept new records.";
+  if (reason === "sequence_conflict") return "A sequence number was already accepted with a different record.";
+  if (reason === "chain_conflict") return "The record previousEventHash does not match the server ACK chain head.";
+  if (reason === "undeclared_gap") return "The record sequence contains an undeclared gap.";
+  if (reason === "key_conflict") return "Collector key history conflicts with the requested key operation.";
+  return "Collector identity or source key conflicts with the existing run.";
+}
 function stringList(value: unknown): string[] { return Array.isArray(value) ? [...new Set(value.filter((item): item is string => typeof item === "string" && item.length > 0))] : []; }
 function integer(value: unknown, fallback: number): number { return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : fallback; }
 function optionalNonNegativeInteger(value: unknown): number | undefined { return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined; }

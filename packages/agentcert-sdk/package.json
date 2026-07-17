@@ -1,6 +1,6 @@
 {
-  "name": "@agentcert/sdk",
-  "version": "0.1.0",
+  "name": "agentcert-sdk",
+  "version": "0.2.0",
   "description": "TypeScript client for the AgentCert hosted control plane.",
   "license": "Apache-2.0",
   "repository": {
@@ -15,16 +15,30 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./remote-collector.schema.json": "./remote-collector.schema.json"
   },
-  "files": ["dist", "README.md", "package.json"],
+  "bin": {
+    "agentcert-collector-gateway": "./dist/collector-gateway-cli.js",
+    "agentcert-collector-conformance": "./dist/gateway-conformance-cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "remote-collector.schema.json",
+    "package.json"
+  ],
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
     "test": "vitest run tests",
     "prepack": "npm run build"
   },
-  "engines": { "node": ">=20" },
-  "publishConfig": { "access": "public" },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "devDependencies": {
     "@types/node": "^24.10.1",
     "typescript": "^5.9.3",

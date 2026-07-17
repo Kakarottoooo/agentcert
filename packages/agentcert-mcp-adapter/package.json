@@ -21,7 +21,7 @@
   "engines": { "node": ">=20" },
   "publishConfig": { "access": "public" },
   "dependencies": {
-    "@agentcert/sdk": "^0.1.0",
+    "agentcert-sdk": "^0.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^4.3.6"
   },
