@@ -38,10 +38,10 @@ The runtime is part of the same package, not a separate AgentCert product:
 import {
   createInMemoryAuditStore,
   createLocalEchoAdapter,
-  createOnegentRuntime,
+  createAgentCertRuntime,
 } from "agentcert-sdk/runtime";
 
-const runtime = createOnegentRuntime({
+const runtime = createAgentCertRuntime({
   auditStore: createInMemoryAuditStore(),
   approvalAdapter: {
     name: "human-review",
@@ -70,7 +70,7 @@ const verification = runtime.verifyOutcome(review.action, observed);
 const audit = await runtime.writeAuditPacket(review.action);
 ```
 
-Production integrations should use `createTrustedActionRuntime()` from the
+Production integrations should use `createAgentCertTrustedActionRuntime()` from the
 same subpath. It requires a signed mandate, a gap-detectable recorder, a
 registered credential-holding execution adapter, and an independent outcome
 probe. The bundled local adapters are deterministic examples and must not be

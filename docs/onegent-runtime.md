@@ -35,11 +35,11 @@ npm install agentcert-sdk
 import {
   createInMemoryAuditStore,
   createLocalEchoAdapter,
-  createOnegentRuntime,
+  createAgentCertRuntime,
 } from "agentcert-sdk/runtime";
 
 const auditStore = createInMemoryAuditStore();
-const runtime = createOnegentRuntime({
+const runtime = createAgentCertRuntime({
   authorizationPolicy: {
     name: "procurement-permissions",
     authorize: (action) => ({
