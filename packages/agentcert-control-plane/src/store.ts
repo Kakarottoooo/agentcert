@@ -39,6 +39,13 @@ import type {
   PilotFunnelSource,
   AssuranceCaseRecord,
   AssuranceCaseDecisionRecord,
+  CollectorSourceKeyRecord,
+  CollectorHeartbeatRecord,
+  TrustedCollectorAlertRecord,
+  TrustedCollectorAppendResult,
+  TrustedCollectorRecord,
+  TrustedCollectorRunRecord,
+  TrustedSourceRecord,
 } from "./types.js";
 
 export const CONTROL_PLANE_MIGRATIONS = [
@@ -57,6 +64,7 @@ export const CONTROL_PLANE_MIGRATIONS = [
   "013_assurance_cases.sql",
   "014_team_access_management.sql",
   "015_trusted_action_assurance.sql",
+  "016_remote_collector.sql",
 ] as const;
 
 const DEFAULT_PROJECT_NAME = "Agent assurance project";
@@ -202,7 +210,25 @@ export interface ControlPlaneStore {
   touchApiKey(apiKeyId: string, usedAt: string): Promise<void>;
   listApiKeys(projectId: string): Promise<ApiKeyRecord[]>;
   revokeApiKey(projectId: string, apiKeyId: string, revokedAt: string): Promise<ApiKeyRecord | undefined>;
+  activateCollectorSourceKey(key: CollectorSourceKeyRecord): Promise<CollectorSourceKeyRecord>;
+  getCollectorSourceKey(projectId: string, keyId: string): Promise<CollectorSourceKeyRecord | undefined>;
+  listCollectorSourceKeys(projectId: string): Promise<CollectorSourceKeyRecord[]>;
+  revokeCollectorSourceKey(projectId: string, keyId: string, revokedAt: string): Promise<CollectorSourceKeyRecord | undefined>;
+  appendTrustedCollectorRecords(projectId: string, runId: string, collectorId: string, sourceKeyId: string, records: TrustedSourceRecord[], receivedAt: string): Promise<TrustedCollectorAppendResult>;
+  getTrustedCollectorRun(projectId: string, runId: string): Promise<TrustedCollectorRunRecord | undefined>;
+  listTrustedCollectorRuns(projectId: string, limit?: number): Promise<TrustedCollectorRunRecord[]>;
+  saveTrustedCollectorReconciliation(projectId: string, runId: string, sourceReceipt: Record<string, unknown>, reconciliation: Record<string, unknown>, serverAttestation: Record<string, unknown>, updatedAt: string): Promise<TrustedCollectorRunRecord>;
+  saveCollectorHeartbeat(heartbeat: CollectorHeartbeatRecord): Promise<CollectorHeartbeatRecord>;
+  listCollectorHeartbeats(projectId: string): Promise<CollectorHeartbeatRecord[]>;
+  listTrustedCollectorAlerts(projectId: string, limit?: number): Promise<TrustedCollectorAlertRecord[]>;
   close(): Promise<void>;
+}
+
+export class TrustedCollectorConflictError extends Error {
+  constructor(readonly reason: "key_conflict" | "run_conflict" | "sequence_conflict" | "chain_conflict" | "undeclared_gap" | "invalid_start" | "run_closed") {
+    super(reason);
+    this.name = "TrustedCollectorConflictError";
+  }
 }
 
 export class InMemoryControlPlaneStore implements ControlPlaneStore {
@@ -233,6 +259,11 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   private notificationDeliveries = new Map<string, NotificationDeliveryRecord>();
   private notificationJobs = new Map<string, NotificationJobRecord>();
   private signingKeys = new Map<string, SigningKeyRecord>();
+  private collectorSourceKeys = new Map<string, CollectorSourceKeyRecord>();
+  private trustedCollectorRuns = new Map<string, TrustedCollectorRunRecord>();
+  private trustedCollectorRecords = new Map<string, TrustedCollectorRecord>();
+  private collectorHeartbeats = new Map<string, CollectorHeartbeatRecord>();
+  private trustedCollectorAlerts = new Map<string, TrustedCollectorAlertRecord>();
   private pilotFeedback = new Map<string, PilotFeedbackRecord>();
   private assuranceCases = new Map<string, AssuranceCaseRecord>();
   private assuranceCaseDecisions = new Map<string, AssuranceCaseDecisionRecord>();
@@ -985,6 +1016,147 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
     const revoked = { ...item, revokedAt };
     this.apiKeys.set(apiKeyId, revoked);
     return revoked;
+  }
+
+  async activateCollectorSourceKey(key: CollectorSourceKeyRecord): Promise<CollectorSourceKeyRecord> {
+    const mapKey = `${key.projectId}:${key.keyId}`;
+    const existing = this.collectorSourceKeys.get(mapKey);
+    if (existing) {
+      if (existing.publicKeyPem !== key.publicKeyPem || existing.collectorId !== key.collectorId) throw new TrustedCollectorConflictError("key_conflict");
+      return existing;
+    }
+    const active = [...this.collectorSourceKeys.values()].find((item) => item.projectId === key.projectId && item.collectorId === key.collectorId && item.status === "active");
+    if (active) {
+      if (key.previousKeyId !== active.keyId) throw new TrustedCollectorConflictError("key_conflict");
+      this.collectorSourceKeys.set(`${active.projectId}:${active.keyId}`, { ...active, status: "retired", retiredAt: key.activatedAt });
+    } else if (key.previousKeyId) {
+      throw new TrustedCollectorConflictError("key_conflict");
+    }
+    this.collectorSourceKeys.set(mapKey, key);
+    return key;
+  }
+
+  async getCollectorSourceKey(projectId: string, keyId: string): Promise<CollectorSourceKeyRecord | undefined> {
+    return this.collectorSourceKeys.get(`${projectId}:${keyId}`);
+  }
+
+  async listCollectorSourceKeys(projectId: string): Promise<CollectorSourceKeyRecord[]> {
+    return newest([...this.collectorSourceKeys.values()].filter((item) => item.projectId === projectId), "activatedAt");
+  }
+
+  async revokeCollectorSourceKey(projectId: string, keyId: string, revokedAt: string): Promise<CollectorSourceKeyRecord | undefined> {
+    const mapKey = `${projectId}:${keyId}`;
+    const key = this.collectorSourceKeys.get(mapKey);
+    if (!key) return undefined;
+    const revoked = { ...key, status: "revoked" as const, revokedAt };
+    this.collectorSourceKeys.set(mapKey, revoked);
+    return revoked;
+  }
+
+  async appendTrustedCollectorRecords(
+    projectId: string,
+    runId: string,
+    collectorId: string,
+    sourceKeyId: string,
+    records: TrustedSourceRecord[],
+    receivedAt: string,
+  ): Promise<TrustedCollectorAppendResult> {
+    const runKey = `${projectId}:${runId}`;
+    let run = this.trustedCollectorRuns.get(runKey);
+    const originalRun = run ? structuredClone(run) : undefined;
+    let accepted = 0;
+    let replayed = 0;
+    const alerts: TrustedCollectorAlertRecord[] = [];
+    const insertedRecordKeys: string[] = [];
+    const insertedAlertIds: string[] = [];
+    try { for (const record of records) {
+      if (run && (run.collectorId !== collectorId || run.sourceKeyId !== sourceKeyId)) throw new TrustedCollectorConflictError("run_conflict");
+      const recordKey = `${projectId}:${runId}:${record.sequence}`;
+      const existing = this.trustedCollectorRecords.get(recordKey);
+      if (existing) {
+        if (existing.eventHash !== record.eventHash || existing.recordId !== record.recordId) throw new TrustedCollectorConflictError("sequence_conflict");
+        replayed += 1;
+        continue;
+      }
+      if (!run && (record.sequence !== 0 || record.type !== "RUN_STARTED")) throw new TrustedCollectorConflictError("invalid_start");
+      if (run && (run.status === "completed" || run.status === "reconciled")) throw new TrustedCollectorConflictError("run_closed");
+      if (run && record.type === "RUN_STARTED") throw new TrustedCollectorConflictError("invalid_start");
+      const expectedSequence = run ? run.lastSequence + 1 : 0;
+      const gap = record.sequence - expectedSequence;
+      const declaredDrop = gap > 0 && record.type === "EVENTS_DROPPED" && positiveInteger(record.payload.count) === gap;
+      if (gap < 0) throw new TrustedCollectorConflictError("sequence_conflict");
+      if (gap > 0 && !declaredDrop) throw new TrustedCollectorConflictError("undeclared_gap");
+      if ((!run && record.previousEventHash !== undefined) || (run && record.previousEventHash !== run.lastEventHash)) {
+        throw new TrustedCollectorConflictError("chain_conflict");
+      }
+      const stored: TrustedCollectorRecord = {
+        projectId, runId, sequence: record.sequence, recordId: record.recordId, eventHash: record.eventHash,
+        previousEventHash: record.previousEventHash, sourceKeyId, record, receivedAt,
+      };
+      this.trustedCollectorRecords.set(recordKey, stored);
+      insertedRecordKeys.push(recordKey);
+      accepted += 1;
+      if (!run) {
+        run = {
+          projectId, runId, collectorId, sourceKeyId, status: "open", firstSequence: record.sequence,
+          lastSequence: record.sequence, firstEventHash: record.eventHash, lastEventHash: record.eventHash,
+          acceptedEventCount: 1, droppedEventCount: 0, startedAt: record.occurredAt,
+          createdAt: receivedAt, updatedAt: receivedAt,
+        };
+      } else {
+        run = {
+          ...run, lastSequence: record.sequence, lastEventHash: record.eventHash,
+          acceptedEventCount: run.acceptedEventCount + 1, updatedAt: receivedAt,
+        };
+      }
+      if (declaredDrop) {
+        run = { ...run, status: "degraded", droppedEventCount: run.droppedEventCount + gap };
+        const alert = collectorAlert(projectId, collectorId, runId, "events_dropped", "critical", `${gap} collector event(s) were declared dropped.`, { gap, sequence: record.sequence }, receivedAt);
+        this.trustedCollectorAlerts.set(alert.id, alert);
+        insertedAlertIds.push(alert.id);
+        alerts.push(alert);
+      }
+      if (record.type === "RUN_COMPLETED") run = { ...run, status: run.droppedEventCount ? "degraded" : "completed", completedAt: record.occurredAt };
+      this.trustedCollectorRuns.set(runKey, run);
+    }} catch (error) {
+      for (const key of insertedRecordKeys) this.trustedCollectorRecords.delete(key);
+      for (const id of insertedAlertIds) this.trustedCollectorAlerts.delete(id);
+      if (originalRun) this.trustedCollectorRuns.set(runKey, originalRun);
+      else this.trustedCollectorRuns.delete(runKey);
+      throw error;
+    }
+    if (!run) throw new TrustedCollectorConflictError("run_conflict");
+    return { run, accepted, replayed, ack: { sequence: run.lastSequence, eventHash: run.lastEventHash }, alerts };
+  }
+
+  async getTrustedCollectorRun(projectId: string, runId: string): Promise<TrustedCollectorRunRecord | undefined> {
+    return this.trustedCollectorRuns.get(`${projectId}:${runId}`);
+  }
+
+  async listTrustedCollectorRuns(projectId: string, limit = 100): Promise<TrustedCollectorRunRecord[]> {
+    return newest([...this.trustedCollectorRuns.values()].filter((item) => item.projectId === projectId), "updatedAt").slice(0, limit);
+  }
+
+  async saveTrustedCollectorReconciliation(projectId: string, runId: string, sourceReceipt: Record<string, unknown>, reconciliation: Record<string, unknown>, serverAttestation: Record<string, unknown>, updatedAt: string): Promise<TrustedCollectorRunRecord> {
+    const key = `${projectId}:${runId}`;
+    const run = this.trustedCollectorRuns.get(key);
+    if (!run) throw new TrustedCollectorConflictError("run_conflict");
+    const reconciled = { ...run, status: "reconciled" as const, sourceReceipt, reconciliation, serverAttestation, updatedAt };
+    this.trustedCollectorRuns.set(key, reconciled);
+    return reconciled;
+  }
+
+  async saveCollectorHeartbeat(heartbeat: CollectorHeartbeatRecord): Promise<CollectorHeartbeatRecord> {
+    this.collectorHeartbeats.set(`${heartbeat.projectId}:${heartbeat.collectorId}`, heartbeat);
+    return heartbeat;
+  }
+
+  async listCollectorHeartbeats(projectId: string): Promise<CollectorHeartbeatRecord[]> {
+    return newest([...this.collectorHeartbeats.values()].filter((item) => item.projectId === projectId), "receivedAt");
+  }
+
+  async listTrustedCollectorAlerts(projectId: string, limit = 100): Promise<TrustedCollectorAlertRecord[]> {
+    return newest([...this.trustedCollectorAlerts.values()].filter((item) => item.projectId === projectId), "createdAt").slice(0, limit);
   }
 
   async close(): Promise<void> {}
@@ -2332,6 +2504,174 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     );
   }
 
+  async activateCollectorSourceKey(key: CollectorSourceKeyRecord): Promise<CollectorSourceKeyRecord> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`collector-key:${key.projectId}:${key.collectorId}`]);
+      const existing = await client.query("SELECT * FROM agentcert_collector_source_keys WHERE project_id=$1 AND key_id=$2", [key.projectId, key.keyId]);
+      if (existing.rows[0]) {
+        const current = collectorSourceKeyFromRow(existing.rows[0]);
+        if (current.publicKeyPem !== key.publicKeyPem || current.collectorId !== key.collectorId) throw new TrustedCollectorConflictError("key_conflict");
+        await client.query("COMMIT");
+        return current;
+      }
+      const activeResult = await client.query("SELECT * FROM agentcert_collector_source_keys WHERE project_id=$1 AND collector_id=$2 AND status='active' FOR UPDATE", [key.projectId, key.collectorId]);
+      if (activeResult.rows[0]) {
+        const active = collectorSourceKeyFromRow(activeResult.rows[0]);
+        if (key.previousKeyId !== active.keyId) throw new TrustedCollectorConflictError("key_conflict");
+        await client.query("UPDATE agentcert_collector_source_keys SET status='retired',retired_at=$3 WHERE project_id=$1 AND key_id=$2", [key.projectId, active.keyId, key.activatedAt]);
+      } else if (key.previousKeyId) {
+        throw new TrustedCollectorConflictError("key_conflict");
+      }
+      const inserted = await client.query(
+        `INSERT INTO agentcert_collector_source_keys
+         (project_id,collector_id,key_id,algorithm,public_key_pem,public_key_sha256,status,previous_key_id,created_at,activated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,'active',$7,$8,$9) RETURNING *`,
+        [key.projectId, key.collectorId, key.keyId, key.algorithm, key.publicKeyPem, key.publicKeySha256, key.previousKeyId ?? null, key.createdAt, key.activatedAt],
+      );
+      await client.query("COMMIT");
+      return collectorSourceKeyFromRow(inserted.rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      if (isUniqueViolation(error)) throw new TrustedCollectorConflictError("key_conflict");
+      throw error;
+    } finally { client.release(); }
+  }
+
+  async getCollectorSourceKey(projectId: string, keyId: string): Promise<CollectorSourceKeyRecord | undefined> {
+    return one(this.pool.query("SELECT * FROM agentcert_collector_source_keys WHERE project_id=$1 AND key_id=$2", [projectId, keyId]), collectorSourceKeyFromRow);
+  }
+
+  async listCollectorSourceKeys(projectId: string): Promise<CollectorSourceKeyRecord[]> {
+    return many(this.pool.query("SELECT * FROM agentcert_collector_source_keys WHERE project_id=$1 ORDER BY activated_at DESC", [projectId]), collectorSourceKeyFromRow);
+  }
+
+  async revokeCollectorSourceKey(projectId: string, keyId: string, revokedAt: string): Promise<CollectorSourceKeyRecord | undefined> {
+    return one(this.pool.query(
+      "UPDATE agentcert_collector_source_keys SET status='revoked',revoked_at=COALESCE(revoked_at,$3) WHERE project_id=$1 AND key_id=$2 RETURNING *",
+      [projectId, keyId, revokedAt],
+    ), collectorSourceKeyFromRow);
+  }
+
+  async appendTrustedCollectorRecords(
+    projectId: string,
+    runId: string,
+    collectorId: string,
+    sourceKeyId: string,
+    records: TrustedSourceRecord[],
+    receivedAt: string,
+  ): Promise<TrustedCollectorAppendResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`trusted-run:${projectId}:${runId}`]);
+      let run = await one(client.query("SELECT * FROM agentcert_trusted_collector_runs WHERE project_id=$1 AND run_id=$2 FOR UPDATE", [projectId, runId]), trustedCollectorRunFromRow);
+      let accepted = 0;
+      let replayed = 0;
+      const alerts: TrustedCollectorAlertRecord[] = [];
+      for (const record of records) {
+        if (run && (run.collectorId !== collectorId || run.sourceKeyId !== sourceKeyId)) throw new TrustedCollectorConflictError("run_conflict");
+        const existing = await one(client.query(
+          "SELECT * FROM agentcert_trusted_collector_records WHERE project_id=$1 AND run_id=$2 AND sequence=$3",
+          [projectId, runId, record.sequence],
+        ), trustedCollectorRecordFromRow);
+        if (existing) {
+          if (existing.eventHash !== record.eventHash || existing.recordId !== record.recordId) throw new TrustedCollectorConflictError("sequence_conflict");
+          replayed += 1;
+          continue;
+        }
+        if (!run && (record.sequence !== 0 || record.type !== "RUN_STARTED")) throw new TrustedCollectorConflictError("invalid_start");
+        if (run && (run.status === "completed" || run.status === "reconciled")) throw new TrustedCollectorConflictError("run_closed");
+        if (run && record.type === "RUN_STARTED") throw new TrustedCollectorConflictError("invalid_start");
+        const expectedSequence = run ? run.lastSequence + 1 : 0;
+        const gap = record.sequence - expectedSequence;
+        const declaredDrop = gap > 0 && record.type === "EVENTS_DROPPED" && positiveInteger(record.payload.count) === gap;
+        if (gap < 0) throw new TrustedCollectorConflictError("sequence_conflict");
+        if (gap > 0 && !declaredDrop) throw new TrustedCollectorConflictError("undeclared_gap");
+        if ((!run && record.previousEventHash !== undefined) || (run && record.previousEventHash !== run.lastEventHash)) throw new TrustedCollectorConflictError("chain_conflict");
+        if (!run) {
+          const inserted = await client.query(
+            `INSERT INTO agentcert_trusted_collector_runs
+             (project_id,run_id,collector_id,source_key_id,status,first_sequence,last_sequence,first_event_hash,last_event_hash,
+              accepted_event_count,dropped_event_count,started_at,created_at,updated_at)
+             VALUES ($1,$2,$3,$4,'open',$5,$5,$6,$6,1,0,$7,$8,$8) RETURNING *`,
+            [projectId, runId, collectorId, sourceKeyId, record.sequence, record.eventHash, record.occurredAt, receivedAt],
+          );
+          run = trustedCollectorRunFromRow(inserted.rows[0]);
+        } else {
+          run = { ...run, lastSequence: record.sequence, lastEventHash: record.eventHash, acceptedEventCount: run.acceptedEventCount + 1, updatedAt: receivedAt };
+        }
+        await client.query(
+          `INSERT INTO agentcert_trusted_collector_records
+           (project_id,run_id,sequence,record_id,event_hash,previous_event_hash,source_key_id,record,received_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [projectId, runId, record.sequence, record.recordId, record.eventHash, record.previousEventHash ?? null, sourceKeyId, JSON.stringify(record), receivedAt],
+        );
+        accepted += 1;
+        if (declaredDrop) {
+          run = { ...run, status: "degraded", droppedEventCount: run.droppedEventCount + gap };
+          const alert = collectorAlert(projectId, collectorId, runId, "events_dropped", "critical", `${gap} collector event(s) were declared dropped.`, { gap, sequence: record.sequence }, receivedAt);
+          await insertCollectorAlert(client, alert);
+          alerts.push(alert);
+        }
+        if (record.type === "RUN_COMPLETED") run = { ...run, status: run.droppedEventCount ? "degraded" : "completed", completedAt: record.occurredAt };
+        await client.query(
+          `UPDATE agentcert_trusted_collector_runs SET status=$3,last_sequence=$4,last_event_hash=$5,accepted_event_count=$6,
+           dropped_event_count=$7,completed_at=$8,updated_at=$9 WHERE project_id=$1 AND run_id=$2`,
+          [projectId, runId, run.status, run.lastSequence, run.lastEventHash, run.acceptedEventCount, run.droppedEventCount, run.completedAt ?? null, receivedAt],
+        );
+      }
+      if (!run) throw new TrustedCollectorConflictError("run_conflict");
+      await client.query("COMMIT");
+      return { run, accepted, replayed, ack: { sequence: run.lastSequence, eventHash: run.lastEventHash }, alerts };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      if (isUniqueViolation(error)) throw new TrustedCollectorConflictError("sequence_conflict");
+      throw error;
+    } finally { client.release(); }
+  }
+
+  async getTrustedCollectorRun(projectId: string, runId: string): Promise<TrustedCollectorRunRecord | undefined> {
+    return one(this.pool.query("SELECT * FROM agentcert_trusted_collector_runs WHERE project_id=$1 AND run_id=$2", [projectId, runId]), trustedCollectorRunFromRow);
+  }
+
+  async listTrustedCollectorRuns(projectId: string, limit = 100): Promise<TrustedCollectorRunRecord[]> {
+    return many(this.pool.query("SELECT * FROM agentcert_trusted_collector_runs WHERE project_id=$1 ORDER BY updated_at DESC LIMIT $2", [projectId, limit]), trustedCollectorRunFromRow);
+  }
+
+  async saveTrustedCollectorReconciliation(projectId: string, runId: string, sourceReceipt: Record<string, unknown>, reconciliation: Record<string, unknown>, serverAttestation: Record<string, unknown>, updatedAt: string): Promise<TrustedCollectorRunRecord> {
+    const result = await this.pool.query(
+      `UPDATE agentcert_trusted_collector_runs SET status='reconciled',source_receipt=$3,reconciliation=$4,server_attestation=$5,updated_at=$6
+       WHERE project_id=$1 AND run_id=$2 RETURNING *`,
+      [projectId, runId, JSON.stringify(sourceReceipt), JSON.stringify(reconciliation), JSON.stringify(serverAttestation), updatedAt],
+    );
+    if (!result.rows[0]) throw new TrustedCollectorConflictError("run_conflict");
+    return trustedCollectorRunFromRow(result.rows[0]);
+  }
+
+  async saveCollectorHeartbeat(heartbeat: CollectorHeartbeatRecord): Promise<CollectorHeartbeatRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_collector_heartbeats
+       (project_id,collector_id,source_key_id,run_id,occurred_at,received_at,pending_record_count,last_ack_sequence,status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (project_id,collector_id) DO UPDATE SET source_key_id=EXCLUDED.source_key_id,run_id=EXCLUDED.run_id,
+       occurred_at=EXCLUDED.occurred_at,received_at=EXCLUDED.received_at,pending_record_count=EXCLUDED.pending_record_count,
+       last_ack_sequence=EXCLUDED.last_ack_sequence,status=EXCLUDED.status RETURNING *`,
+      [heartbeat.projectId, heartbeat.collectorId, heartbeat.sourceKeyId, heartbeat.runId ?? null, heartbeat.occurredAt,
+        heartbeat.receivedAt, heartbeat.pendingRecordCount, heartbeat.lastAckSequence ?? null, heartbeat.status],
+    );
+    return collectorHeartbeatFromRow(result.rows[0]);
+  }
+
+  async listCollectorHeartbeats(projectId: string): Promise<CollectorHeartbeatRecord[]> {
+    return many(this.pool.query("SELECT * FROM agentcert_collector_heartbeats WHERE project_id=$1 ORDER BY received_at DESC", [projectId]), collectorHeartbeatFromRow);
+  }
+
+  async listTrustedCollectorAlerts(projectId: string, limit = 100): Promise<TrustedCollectorAlertRecord[]> {
+    return many(this.pool.query("SELECT * FROM agentcert_trusted_collector_alerts WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2", [projectId, limit]), trustedCollectorAlertFromRow);
+  }
+
   async close(): Promise<void> {
     await this.pool.end();
   }
@@ -2595,6 +2935,75 @@ function signingKeyFromRow(row: Record<string, unknown>): SigningKeyRecord {
     status: text(row.status) as SigningKeyRecord["status"], createdAt: iso(row.created_at), activatedAt: iso(row.activated_at),
     retiredAt: optionalIso(row.retired_at), revokedAt: optionalIso(row.revoked_at),
   };
+}
+
+function collectorSourceKeyFromRow(row: Record<string, unknown>): CollectorSourceKeyRecord {
+  return {
+    projectId: text(row.project_id), collectorId: text(row.collector_id), keyId: text(row.key_id), algorithm: "Ed25519",
+    publicKeyPem: text(row.public_key_pem), publicKeySha256: text(row.public_key_sha256),
+    status: text(row.status) as CollectorSourceKeyRecord["status"], previousKeyId: optionalText(row.previous_key_id),
+    createdAt: iso(row.created_at), activatedAt: iso(row.activated_at), retiredAt: optionalIso(row.retired_at), revokedAt: optionalIso(row.revoked_at),
+  };
+}
+
+function trustedCollectorRecordFromRow(row: Record<string, unknown>): TrustedCollectorRecord {
+  return {
+    projectId: text(row.project_id), runId: text(row.run_id), sequence: number(row.sequence), recordId: text(row.record_id),
+    eventHash: text(row.event_hash), previousEventHash: optionalText(row.previous_event_hash), sourceKeyId: text(row.source_key_id),
+    record: object(row.record) as unknown as TrustedSourceRecord, receivedAt: iso(row.received_at),
+  };
+}
+
+function trustedCollectorRunFromRow(row: Record<string, unknown>): TrustedCollectorRunRecord {
+  return {
+    projectId: text(row.project_id), runId: text(row.run_id), collectorId: text(row.collector_id), sourceKeyId: text(row.source_key_id),
+    status: text(row.status) as TrustedCollectorRunRecord["status"], firstSequence: number(row.first_sequence), lastSequence: number(row.last_sequence),
+    firstEventHash: text(row.first_event_hash), lastEventHash: text(row.last_event_hash), acceptedEventCount: number(row.accepted_event_count),
+    droppedEventCount: number(row.dropped_event_count), startedAt: iso(row.started_at), completedAt: optionalIso(row.completed_at),
+    sourceReceipt: optionalObject(row.source_receipt), reconciliation: optionalObject(row.reconciliation), serverAttestation: optionalObject(row.server_attestation),
+    createdAt: iso(row.created_at), updatedAt: iso(row.updated_at),
+  };
+}
+
+function collectorHeartbeatFromRow(row: Record<string, unknown>): CollectorHeartbeatRecord {
+  return {
+    projectId: text(row.project_id), collectorId: text(row.collector_id), sourceKeyId: text(row.source_key_id), runId: optionalText(row.run_id),
+    occurredAt: iso(row.occurred_at), receivedAt: iso(row.received_at), pendingRecordCount: number(row.pending_record_count),
+    lastAckSequence: optionalNumber(row.last_ack_sequence), status: text(row.status) as CollectorHeartbeatRecord["status"],
+  };
+}
+
+function trustedCollectorAlertFromRow(row: Record<string, unknown>): TrustedCollectorAlertRecord {
+  return {
+    id: text(row.id), projectId: text(row.project_id), collectorId: text(row.collector_id), runId: optionalText(row.run_id),
+    kind: text(row.kind) as TrustedCollectorAlertRecord["kind"], severity: text(row.severity) as TrustedCollectorAlertRecord["severity"],
+    message: text(row.message), details: object(row.details), createdAt: iso(row.created_at),
+  };
+}
+
+function collectorAlert(
+  projectId: string,
+  collectorId: string,
+  runId: string | undefined,
+  kind: TrustedCollectorAlertRecord["kind"],
+  severity: TrustedCollectorAlertRecord["severity"],
+  message: string,
+  details: Record<string, unknown>,
+  createdAt: string,
+): TrustedCollectorAlertRecord {
+  return { id: randomUUID(), projectId, collectorId, runId, kind, severity, message, details, createdAt };
+}
+
+async function insertCollectorAlert(client: pg.Pool | pg.PoolClient, alert: TrustedCollectorAlertRecord): Promise<void> {
+  await client.query(
+    `INSERT INTO agentcert_trusted_collector_alerts (id,project_id,collector_id,run_id,kind,severity,message,details,created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [alert.id, alert.projectId, alert.collectorId, alert.runId ?? null, alert.kind, alert.severity, alert.message, JSON.stringify(alert.details), alert.createdAt],
+  );
+}
+
+function positiveInteger(value: unknown): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : 0;
 }
 function trustHealthSampleFromRow(row: Record<string, unknown>): TrustHealthSampleRecord {
   return {

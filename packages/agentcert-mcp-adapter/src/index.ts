@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { AgentCertClient } from "@agentcert/sdk";
+import { AgentCertClient } from "agentcert-sdk";
 
 export function createAgentCertMcpServer(client: AgentCertClient): McpServer {
   const server = new McpServer({ name: "agentcert", version: "0.1.0" });

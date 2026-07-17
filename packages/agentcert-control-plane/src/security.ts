@@ -7,6 +7,7 @@ export const DEFAULT_API_KEY_SCOPES: readonly ApiKeyScope[] = [
   "runs:read",
   "runs:write",
   "events:write",
+  "collector:manage",
   "actions:read",
   "actions:write",
   "evidence:read",

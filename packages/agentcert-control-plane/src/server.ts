@@ -239,6 +239,33 @@ async function handleRequest(
       (body) => options.service.ingestEnvelope(auth, projectId, body), options.idempotencyCoordinator);
     return;
   }
+  if (collection === "collector-keys") {
+    if (request.method === "GET" && !entityId) sendJson(response, 200, { keys: await options.service.listCollectorSourceKeys(auth, projectId) });
+    else if (request.method === "POST" && !entityId) sendJson(response, 201, await options.service.registerCollectorSourceKey(auth, projectId, await readJson(request)));
+    else if (request.method === "DELETE" && entityId) sendJson(response, 200, await options.service.revokeCollectorSourceKey(auth, projectId, entityId));
+    else throw new ControlPlaneError("Collector key route was not found.", 404, "route_not_found");
+    return;
+  }
+  if (collection === "trusted-runs" && entityId) {
+    if (request.method === "POST" && child === "records") {
+      await sendIdempotentJson(request, response, options.service, projectId, `trusted-runs.${entityId}.records`, 202,
+        (body) => options.service.appendTrustedCollectorRecords(auth, projectId, entityId, body), options.idempotencyCoordinator);
+    } else if (request.method === "POST" && child === "reconcile") {
+      await sendIdempotentJson(request, response, options.service, projectId, `trusted-runs.${entityId}.reconcile`, 200,
+        (body) => options.service.reconcileTrustedCollectorRun(auth, projectId, entityId, body), options.idempotencyCoordinator);
+    } else {
+      throw new ControlPlaneError("Trusted collector run route was not found.", 404, "route_not_found");
+    }
+    return;
+  }
+  if (collection === "collector-heartbeats" && request.method === "POST" && !entityId) {
+    sendJson(response, 202, await options.service.recordCollectorHeartbeat(auth, projectId, await readJson(request)));
+    return;
+  }
+  if (collection === "collector-status" && request.method === "GET" && !entityId) {
+    sendJson(response, 200, await options.service.trustedCollectorStatus(auth, projectId));
+    return;
+  }
   if (collection === "overview" && request.method === "GET") {
     sendJson(response, 200, await options.service.overview(auth, projectId));
     return;

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { AgentCertClient } from "@agentcert/sdk";
+import { AgentCertClient } from "agentcert-sdk";
 import { createAgentCertMcpServer } from "../src/index.js";
 
 describe("createAgentCertMcpServer", () => {

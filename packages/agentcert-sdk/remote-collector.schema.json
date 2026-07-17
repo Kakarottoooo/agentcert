@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.app/schemas/agentcert-remote-collector-v0.2.json",
+  "title": "AgentCert Remote Collector Protocol v0.2",
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "keyId", "signature"],
+      "properties": {
+        "algorithm": { "const": "Ed25519" },
+        "keyId": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "signature": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    },
+    "collector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "environment", "keyId", "publicKeySha256"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "version": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "environment": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "keyId": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "publicKeySha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "recordId", "runId", "sequence", "occurredAt", "type", "collector", "payload", "payloadSha256", "eventHash", "sourceSignature"],
+      "properties": {
+        "schemaVersion": { "const": "agentcert.trusted_action_record.v0.1" },
+        "recordId": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "runId": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "sequence": { "type": "integer", "minimum": 0 },
+        "occurredAt": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "collector": { "$ref": "#/$defs/collector" },
+        "previousEventHash": { "$ref": "#/$defs/digest" },
+        "payload": { "type": "object" },
+        "payloadSha256": { "$ref": "#/$defs/digest" },
+        "eventHash": { "$ref": "#/$defs/digest" },
+        "sourceSignature": { "$ref": "#/$defs/signature" }
+      }
+    },
+    "ack": {
+      "type": "object",
+      "required": ["schemaVersion", "accepted", "replayed", "ack", "alerts", "run"],
+      "properties": {
+        "schemaVersion": { "const": "agentcert.remote_collector_ack.v0.2" },
+        "accepted": { "type": "integer", "minimum": 0 },
+        "replayed": { "type": "integer", "minimum": 0 },
+        "ack": { "type": "object", "required": ["sequence", "eventHash"], "properties": { "sequence": { "type": "integer", "minimum": 0 }, "eventHash": { "$ref": "#/$defs/digest" } } },
+        "alerts": { "type": "array", "items": { "type": "object" } },
+        "run": { "type": "object" }
+      }
+    },
+    "heartbeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["payload", "payloadSha256", "signature"],
+      "properties": {
+        "payload": {
+          "type": "object",
+          "required": ["schemaVersion", "collectorId", "sourceKeyId", "occurredAt", "pendingRecordCount"],
+          "properties": {
+            "schemaVersion": { "const": "agentcert.collector_heartbeat.v0.2" },
+            "collectorId": { "type": "string" },
+            "sourceKeyId": { "type": "string" },
+            "runId": { "type": "string" },
+            "occurredAt": { "type": "string", "format": "date-time" },
+            "pendingRecordCount": { "type": "integer", "minimum": 0 },
+            "lastAckSequence": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "payloadSha256": { "$ref": "#/$defs/digest" },
+        "signature": { "$ref": "#/$defs/signature" }
+      }
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/record" },
+    { "$ref": "#/$defs/ack" },
+    { "$ref": "#/$defs/heartbeat" }
+  ]
+}

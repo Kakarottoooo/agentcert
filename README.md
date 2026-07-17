@@ -484,6 +484,12 @@ report states an evidence-strength level instead of treating every trace as
 equally trustworthy. Protocol and non-claims:
 [docs/action-assurance-protocol.md](docs/action-assurance-protocol.md).
 
+Customer-owned remote collection is also available as an independent process
+and Docker reference deployment. It keeps the source private key, Hosted API
+key, and durable offline queue outside the agent process; the server verifies
+idempotent replay, signed heartbeats, declared drops, and the final run receipt.
+See [docs/customer-owned-collector-gateway.md](docs/customer-owned-collector-gateway.md).
+
 For safe design-partner trials, Sandbox Certification Harness v0.1 adds
 tenant-isolated synthetic state, seed/reset, deny-by-default network access,
 target and amount limits, global/tenant kill switches, concurrent idempotency,

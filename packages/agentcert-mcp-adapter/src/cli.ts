@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { AgentCertClient } from "@agentcert/sdk";
+import { AgentCertClient } from "agentcert-sdk";
 import { createAgentCertMcpServer } from "./index.js";
 
 const baseUrl = requiredEnv("AGENTCERT_BASE_URL");
