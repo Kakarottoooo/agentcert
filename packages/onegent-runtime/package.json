@@ -1,5 +1,6 @@
 {
   "name": "@agentcert/onegent-runtime",
+  "private": true,
   "version": "0.2.0",
   "description": "Action assurance runtime and sandbox adapter certification kit for policy, approval, verification, and audit workflows.",
   "type": "module",
@@ -42,9 +43,6 @@
   },
   "engines": {
     "node": ">=20"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",

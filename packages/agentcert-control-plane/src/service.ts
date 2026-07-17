@@ -73,7 +73,7 @@ import type {
 import { DisabledEmailProvider, type EmailProvider } from "./notifications.js";
 import { EnvelopeValidationError, isSpanId, isTraceId, parseUniversalEnvelope, type UniversalEnvelope } from "./protocol.js";
 import { EvidenceSigner, type EvidenceAttestationPayload } from "./signing.js";
-import { buildAssuranceReport, canTransitionAssuranceCase, evaluationPlanDigest, missingRequiredEvidence } from "./assurance.js";
+import { buildAssuranceDeliveryPacket, buildAssuranceReport, canTransitionAssuranceCase, evaluationPlanDigest, missingRequiredEvidence } from "./assurance.js";
 import type { CoordinationHealth } from "./coordination.js";
 import { canInviteRole, canManageMember, roleNeedsExplicitProjects, rolesForHumanScope } from "./rbac.js";
 import {
@@ -433,11 +433,15 @@ export class AgentCertControlPlane {
       limitations: strictStringList(planInput.limitations, "evaluationPlan.limitations", ["The assessment covers only the declared subject version and evaluation plan."]),
     };
     const now = new Date().toISOString();
+    const engagementInput = optionalRecord(body.engagement);
+    const subjectVersion = optionalString(subject, "version");
+    if (engagementInput && !subjectVersion) throw new ControlPlaneError("subject.version is required for a 7-Day Assurance Review engagement.", 422);
+    const engagement = engagementInput ? assuranceEngagement(engagementInput, now) : undefined;
     const assuranceCase: AssuranceCaseRecord = {
       id: randomUUID(), projectId, name: requiredString(body, "name"),
-      subject: { id: requiredString(subject, "id"), name: requiredString(subject, "name"), version: optionalString(subject, "version"), kind: requiredString(subject, "kind") },
+      subject: { id: requiredString(subject, "id"), name: requiredString(subject, "name"), version: subjectVersion, kind: requiredString(subject, "kind") },
       status: "draft", policyPackVersion: requiredString(body, "policyPackVersion"), evaluationPlan,
-      evaluationPlanSha256: evaluationPlanDigest(evaluationPlan), evidenceIds: [], createdBy: auth.userId, createdAt: now, updatedAt: now,
+      evaluationPlanSha256: evaluationPlanDigest(evaluationPlan), evidenceIds: [], engagement, createdBy: auth.userId, createdAt: now, updatedAt: now,
     };
     const decision = assuranceDecision(assuranceCase, auth, undefined, "draft", "Assurance case created.", now);
     return this.store.insertAssuranceCaseWithDecision(assuranceCase, decision);
@@ -457,6 +461,9 @@ export class AgentCertControlPlane {
   }
 
   async transitionAssuranceCase(auth: AuthContext, projectId: string, caseId: string, action: string, input: unknown) {
+    if (action === "baseline" || action === "remediation" || action === "retest") {
+      return this.updateAssuranceEngagement(auth, projectId, caseId, action, input);
+    }
     const privileged: MemberRole[] = action === "issue" ? ["owner", "admin", "operator"] : ["owner", "admin"];
     await this.authorizeProject(auth, projectId, privileged);
     requireUser(auth);
@@ -476,6 +483,9 @@ export class AgentCertControlPlane {
     if (target === "review_required" || target === "issued") {
       const missing = missingRequiredEvidence({ ...current, evidenceIds }, evidence);
       if (missing.length) throw new ControlPlaneError(`Required evidence kinds are missing: ${missing.join(", ")}.`, 422, "assurance_evidence_incomplete");
+      if (current.engagement && (!current.engagement.baseline || !current.engagement.retest)) {
+        throw new ControlPlaneError("The engagement requires a recorded baseline and its one included retest before review.", 422, "assurance_engagement_incomplete");
+      }
     }
     if (target === "issued" && current.createdBy === auth.userId) {
       throw new ControlPlaneError("The assurance case creator cannot issue its report. A separate reviewer is required.", 403, "assurance_reviewer_separation_required");
@@ -487,7 +497,9 @@ export class AgentCertControlPlane {
       const expiresAt = assuranceExpiry(body.expiresAt, now);
       next.reviewerId = auth.userId;
       next.expiresAt = expiresAt;
+      if (current.engagement) next.engagement = { ...current.engagement, decision: assuranceEngagementDecision(body, current.engagement.workflow.expectedOutcome, auth.userId, now.toISOString()) };
       next.report = buildAssuranceReport(next, evidence, auth.userId, now.toISOString(), expiresAt, this.evidenceSigner);
+      if (next.engagement) next.deliveryPacket = buildAssuranceDeliveryPacket(next, evidence, auth.userId, now.toISOString(), this.evidenceSigner);
       if (body.publish === true) next.publicVerificationId = randomBytes(24).toString("base64url");
     }
     const reason = requiredString(body, "reason");
@@ -497,6 +509,87 @@ export class AgentCertControlPlane {
     return { assuranceCase: updated, decision };
   }
 
+  private async updateAssuranceEngagement(
+    auth: AuthContext,
+    projectId: string,
+    caseId: string,
+    action: "baseline" | "remediation" | "retest",
+    input: unknown,
+  ) {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    requireUser(auth);
+    const current = await this.store.getAssuranceCase(projectId, caseId);
+    if (!current) throw new ControlPlaneError("Assurance case was not found.", 404);
+    if (!current.engagement) throw new ControlPlaneError("This assurance case is not a 7-Day Assurance Review engagement.", 409, "assurance_engagement_required");
+    if (current.status !== "evaluating") throw new ControlPlaneError("Engagement evidence can only be recorded while the case is evaluating.", 409, "assurance_engagement_not_evaluating");
+    const body = record(input);
+    const now = new Date(Math.max(Date.now(), Date.parse(current.updatedAt) + 1)).toISOString();
+    let engagement = current.engagement;
+    let evidenceIds = current.evidenceIds;
+
+    if (action === "remediation") {
+      if (engagement.retest) throw new ControlPlaneError("Remediation is locked after the included retest is recorded.", 409, "assurance_remediation_locked");
+      const items = Array.isArray(body.items) ? body.items : [];
+      if (items.length === 0 || items.length > 100) throw new ControlPlaneError("items must contain between 1 and 100 remediation items.", 422);
+      const proposed = items.map((value, index) => {
+        const item = record(value);
+        const status: "open" | "addressed" | "accepted" = item.status === "open" || item.status === "addressed" || item.status === "accepted" ? item.status : "open";
+        return {
+          id: optionalString(item, "id") ?? `remediation-${index + 1}`,
+          title: requiredString(item, "title"),
+          status,
+          owner: optionalString(item, "owner"),
+          evidenceIds: item.evidenceIds === undefined ? [] : strictStringList(item.evidenceIds, `items[${index}].evidenceIds`),
+        };
+      });
+      if (new Set(proposed.map((item) => item.id)).size !== proposed.length) throw new ControlPlaneError("Remediation item IDs must be unique.", 422);
+      for (const existing of engagement.remediationItems) {
+        const updated = proposed.find((item) => item.id === existing.id);
+        if (!updated) throw new ControlPlaneError(`Remediation item ${existing.id} cannot be removed after it is recorded.`, 409, "assurance_remediation_item_locked");
+        if (updated.title !== existing.title) throw new ControlPlaneError(`Remediation item ${existing.id} title is immutable.`, 409, "assurance_remediation_item_locked");
+        const order = { open: 0, addressed: 1, accepted: 2 } as const;
+        if (order[updated.status] < order[existing.status]) throw new ControlPlaneError(`Remediation item ${existing.id} cannot move backward.`, 409, "assurance_remediation_state_regression");
+      }
+      engagement = {
+        ...engagement,
+        remediationItems: proposed,
+      };
+      const referenced = engagement.remediationItems.flatMap((item) => item.evidenceIds);
+      await this.assuranceEvidence(projectId, referenced);
+      evidenceIds = [...new Set([...evidenceIds, ...referenced])];
+    } else {
+      const selected = strictStringList(body.evidenceIds, "evidenceIds");
+      const selectedEvidence = await this.assuranceEvidence(projectId, selected);
+      if (action === "baseline") {
+        if (engagement.baseline) throw new ControlPlaneError("The baseline is already recorded and cannot be replaced.", 409, "assurance_baseline_locked");
+        const firstEvidenceAt = selectedEvidence.map((item) => item.createdAt).sort()[0] ?? now;
+        const elapsed = Math.max(0, Math.floor((Date.parse(firstEvidenceAt) - Date.parse(engagement.integrationStartedAt)) / 1_000));
+        engagement = { ...engagement, baseline: { evidenceIds: selected, recordedAt: now }, firstEvidenceAt, timeToFirstEvidenceSeconds: elapsed };
+      } else {
+        if (!engagement.baseline) throw new ControlPlaneError("Record the baseline before the retest.", 409, "assurance_baseline_required");
+        if (engagement.retest) throw new ControlPlaneError("The included retest is already recorded and cannot be replaced.", 409, "assurance_retest_locked");
+        if (selected.some((id) => engagement.baseline?.evidenceIds.includes(id))) {
+          throw new ControlPlaneError("Retest evidence must be distinct from the locked baseline evidence.", 422, "assurance_retest_evidence_reused");
+        }
+        engagement = { ...engagement, retest: { evidenceIds: selected, recordedAt: now } };
+      }
+      evidenceIds = [...new Set([...evidenceIds, ...selected])];
+    }
+
+    const next: AssuranceCaseRecord = { ...current, engagement, evidenceIds, updatedAt: now };
+    const updated = await this.store.updateAssuranceCase(next, current.status, current.updatedAt);
+    if (!updated) throw new ControlPlaneError("Assurance case changed concurrently. Reload and retry.", 409, "assurance_transition_conflict");
+    return { assuranceCase: updated };
+  }
+
+  private async assuranceEvidence(projectId: string, evidenceIds: string[]): Promise<EvidenceRecord[]> {
+    return Promise.all(evidenceIds.map(async (id) => {
+      const item = await this.store.getEvidence(projectId, id);
+      if (!item) throw new ControlPlaneError(`Evidence ${id} was not found in this project.`, 422, "assurance_evidence_missing");
+      return item;
+    }));
+  }
+
   async publicAssuranceReport(publicId: string) {
     const found = await this.store.getAssuranceCaseByPublicId(publicId);
     if (!found?.report) throw new ControlPlaneError("Published assurance report was not found.", 404);
@@ -504,6 +597,7 @@ export class AgentCertControlPlane {
     const decisions = await this.store.listAssuranceCaseDecisions(assuranceCase.projectId, assuranceCase.id);
     return {
       schemaVersion: "agentcert.public_assurance_report.v0.1", status: assuranceCase.status, report: assuranceCase.report,
+      deliveryPacket: assuranceCase.deliveryPacket,
       history: decisions.map(({ toStatus, reason, occurredAt }) => ({ status: toStatus, reason, occurredAt })),
     };
   }
@@ -2480,6 +2574,71 @@ function strictStringList(value: unknown, name: string, fallback?: string[]): st
   const result = [...new Set(value.map((item) => String(item).trim()))];
   if (result.length === 0) throw new ControlPlaneError(`${name} cannot be empty.`);
   return result;
+}
+function optionalStringList(value: unknown, name: string): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) throw new ControlPlaneError(`${name} must be an array of non-empty strings.`);
+  return [...new Set(value.map((item) => String(item).trim()))];
+}
+function assuranceEngagement(input: Record<string, unknown>, now: string): NonNullable<AssuranceCaseRecord["engagement"]> {
+  const customer = record(input.customer);
+  const sandbox = record(input.sandbox);
+  const workflow = record(input.workflow);
+  const expectedOutcome = record(workflow.expectedOutcome);
+  if (Object.keys(expectedOutcome).length === 0) throw new ControlPlaneError("engagement.workflow.expectedOutcome must declare at least one expected field.", 422);
+  const startedAtInput = optionalString(input, "integrationStartedAt");
+  const startedAt = startedAtInput ? new Date(startedAtInput) : new Date(now);
+  const nowDate = new Date(now);
+  const contactEmail = optionalString(customer, "contactEmail");
+  if (!Number.isFinite(startedAt.getTime()) || startedAt.getTime() > nowDate.getTime() + 60_000 || startedAt.getTime() < nowDate.getTime() - 30 * 24 * 60 * 60 * 1_000) {
+    throw new ControlPlaneError("engagement.integrationStartedAt must be a valid timestamp within the previous 30 days.", 422);
+  }
+  return {
+    schemaVersion: "agentcert.assurance_engagement.v0.1",
+    customer: { name: requiredString(customer, "name"), contactEmail: contactEmail ? notificationEmail(contactEmail) : undefined },
+    sandbox: { name: requiredString(sandbox, "name"), kind: requiredString(sandbox, "kind"), baseUrl: optionalString(sandbox, "baseUrl") },
+    workflow: {
+      name: requiredString(workflow, "name"),
+      description: requiredString(workflow, "description"),
+      highRiskAction: actionTypeValue(workflow.highRiskAction),
+      expectedOutcome,
+    },
+    terms: { priceUsd: 5000, workflowCount: 1, includedRetests: 1, privacy: "private_by_default" },
+    planLockedAt: now,
+    dueAt: new Date(nowDate.getTime() + 7 * 24 * 60 * 60 * 1_000).toISOString(),
+    integrationStartedAt: startedAt.toISOString(),
+    remediationItems: [],
+  };
+}
+function assuranceEngagementDecision(
+  body: Record<string, unknown>,
+  expectedOutcome: Record<string, unknown>,
+  reviewerId: string,
+  decidedAt: string,
+): NonNullable<NonNullable<AssuranceCaseRecord["engagement"]>["decision"]> {
+  const verdict = body.verdict;
+  if (verdict !== "RELEASE" && verdict !== "RELEASE_WITH_CONTROLS" && verdict !== "BLOCK") {
+    throw new ControlPlaneError("verdict must be RELEASE, RELEASE_WITH_CONTROLS, or BLOCK.", 422, "assurance_verdict_invalid");
+  }
+  const outcomeInput = record(body.outcome);
+  const observed = record(outcomeInput.observed);
+  if (Object.keys(observed).length === 0) throw new ControlPlaneError("outcome.observed must contain the independently observed result.", 422);
+  if (typeof outcomeInput.verified !== "boolean") throw new ControlPlaneError("outcome.verified must be a boolean.", 422);
+  const controlsRequired = optionalStringList(body.controlsRequired, "controlsRequired");
+  if (verdict === "RELEASE" && !outcomeInput.verified) throw new ControlPlaneError("RELEASE requires an independently verified outcome.", 422, "assurance_release_unverified");
+  if (verdict === "RELEASE" && controlsRequired.length) throw new ControlPlaneError("Use RELEASE_WITH_CONTROLS when controls remain required.", 422, "assurance_release_controls_conflict");
+  if (verdict === "RELEASE_WITH_CONTROLS" && controlsRequired.length === 0) throw new ControlPlaneError("RELEASE_WITH_CONTROLS requires at least one declared control.", 422, "assurance_controls_required");
+  return {
+    verdict,
+    rationale: requiredString(body, "rationale"),
+    firstDivergence: requiredString(body, "firstDivergence"),
+    authorizationGaps: optionalStringList(body.authorizationGaps, "authorizationGaps"),
+    outcome: { expected: expectedOutcome, observed, verified: outcomeInput.verified },
+    controlsRequired,
+    limitations: strictStringList(body.limitations, "limitations"),
+    decidedBy: reviewerId,
+    decidedAt,
+  };
 }
 function assuranceTarget(action: string): AssuranceCaseStatus {
   const targets: Record<string, AssuranceCaseStatus> = {

@@ -3,6 +3,8 @@ import { canonicalJson, type EvidenceSigner } from "./signing.js";
 import type {
   AssuranceCaseRecord,
   AssuranceCaseStatus,
+  AssuranceDeliveryPacket,
+  AssuranceDeliveryPacketPayload,
   AssuranceReport,
   AssuranceReportPayload,
   EvidenceRecord,
@@ -57,6 +59,52 @@ export function buildAssuranceReport(
     evidenceStrength,
   };
   return { ...payload, ...(signer ? { attestation: signer.attestCanonical(payload, issuedAt) } : {}) };
+}
+
+export function buildAssuranceDeliveryPacket(
+  caseRecord: AssuranceCaseRecord,
+  evidence: EvidenceRecord[],
+  reviewerId: string,
+  deliveredAt: string,
+  signer: EvidenceSigner,
+): AssuranceDeliveryPacket {
+  const engagement = caseRecord.engagement;
+  if (!engagement?.baseline || !engagement.retest || !engagement.decision || !engagement.firstEvidenceAt
+    || engagement.timeToFirstEvidenceSeconds === undefined) {
+    throw new Error("Assurance engagement is incomplete and cannot be delivered.");
+  }
+  const byId = new Map(evidence.map((item) => [item.id, item]));
+  const references = (ids: string[]) => ids.map((id) => {
+    const item = byId.get(id);
+    if (!item) throw new Error(`Delivery evidence ${id} was not provided.`);
+    return { id: item.id, kind: item.kind, schemaVersion: item.schemaVersion, sha256: item.sha256, sizeBytes: item.sizeBytes };
+  });
+  const payload: AssuranceDeliveryPacketPayload = {
+    schemaVersion: "agentcert.assurance_delivery.v0.1",
+    engagementId: caseRecord.id,
+    projectId: caseRecord.projectId,
+    assuranceCaseId: caseRecord.id,
+    customer: { name: engagement.customer.name },
+    subject: caseRecord.subject,
+    sandbox: engagement.sandbox,
+    workflow: engagement.workflow,
+    terms: engagement.terms,
+    dueAt: engagement.dueAt,
+    deliveredAt,
+    evaluationPlanSha256: caseRecord.evaluationPlanSha256,
+    baselineEvidence: references(engagement.baseline.evidenceIds),
+    remediationItems: engagement.remediationItems,
+    retestEvidence: references(engagement.retest.evidenceIds),
+    decision: engagement.decision,
+    integration: {
+      startedAt: engagement.integrationStartedAt,
+      firstEvidenceAt: engagement.firstEvidenceAt,
+      timeToFirstEvidenceSeconds: engagement.timeToFirstEvidenceSeconds,
+    },
+    evidenceStrength: assuranceEvidenceStrength(caseRecord, evidence, reviewerId),
+    statement: "This fixed-scope review covers one declared agent version, one sandbox workflow, and one retest. It is not a guarantee of future behavior or regulatory certification.",
+  };
+  return { ...payload, attestation: signer.attestCanonical(payload, deliveredAt) };
 }
 
 type UnderlyingStrength = AssuranceReportPayload["evidenceStrength"]["underlyingLevel"];

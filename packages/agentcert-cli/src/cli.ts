@@ -499,6 +499,7 @@ Saved connections are reused by agentcert push and agentcert run --push.
   agentcert schema validate --schema classifier-eval --file examples/agentcert/classifier-eval.example.json
   agentcert schema validate --schema release-gate --file .agentcert/latest/agentcert-release-gate.json
   agentcert schema validate --schema assurance-report --file assurance-report.json
+  agentcert schema validate --schema assurance-delivery --file assurance-delivery.json
   agentcert schema validate --schema evidence-signature --file .agentcert/latest/agentcert-evidence.json.sig.json
 `);
   }

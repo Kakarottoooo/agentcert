@@ -1,6 +1,6 @@
-# Onegent Runtime
+# AgentCert Controlled Action Runtime
 
-Onegent Runtime is the production action-boundary layer in AgentCert. The current repository contains a local Action Gateway MVP for customer demos and deterministic tests.
+The controlled action runtime is the production action-boundary layer in AgentCert. `packages/onegent-runtime` remains the internal source module name, while external users install the single public `agentcert-sdk` package.
 
 Unlike MCPBench and Tripwire CI, it does not ask whether an agent should ship. It asks whether one live action should be allowed right now.
 
@@ -25,13 +25,10 @@ Onegent Runtime can now be embedded as a small SDK around a high-risk action
 boundary. The default implementation is still local and mock-only, but the
 control flow is the production shape:
 
-The SDK is currently a repository-local preview package and is not yet
-published to npm. Build and test it from this checkout:
+Install the public SDK:
 
 ```bash
-npm --prefix packages/onegent-runtime ci
-npm --prefix packages/onegent-runtime run build
-npm --prefix packages/onegent-runtime test
+npm install agentcert-sdk
 ```
 
 ```ts
@@ -39,7 +36,7 @@ import {
   createInMemoryAuditStore,
   createLocalEchoAdapter,
   createOnegentRuntime,
-} from "@agentcert/onegent-runtime";
+} from "agentcert-sdk/runtime";
 
 const auditStore = createInMemoryAuditStore();
 const runtime = createOnegentRuntime({

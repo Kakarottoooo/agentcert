@@ -65,6 +65,7 @@ export const CONTROL_PLANE_MIGRATIONS = [
   "014_team_access_management.sql",
   "015_trusted_action_assurance.sql",
   "016_remote_collector.sql",
+  "017_assurance_engagements.sql",
 ] as const;
 
 const DEFAULT_PROJECT_NAME = "Agent assurance project";
@@ -120,7 +121,7 @@ export interface ControlPlaneStore {
   pilotFunnelSource(since: string): Promise<PilotFunnelSource>;
   insertAssuranceCase(record: AssuranceCaseRecord): Promise<AssuranceCaseRecord>;
   insertAssuranceCaseWithDecision(record: AssuranceCaseRecord, decision: AssuranceCaseDecisionRecord): Promise<AssuranceCaseRecord>;
-  updateAssuranceCase(record: AssuranceCaseRecord, expectedStatus: AssuranceCaseRecord["status"]): Promise<AssuranceCaseRecord | undefined>;
+  updateAssuranceCase(record: AssuranceCaseRecord, expectedStatus: AssuranceCaseRecord["status"], expectedUpdatedAt?: string): Promise<AssuranceCaseRecord | undefined>;
   transitionAssuranceCase(record: AssuranceCaseRecord, decision: AssuranceCaseDecisionRecord, expectedStatus: AssuranceCaseRecord["status"]): Promise<AssuranceCaseRecord | undefined>;
   getAssuranceCase(projectId: string, caseId: string): Promise<AssuranceCaseRecord | undefined>;
   getAssuranceCaseByPublicId(publicId: string): Promise<AssuranceCaseRecord | undefined>;
@@ -452,9 +453,9 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
     return structuredClone(record);
   }
 
-  async updateAssuranceCase(record: AssuranceCaseRecord, expectedStatus: AssuranceCaseRecord["status"]): Promise<AssuranceCaseRecord | undefined> {
+  async updateAssuranceCase(record: AssuranceCaseRecord, expectedStatus: AssuranceCaseRecord["status"], expectedUpdatedAt?: string): Promise<AssuranceCaseRecord | undefined> {
     const current = this.assuranceCases.get(record.id);
-    if (!current || current.projectId !== record.projectId || current.status !== expectedStatus) return undefined;
+    if (!current || current.projectId !== record.projectId || current.status !== expectedStatus || (expectedUpdatedAt !== undefined && current.updatedAt !== expectedUpdatedAt)) return undefined;
     this.assuranceCases.set(record.id, structuredClone(record));
     return structuredClone(record);
   }
@@ -1480,8 +1481,8 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
   async insertAssuranceCase(record: AssuranceCaseRecord): Promise<AssuranceCaseRecord> {
     const result = await this.pool.query(
       `INSERT INTO agentcert_assurance_cases
-       (id,project_id,name,subject,status,policy_pack_version,evaluation_plan,evaluation_plan_sha256,evidence_ids,created_by,reviewer_id,report,public_verification_id,expires_at,created_at,updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+       (id,project_id,name,subject,status,policy_pack_version,evaluation_plan,evaluation_plan_sha256,evidence_ids,created_by,reviewer_id,report,public_verification_id,expires_at,created_at,updated_at,engagement,delivery_packet)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
       assuranceCaseValues(record),
     );
     return assuranceCaseFromRow(result.rows[0]);
@@ -1493,8 +1494,8 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
       await client.query("BEGIN");
       const inserted = await client.query(
         `INSERT INTO agentcert_assurance_cases
-         (id,project_id,name,subject,status,policy_pack_version,evaluation_plan,evaluation_plan_sha256,evidence_ids,created_by,reviewer_id,report,public_verification_id,expires_at,created_at,updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`, assuranceCaseValues(record));
+         (id,project_id,name,subject,status,policy_pack_version,evaluation_plan,evaluation_plan_sha256,evidence_ids,created_by,reviewer_id,report,public_verification_id,expires_at,created_at,updated_at,engagement,delivery_packet)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`, assuranceCaseValues(record));
       await client.query(
         `INSERT INTO agentcert_assurance_case_decisions
          (id,project_id,assurance_case_id,from_status,to_status,actor_id,actor_email,reason,evidence_ids,occurred_at)
@@ -1507,14 +1508,16 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     } finally { client.release(); }
   }
 
-  async updateAssuranceCase(record: AssuranceCaseRecord, expectedStatus: AssuranceCaseRecord["status"]): Promise<AssuranceCaseRecord | undefined> {
+  async updateAssuranceCase(record: AssuranceCaseRecord, expectedStatus: AssuranceCaseRecord["status"], expectedUpdatedAt?: string): Promise<AssuranceCaseRecord | undefined> {
     return one(this.pool.query(
       `UPDATE agentcert_assurance_cases SET name=$3,subject=$4,status=$5,policy_pack_version=$6,evaluation_plan=$7,
-       evaluation_plan_sha256=$8,evidence_ids=$9,reviewer_id=$10,report=$11,public_verification_id=$12,expires_at=$13,updated_at=$14
-       WHERE project_id=$1 AND id=$2 AND status=$15 RETURNING *`,
+       evaluation_plan_sha256=$8,evidence_ids=$9,reviewer_id=$10,report=$11,public_verification_id=$12,expires_at=$13,updated_at=$14,
+       engagement=$15,delivery_packet=$16 WHERE project_id=$1 AND id=$2 AND status=$17
+       AND ($18::timestamptz IS NULL OR updated_at=$18) RETURNING *`,
       [record.projectId, record.id, record.name, JSON.stringify(record.subject), record.status, record.policyPackVersion,
         JSON.stringify(record.evaluationPlan), record.evaluationPlanSha256, JSON.stringify(record.evidenceIds), record.reviewerId ?? null,
-        jsonOrNull(record.report), record.publicVerificationId ?? null, record.expiresAt ?? null, record.updatedAt, expectedStatus],
+        jsonOrNull(record.report), record.publicVerificationId ?? null, record.expiresAt ?? null, record.updatedAt,
+        jsonOrNull(record.engagement), jsonOrNull(record.deliveryPacket), expectedStatus, expectedUpdatedAt ?? null],
     ), assuranceCaseFromRow);
   }
 
@@ -1524,11 +1527,12 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
       await client.query("BEGIN");
       const result = await client.query(
         `UPDATE agentcert_assurance_cases SET name=$3,subject=$4,status=$5,policy_pack_version=$6,evaluation_plan=$7,
-         evaluation_plan_sha256=$8,evidence_ids=$9,reviewer_id=$10,report=$11,public_verification_id=$12,expires_at=$13,updated_at=$14
-         WHERE project_id=$1 AND id=$2 AND status=$15 RETURNING *`,
+         evaluation_plan_sha256=$8,evidence_ids=$9,reviewer_id=$10,report=$11,public_verification_id=$12,expires_at=$13,updated_at=$14,
+         engagement=$15,delivery_packet=$16 WHERE project_id=$1 AND id=$2 AND status=$17 RETURNING *`,
         [record.projectId, record.id, record.name, JSON.stringify(record.subject), record.status, record.policyPackVersion,
           JSON.stringify(record.evaluationPlan), record.evaluationPlanSha256, JSON.stringify(record.evidenceIds), record.reviewerId ?? null,
-          jsonOrNull(record.report), record.publicVerificationId ?? null, record.expiresAt ?? null, record.updatedAt, expectedStatus]);
+          jsonOrNull(record.report), record.publicVerificationId ?? null, record.expiresAt ?? null, record.updatedAt,
+          jsonOrNull(record.engagement), jsonOrNull(record.deliveryPacket), expectedStatus]);
       if (!result.rows[0]) { await client.query("ROLLBACK"); return undefined; }
       await client.query(
         `INSERT INTO agentcert_assurance_case_decisions
@@ -2767,7 +2771,7 @@ function assuranceCaseValues(record: AssuranceCaseRecord): unknown[] {
   return [record.id, record.projectId, record.name, JSON.stringify(record.subject), record.status, record.policyPackVersion,
     JSON.stringify(record.evaluationPlan), record.evaluationPlanSha256, JSON.stringify(record.evidenceIds), record.createdBy,
     record.reviewerId ?? null, jsonOrNull(record.report), record.publicVerificationId ?? null, record.expiresAt ?? null,
-    record.createdAt, record.updatedAt];
+    record.createdAt, record.updatedAt, jsonOrNull(record.engagement), jsonOrNull(record.deliveryPacket)];
 }
 
 function assuranceDecisionValues(record: AssuranceCaseDecisionRecord): unknown[] {
@@ -2782,6 +2786,8 @@ function assuranceCaseFromRow(row: Record<string, unknown>): AssuranceCaseRecord
     evaluationPlan: object(row.evaluation_plan) as unknown as AssuranceCaseRecord["evaluationPlan"],
     evaluationPlanSha256: text(row.evaluation_plan_sha256), evidenceIds: stringArray(row.evidence_ids), createdBy: text(row.created_by),
     reviewerId: optionalText(row.reviewer_id), report: optionalObject(row.report) as unknown as AssuranceCaseRecord["report"],
+    engagement: optionalObject(row.engagement) as unknown as AssuranceCaseRecord["engagement"],
+    deliveryPacket: optionalObject(row.delivery_packet) as unknown as AssuranceCaseRecord["deliveryPacket"],
     publicVerificationId: optionalText(row.public_verification_id), expiresAt: optionalIso(row.expires_at),
     createdAt: iso(row.created_at), updatedAt: iso(row.updated_at),
   };

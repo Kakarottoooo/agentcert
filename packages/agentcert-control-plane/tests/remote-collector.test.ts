@@ -15,7 +15,7 @@ const owner: AuthContext = { kind: "user", userId: "00000000-0000-4000-8000-0000
 
 describe("Customer-owned Remote Collector v0.2", () => {
   it("loads the remote collector migration", () => {
-    expect(CONTROL_PLANE_MIGRATIONS.at(-1)).toBe("016_remote_collector.sql");
+    expect(CONTROL_PLANE_MIGRATIONS).toContain("016_remote_collector.sql");
   });
 
   it("accepts a signed chain, safely replays duplicates, and server-attests reconciliation", async () => {

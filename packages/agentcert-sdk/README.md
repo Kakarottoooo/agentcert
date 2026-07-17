@@ -30,6 +30,52 @@ mutates external systems, approves actions, or changes agent permissions.
 Owners and admins register agent identities and grant permissions in the human
 console before giving a project API key to an agent or CI job.
 
+## Controlled action runtime
+
+The runtime is part of the same package, not a separate AgentCert product:
+
+```ts
+import {
+  createInMemoryAuditStore,
+  createLocalEchoAdapter,
+  createOnegentRuntime,
+} from "agentcert-sdk/runtime";
+
+const runtime = createOnegentRuntime({
+  auditStore: createInMemoryAuditStore(),
+  approvalAdapter: {
+    name: "human-review",
+    requestApproval: async () => ({ approved: true, reviewerId: "reviewer@example.com" }),
+  },
+});
+
+const review = runtime.captureAction({
+  sourceAgentName: "ProcurementAgent",
+  principal: { id: "procurement-agent", type: "agent" },
+  requestedPermissions: ["MockERP:SUBMIT"],
+  actionType: "SUBMIT",
+  targetSystem: "MockERP",
+  title: "Submit purchase order",
+  description: "Submit one approved sandbox purchase order.",
+  businessObjectType: "purchase_order",
+  businessObjectId: "PO-1001",
+  beforeState: { status: "DRAFT" },
+  proposedAfterState: { status: "SUBMITTED" },
+});
+
+const approval = await runtime.requestApproval(review.action);
+if (approval.status !== "APPROVED") throw new Error("Approval required");
+const observed = await runtime.executeAfterApproval(review.action, createLocalEchoAdapter());
+const verification = runtime.verifyOutcome(review.action, observed);
+const audit = await runtime.writeAuditPacket(review.action);
+```
+
+Production integrations should use `createTrustedActionRuntime()` from the
+same subpath. It requires a signed mandate, a gap-detectable recorder, a
+registered credential-holding execution adapter, and an independent outcome
+probe. The bundled local adapters are deterministic examples and must not be
+treated as production-system connectors.
+
 The SDK also exports `createEventEnvelope()` and `sendEnvelope()` for
 framework-neutral event ingestion. `verifyServerAttestation()` verifies the
 canonical Ed25519 metadata chain returned on hosted evidence records against
@@ -37,7 +83,7 @@ the public key from `GET /v1/signing-keys/current`.
 
 ## Customer-owned collector gateway
 
-`agentcert-sdk` v0.2 adds a customer-owned process that holds the source
+`agentcert-sdk` includes a customer-owned process that holds the source
 signing key, Hosted API key, and durable offline queue outside the agent
 process. It provides idempotent local append, signed heartbeat, restart replay,
 receipt reconciliation, key rotation, and a black-box conformance command.
