@@ -20,11 +20,16 @@ evidence, separates case creation from issuance review, signs issued reports,
 and keeps suspension, revocation, and expiry observable. It is an auditable
 assurance decision, not an official certification.
 
+**7-Day Agent Action Assurance Review:** `$5,000`, one declared agent version,
+one sandbox workflow, and one included retest. The engagement is private by
+default and ends in a signed `RELEASE`, `RELEASE_WITH_CONTROLS`, or `BLOCK`
+delivery packet. See the [fixed scope and delivery contract](docs/7-day-assurance-review.md).
+
 **Use AgentCert:** [Product site](https://agentcert.app/) |
 [Public evidence](https://agentcert.app/evidence) |
 [Private workspace](https://agentcert.app/app) |
 [GitHub source](https://github.com/Kakarottoooo/agentcert) |
-[v0.5.3 release](https://github.com/Kakarottoooo/agentcert/releases/tag/v0.5.3)
+[v0.5.4 release](https://github.com/Kakarottoooo/agentcert/releases/tag/v0.5.4)
 
 ```bash
 npx agentcert release-gate --config agentcert.config.json --strict

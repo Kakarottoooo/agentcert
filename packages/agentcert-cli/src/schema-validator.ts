@@ -12,6 +12,7 @@ export type AgentCertSchemaId =
   | "robustness-lab"
   | "release-gate"
   | "assurance-report"
+  | "assurance-delivery"
   | "evidence-signature"
   | "evidence-strength"
   | "action-mandate"
@@ -36,6 +37,7 @@ export function parseSchemaId(input: string | undefined): AgentCertSchemaId {
     value === "robustness-lab" ||
     value === "release-gate" ||
     value === "assurance-report" ||
+    value === "assurance-delivery" ||
     value === "evidence-signature" ||
     value === "evidence-strength" ||
     value === "action-mandate" ||
@@ -45,7 +47,7 @@ export function parseSchemaId(input: string | undefined): AgentCertSchemaId {
     return value;
   }
   throw new Error(
-    `Unsupported schema "${value}". Use evidence-bundle, result, corpus-record, failure-review, classifier-eval, monitor-snapshot, robustness-lab, release-gate, assurance-report, evidence-signature, evidence-strength, action-mandate, trusted-action-record, or trusted-run-receipt.`
+    `Unsupported schema "${value}". Use evidence-bundle, result, corpus-record, failure-review, classifier-eval, monitor-snapshot, robustness-lab, release-gate, assurance-report, assurance-delivery, evidence-signature, evidence-strength, action-mandate, trusted-action-record, or trusted-run-receipt.`
   );
 }
 
@@ -69,6 +71,7 @@ export function validateAgentCertSchema(schema: AgentCertSchemaId, input: unknow
     if (schema === "monitor-snapshot") validateMonitorSnapshot(value, errors);
     if (schema === "robustness-lab") validateRobustnessLab(value, errors);
     if (schema === "assurance-report") validateAssuranceReport(value, errors);
+    if (schema === "assurance-delivery") validateAssuranceDelivery(value, errors);
     if (schema === "evidence-strength") validateEvidenceStrength(value, errors);
     if (schema === "action-mandate") validateActionMandate(value, errors);
     if (schema === "trusted-action-record") validateTrustedActionRecord(value, errors);
@@ -293,6 +296,25 @@ function validateAssuranceReport(value: Record<string, unknown>, errors: string[
   if (!/^[0-9a-f]{64}$/.test(String(value.evaluationPlanSha256 ?? ""))) errors.push("evaluationPlanSha256 must be a lowercase SHA-256 digest.");
   validateTimestamp(value.issuedAt, "issuedAt", errors);
   validateTimestamp(value.expiresAt, "expiresAt", errors);
+}
+
+function validateAssuranceDelivery(value: Record<string, unknown>, errors: string[]): void {
+  requiredConst(value, "schemaVersion", "agentcert.assurance_delivery.v0.1", errors);
+  for (const key of ["engagementId", "projectId", "assuranceCaseId", "dueAt", "deliveredAt", "evaluationPlanSha256", "statement"]) requiredString(value, key, errors);
+  for (const key of ["customer", "subject", "sandbox", "workflow", "terms", "decision", "integration", "evidenceStrength", "attestation"]) requiredObject(value, key, errors);
+  for (const key of ["baselineEvidence", "remediationItems", "retestEvidence"]) requiredArray(value, key, errors);
+  if (!/^[0-9a-f]{64}$/.test(String(value.evaluationPlanSha256 ?? ""))) errors.push("evaluationPlanSha256 must be a lowercase SHA-256 digest.");
+  validateTimestamp(value.dueAt, "dueAt", errors);
+  validateTimestamp(value.deliveredAt, "deliveredAt", errors);
+  const terms = recordValue(value.terms);
+  if (terms) {
+    if (terms.priceUsd !== 5000) errors.push("terms.priceUsd must equal 5000.");
+    if (terms.workflowCount !== 1) errors.push("terms.workflowCount must equal 1.");
+    if (terms.includedRetests !== 1) errors.push("terms.includedRetests must equal 1.");
+    if (terms.privacy !== "private_by_default") errors.push("terms.privacy must equal private_by_default.");
+  }
+  const decision = recordValue(value.decision);
+  if (decision) requiredEnum(decision, "verdict", ["RELEASE", "RELEASE_WITH_CONTROLS", "BLOCK"], errors);
 }
 
 function validateFailureReview(value: Record<string, unknown>, errors: string[]): void {

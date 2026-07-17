@@ -187,7 +187,7 @@ paths:
       parameters:
         - {$ref: "#/components/parameters/ProjectId"}
         - {in: path, name: caseId, required: true, schema: {type: string, format: uuid}}
-        - {in: path, name: transition, required: true, schema: {enum: [start, submit, return, issue, suspend, revoke, expire, resume]}}
+        - {in: path, name: transition, required: true, schema: {enum: [start, baseline, remediation, retest, submit, return, issue, suspend, revoke, expire, resume]}}
       requestBody:
         required: true
         content: {application/json: {schema: {$ref: "#/components/schemas/AssuranceTransitionInput"}}}
@@ -613,6 +613,28 @@ components:
                 type: object
                 required: [id, title, mode]
                 properties: {id: {type: string}, title: {type: string}, mode: {enum: [automated, evidence_required, manual]}}
+        engagement:
+          type: object
+          description: Optional fixed-scope 7-Day Assurance Review. Terms and due date are set by the server and the plan is immutable after creation.
+          required: [customer, sandbox, workflow]
+          properties:
+            integrationStartedAt: {type: string, format: date-time}
+            customer:
+              type: object
+              required: [name]
+              properties: {name: {type: string}, contactEmail: {type: string, format: email}}
+            sandbox:
+              type: object
+              required: [name, kind]
+              properties: {name: {type: string}, kind: {type: string}, baseUrl: {type: string, format: uri}}
+            workflow:
+              type: object
+              required: [name, description, highRiskAction, expectedOutcome]
+              properties:
+                name: {type: string}
+                description: {type: string}
+                highRiskAction: {enum: [SUBMIT, PAY, SEND, UPDATE]}
+                expectedOutcome: {type: object, minProperties: 1}
     AssuranceTransitionInput:
       type: object
       required: [reason]
@@ -621,6 +643,19 @@ components:
         evidenceIds: {type: array, uniqueItems: true, items: {type: string, format: uuid}}
         expiresAt: {type: string, format: date-time}
         publish: {type: boolean, default: false}
+        verdict: {enum: [RELEASE, RELEASE_WITH_CONTROLS, BLOCK]}
+        rationale: {type: string}
+        firstDivergence: {type: string}
+        authorizationGaps: {type: array, items: {type: string}}
+        controlsRequired: {type: array, items: {type: string}}
+        limitations: {type: array, items: {type: string}}
+        outcome:
+          type: object
+          properties: {observed: {type: object}, verified: {type: boolean}}
+        items:
+          type: array
+          description: Remediation items used only with the remediation transition.
+          items: {type: object}
     TrustHealthSampleInput:
       type: object
       required: [externalId, source, status, startedAt, completedAt]

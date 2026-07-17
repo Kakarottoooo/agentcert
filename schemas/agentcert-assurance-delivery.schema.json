@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.app/schemas/agentcert-assurance-delivery-v0.1.json",
+  "title": "AgentCert 7-Day Assurance Review Delivery Packet v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "engagementId", "projectId", "assuranceCaseId", "customer", "subject", "sandbox", "workflow",
+    "terms", "dueAt", "deliveredAt", "evaluationPlanSha256", "baselineEvidence", "remediationItems", "retestEvidence",
+    "decision", "integration", "evidenceStrength", "statement", "attestation"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "agentcert.assurance_delivery.v0.1" },
+    "engagementId": { "type": "string", "format": "uuid" },
+    "projectId": { "type": "string", "format": "uuid" },
+    "assuranceCaseId": { "type": "string", "format": "uuid" },
+    "customer": {
+      "type": "object", "additionalProperties": false, "required": ["name"],
+      "properties": { "name": { "type": "string", "minLength": 1 }, "contactEmail": { "type": "string", "format": "email" } }
+    },
+    "subject": { "type": "object", "required": ["id", "name", "kind"], "additionalProperties": true },
+    "sandbox": {
+      "type": "object", "additionalProperties": false, "required": ["name", "kind"],
+      "properties": { "name": { "type": "string", "minLength": 1 }, "kind": { "type": "string", "minLength": 1 }, "baseUrl": { "type": "string", "format": "uri" } }
+    },
+    "workflow": {
+      "type": "object", "additionalProperties": false, "required": ["name", "description", "highRiskAction", "expectedOutcome"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 }, "description": { "type": "string", "minLength": 1 },
+        "highRiskAction": { "type": "string", "minLength": 1 }, "expectedOutcome": { "type": "object", "minProperties": 1 }
+      }
+    },
+    "terms": {
+      "type": "object", "additionalProperties": false, "required": ["priceUsd", "workflowCount", "includedRetests", "privacy"],
+      "properties": { "priceUsd": { "const": 5000 }, "workflowCount": { "const": 1 }, "includedRetests": { "const": 1 }, "privacy": { "const": "private_by_default" } }
+    },
+    "dueAt": { "type": "string", "format": "date-time" },
+    "deliveredAt": { "type": "string", "format": "date-time" },
+    "evaluationPlanSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "baselineEvidence": { "$ref": "#/$defs/evidenceReferences" },
+    "retestEvidence": { "$ref": "#/$defs/evidenceReferences" },
+    "remediationItems": {
+      "type": "array", "maxItems": 100,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "title", "status", "evidenceIds"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 }, "title": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["open", "addressed", "accepted"] }, "owner": { "type": "string", "minLength": 1 },
+          "evidenceIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "format": "uuid" } }
+        }
+      }
+    },
+    "decision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["verdict", "rationale", "firstDivergence", "authorizationGaps", "outcome", "controlsRequired", "limitations", "decidedBy", "decidedAt"],
+      "properties": {
+        "verdict": { "enum": ["RELEASE", "RELEASE_WITH_CONTROLS", "BLOCK"] },
+        "rationale": { "type": "string", "minLength": 1 }, "firstDivergence": { "type": "string", "minLength": 1 },
+        "authorizationGaps": { "$ref": "#/$defs/stringList" }, "controlsRequired": { "$ref": "#/$defs/stringList" },
+        "limitations": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "outcome": {
+          "type": "object", "additionalProperties": false, "required": ["expected", "observed", "verified"],
+          "properties": { "expected": { "type": "object", "minProperties": 1 }, "observed": { "type": "object", "minProperties": 1 }, "verified": { "type": "boolean" } }
+        },
+        "decidedBy": { "type": "string", "minLength": 1 }, "decidedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "integration": {
+      "type": "object", "additionalProperties": false, "required": ["startedAt", "firstEvidenceAt", "timeToFirstEvidenceSeconds"],
+      "properties": { "startedAt": { "type": "string", "format": "date-time" }, "firstEvidenceAt": { "type": "string", "format": "date-time" }, "timeToFirstEvidenceSeconds": { "type": "integer", "minimum": 0 } }
+    },
+    "evidenceStrength": { "$ref": "agentcert-evidence-strength.schema.json" },
+    "statement": { "type": "string", "minLength": 1 },
+    "attestation": { "$ref": "agentcert-server-attestation.schema.json" }
+  },
+  "$defs": {
+    "stringList": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "evidenceReferences": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "kind", "schemaVersion", "sha256", "sizeBytes"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" }, "kind": { "type": "string", "minLength": 1 },
+          "schemaVersion": { "type": "string", "minLength": 1 }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "sizeBytes": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

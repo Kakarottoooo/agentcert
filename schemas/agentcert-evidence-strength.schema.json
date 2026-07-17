@@ -11,6 +11,10 @@
       "type": "string",
       "enum": ["reported", "recorded", "enforced", "outcome_verified", "independently_reviewed"]
     },
+    "underlyingLevel": {
+      "type": "string",
+      "enum": ["reported", "recorded", "enforced", "outcome_verified"]
+    },
     "claims": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
     "limitations": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
   }

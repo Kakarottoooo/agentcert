@@ -131,4 +131,18 @@ describe("AgentCert schema validator", () => {
     });
     expect(result).toEqual({ schema: "assurance-report", valid: true, errors: [] });
   });
+
+  it("accepts the fixed-scope 7-Day Assurance Review delivery packet", () => {
+    const result = validateAgentCertSchema("assurance-delivery", {
+      schemaVersion: "agentcert.assurance_delivery.v0.1", engagementId: "case-1", projectId: "project-1", assuranceCaseId: "case-1",
+      customer: { name: "Example Company" }, subject: { id: "agent-1", name: "Browser Agent", kind: "browser" },
+      sandbox: { name: "Sandbox", kind: "synthetic" }, workflow: { name: "Submit", description: "Submit an order.", highRiskAction: "SUBMIT", expectedOutcome: { status: "SUBMITTED" } },
+      terms: { priceUsd: 5000, workflowCount: 1, includedRetests: 1, privacy: "private_by_default" },
+      dueAt: "2026-07-24T00:00:00.000Z", deliveredAt: "2026-07-23T00:00:00.000Z", evaluationPlanSha256: "a".repeat(64),
+      baselineEvidence: [{ id: "baseline" }], remediationItems: [], retestEvidence: [{ id: "retest" }],
+      decision: { verdict: "RELEASE_WITH_CONTROLS" }, integration: { startedAt: "2026-07-17T00:00:00.000Z" },
+      evidenceStrength: { level: "independently_reviewed" }, statement: "Scoped assurance decision.", attestation: { algorithm: "Ed25519" },
+    });
+    expect(result).toEqual({ schema: "assurance-delivery", valid: true, errors: [] });
+  });
 });

@@ -2529,6 +2529,8 @@ button {
 .assurance-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .assurance-form textarea { min-height: 86px; resize: vertical; }
 .assurance-form > button { grid-column: 1 / -1; width: auto; justify-self: start; }
+.assurance-offer { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 12px 14px; border: 1px solid #9ecdbd; background: #edf8f3; }
+.assurance-offer span { color: #35584c; }
 .assurance-case-row { width: 100%; display: grid; grid-template-columns: 1fr auto; gap: 16px; padding: 14px; text-align: left; border: 1px solid var(--hosted-border, #dfe3e8); background: transparent; }
 .assurance-case-row.active { border-color: #1f6f5f; box-shadow: inset 3px 0 #1f6f5f; }
 .assurance-case-row span { display: grid; gap: 4px; }
@@ -2539,8 +2541,24 @@ button {
 .assurance-detail dd { margin: 0; overflow-wrap: anywhere; }
 .assurance-detail li { margin: 8px 0; }
 .assurance-detail li span { color: #687078; margin-left: 8px; }
+.engagement-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 20px 0; border: 1px solid #cad8d2; }
+.engagement-summary div { min-width: 0; padding: 12px 14px; border-bottom: 1px solid #dce5e1; }
+.engagement-summary div:nth-child(odd) { border-right: 1px solid #dce5e1; }
+.engagement-summary div:nth-last-child(-n + 2) { border-bottom: 0; }
+.engagement-summary span, .engagement-summary strong { display: block; }
+.engagement-summary span { margin-bottom: 5px; color: #687078; font-size: 12px; text-transform: uppercase; }
+.engagement-progress { margin: 20px 0; padding: 16px; border: 1px solid #cad8d2; background: #f7faf8; }
+.engagement-progress > p { color: #4d5d57; }
+.evidence-picker { display: grid; gap: 6px; max-height: 210px; overflow: auto; margin: 12px 0; }
+.evidence-picker label { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; align-items: start; padding: 9px; border: 1px solid #dce5e1; background: #fff; cursor: pointer; }
+.evidence-picker input { margin-top: 3px; }
+.evidence-picker span, .evidence-picker small { display: block; min-width: 0; overflow-wrap: anywhere; }
+.evidence-picker small { margin-top: 3px; color: #687078; }
+.engagement-timeline { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 0; list-style: none; }
+.engagement-timeline li { padding: 9px; border-top: 3px solid #c7d0cc; background: #fff; }
+.engagement-timeline li.done { border-color: #0a8a68; }
 @media (max-width: 1050px) { .assurance-layout, .assurance-layout.empty { grid-template-columns: 1fr; } }
-@media (max-width: 650px) { .assurance-form { grid-template-columns: 1fr; } }
+@media (max-width: 650px) { .assurance-form, .engagement-summary, .engagement-timeline { grid-template-columns: 1fr; } .engagement-summary div { border-right: 0 !important; border-bottom: 1px solid #dce5e1 !important; } .engagement-summary div:last-child { border-bottom: 0 !important; } .assurance-offer { align-items: flex-start; flex-direction: column; } }
 
 .section-title h2 {
   margin: 0;

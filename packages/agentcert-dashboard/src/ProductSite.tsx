@@ -26,7 +26,7 @@ export function LandingPage() {
               <a className="product-button primary" href="mailto:ziweiguo666@gmail.com?subject=7-day%20AgentCert%20action%20assurance%20review">Request a private review</a>
               <a className="product-button secondary" href="/evidence">Inspect example evidence</a>
             </div>
-            <p className="product-hero-note">Private by default. Fixed scope. No publication without written approval.</p>
+            <p className="product-hero-note">$5,000 fixed price. One workflow. One included retest. Private by default.</p>
           </div>
           <AssuranceConsole />
         </section>
@@ -35,7 +35,7 @@ export function LandingPage() {
           <ProductFact value="7 days" label="fixed review window" />
           <ProductFact value="1" label="consequential workflow" />
           <ProductFact value="5 levels" label="declared evidence strength" />
-          <ProductFact value="Private" label="until written approval" />
+          <ProductFact value="$5,000" label="one workflow + one retest" />
         </section>
 
         <section className="product-section lifecycle-section" id="product">
@@ -191,11 +191,11 @@ export function PricingPage() {
             featured
           />
           <Plan
-            name="Design partner"
-            price="7-day review"
-            cadence="fixed scope"
+            name="7-Day Assurance Review"
+            price="$5,000"
+            cadence="one fixed-scope engagement"
             description="For one consequential workflow with a named owner and expected outcome."
-            items={["Private threat and failure review", "Mandate and controlled execution design", "Independent outcome verification", "Signed evidence packet and remediation priorities"]}
+            items={["One agent version and one sandbox workflow", "Locked baseline and remediation plan", "One included retest", "RELEASE / RELEASE WITH CONTROLS / BLOCK decision", "Signed delivery packet", "Private by default; publication requires written approval"]}
             action={<a className="product-button secondary" href="mailto:ziweiguo666@gmail.com?subject=7-day%20AgentCert%20action%20assurance%20review">Request review</a>}
           />
         </section>

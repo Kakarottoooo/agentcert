@@ -412,6 +412,77 @@ export interface EvidenceRecord {
   createdAt: string;
 }
 
+export type AssuranceEngagementVerdict = "RELEASE" | "RELEASE_WITH_CONTROLS" | "BLOCK";
+
+export interface AssuranceEngagementScope {
+  schemaVersion: "agentcert.assurance_engagement.v0.1";
+  customer: { name: string; contactEmail?: string };
+  sandbox: { name: string; kind: string; baseUrl?: string };
+  workflow: {
+    name: string;
+    description: string;
+    highRiskAction: string;
+    expectedOutcome: Record<string, unknown>;
+  };
+  terms: {
+    priceUsd: 5000;
+    workflowCount: 1;
+    includedRetests: 1;
+    privacy: "private_by_default";
+  };
+  planLockedAt: string;
+  dueAt: string;
+  integrationStartedAt: string;
+  firstEvidenceAt?: string;
+  timeToFirstEvidenceSeconds?: number;
+  baseline?: { evidenceIds: string[]; recordedAt: string };
+  remediationItems: Array<{
+    id: string;
+    title: string;
+    status: "open" | "addressed" | "accepted";
+    owner?: string;
+    evidenceIds: string[];
+  }>;
+  retest?: { evidenceIds: string[]; recordedAt: string };
+  decision?: {
+    verdict: AssuranceEngagementVerdict;
+    rationale: string;
+    firstDivergence: string;
+    authorizationGaps: string[];
+    outcome: { expected: Record<string, unknown>; observed: Record<string, unknown>; verified: boolean };
+    controlsRequired: string[];
+    limitations: string[];
+    decidedBy: string;
+    decidedAt: string;
+  };
+}
+
+export interface AssuranceDeliveryPacketPayload {
+  schemaVersion: "agentcert.assurance_delivery.v0.1";
+  engagementId: string;
+  projectId: string;
+  assuranceCaseId: string;
+  customer: AssuranceEngagementScope["customer"];
+  subject: AssuranceCaseRecord["subject"];
+  sandbox: AssuranceEngagementScope["sandbox"];
+  workflow: AssuranceEngagementScope["workflow"];
+  terms: AssuranceEngagementScope["terms"];
+  dueAt: string;
+  deliveredAt: string;
+  evaluationPlanSha256: string;
+  baselineEvidence: Array<{ id: string; kind: string; schemaVersion: string; sha256: string; sizeBytes: number }>;
+  remediationItems: AssuranceEngagementScope["remediationItems"];
+  retestEvidence: Array<{ id: string; kind: string; schemaVersion: string; sha256: string; sizeBytes: number }>;
+  decision: NonNullable<AssuranceEngagementScope["decision"]>;
+  integration: { startedAt: string; firstEvidenceAt: string; timeToFirstEvidenceSeconds: number };
+  evidenceStrength: AssuranceReportPayload["evidenceStrength"];
+  statement: string;
+}
+
+export interface AssuranceDeliveryPacket extends AssuranceDeliveryPacketPayload {
+  attestation: import("./signing.js").ServerAttestation;
+}
+
 export interface AssuranceCaseRecord {
   id: string;
   projectId: string;
@@ -429,6 +500,8 @@ export interface AssuranceCaseRecord {
   createdBy: string;
   reviewerId?: string;
   report?: AssuranceReport;
+  engagement?: AssuranceEngagementScope;
+  deliveryPacket?: AssuranceDeliveryPacket;
   publicVerificationId?: string;
   expiresAt?: string;
   createdAt: string;
