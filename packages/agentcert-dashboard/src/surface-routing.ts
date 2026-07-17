@@ -1,10 +1,12 @@
-export type ProductSurface = "public-demo" | "workspace" | "not-found";
+export type ProductSurface = "home" | "public-evidence" | "pricing" | "security" | "workspace" | "not-found";
+
+export type ProductPath = "/" | "/evidence" | "/pricing" | "/security" | "/app";
 
 export interface SurfaceRoute {
   surface: ProductSurface;
   access: "public" | "authenticated";
-  canonicalPath: "/demo" | "/app";
-  normalizedPath?: "/demo" | "/app";
+  canonicalPath: ProductPath;
+  normalizedPath?: ProductPath;
 }
 
 export function resolveHostedSurface(pathname: string, hash = ""): SurfaceRoute {
@@ -17,12 +19,38 @@ export function resolveHostedSurface(pathname: string, hash = ""): SurfaceRoute 
     };
   }
 
-  if (pathname === "/" || pathname === "/demo" || pathname === "/demo/") {
+  if (pathname === "/") {
     return {
-      surface: "public-demo",
+      surface: "home",
       access: "public",
-      canonicalPath: "/demo",
-      ...(pathname === "/demo" ? {} : { normalizedPath: "/demo" as const }),
+      canonicalPath: "/",
+    };
+  }
+
+  if (pathname === "/evidence" || pathname === "/evidence/" || pathname === "/demo" || pathname === "/demo/") {
+    return {
+      surface: "public-evidence",
+      access: "public",
+      canonicalPath: "/evidence",
+      ...(pathname === "/evidence" ? {} : { normalizedPath: "/evidence" as const }),
+    };
+  }
+
+  if (pathname === "/pricing" || pathname === "/pricing/") {
+    return {
+      surface: "pricing",
+      access: "public",
+      canonicalPath: "/pricing",
+      ...(pathname === "/pricing" ? {} : { normalizedPath: "/pricing" as const }),
+    };
+  }
+
+  if (pathname === "/security" || pathname === "/security/") {
+    return {
+      surface: "security",
+      access: "public",
+      canonicalPath: "/security",
+      ...(pathname === "/security" ? {} : { normalizedPath: "/security" as const }),
     };
   }
 
@@ -35,10 +63,10 @@ export function resolveHostedSurface(pathname: string, hash = ""): SurfaceRoute 
     };
   }
 
-  return { surface: "not-found", access: "public", canonicalPath: "/demo" };
+  return { surface: "not-found", access: "public", canonicalPath: "/" };
 }
 
-export function absoluteSurfaceUrl(publicUrl: string, path: "/demo" | "/app"): string {
+export function absoluteSurfaceUrl(publicUrl: string, path: ProductPath): string {
   return `${publicUrl.replace(/\/+$/, "")}${path}`;
 }
 

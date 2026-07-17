@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { compactBytes, compactDate, compactDuration, loadMonitorSnapshot, loadRunDetail, percent, submitFailureReview } from "./data";
 import HostedApp from "./HostedApp";
 import { detectHostedConfig, type HostedConfig } from "./hosted-api";
-import { absoluteSurfaceUrl, isPublicArchiveLocation, resolveHostedSurface } from "./surface-routing";
+import { LandingPage, PricingPage, SecurityPage } from "./ProductSite";
+import { isPublicArchiveLocation, resolveHostedSurface, type SurfaceRoute } from "./surface-routing";
 import type {
   EvidenceArtifact,
   EvidenceTimelineItem,
@@ -43,6 +44,36 @@ const FAILURE_TYPES = [
 ];
 
 export default function App() {
+  if (isPublicArchiveLocation(window.location)) {
+    return <MonitorApp deployment="archive" />;
+  }
+  return <ProductSurface route={resolveHostedSurface(window.location.pathname, window.location.hash)} />;
+}
+
+function ProductSurface({ route }: { route: SurfaceRoute }) {
+  useEffect(() => {
+    if (route.normalizedPath) {
+      window.history.replaceState(
+        {},
+        document.title,
+        `${route.normalizedPath}${window.location.search}${window.location.hash}`,
+      );
+    }
+    document.querySelector<HTMLMetaElement>('meta[name="robots"]')?.setAttribute(
+      "content",
+      route.surface === "workspace" ? "noindex,nofollow" : "index,follow",
+    );
+  }, [route.normalizedPath, route.surface]);
+
+  if (route.surface === "home") return <LandingPage />;
+  if (route.surface === "public-evidence") return <MonitorApp deployment="hosted" />;
+  if (route.surface === "pricing") return <PricingPage />;
+  if (route.surface === "security") return <SecurityPage />;
+  if (route.surface === "workspace") return <WorkspaceSurface />;
+  return <NotFound />;
+}
+
+function WorkspaceSurface() {
   const [hostedConfig, setHostedConfig] = useState<HostedConfig | null>();
 
   useEffect(() => {
@@ -50,40 +81,12 @@ export default function App() {
   }, []);
 
   if (hostedConfig === undefined) {
-    return <div className="loading">Loading AgentCert...</div>;
+    return <div className="loading">Opening AgentCert workspace...</div>;
   }
   if (hostedConfig) {
-    return <HostedSurface config={hostedConfig} />;
+    return <HostedApp config={hostedConfig} />;
   }
-  return <MonitorApp deployment={isPublicArchiveLocation(window.location) ? "archive" : "local"} />;
-}
-
-function HostedSurface({ config }: { config: HostedConfig }) {
-  const route = resolveHostedSurface(window.location.pathname, window.location.hash);
-  const [normalized, setNormalized] = useState(!route.normalizedPath);
-
-  useEffect(() => {
-    const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
-    canonical?.setAttribute("href", absoluteSurfaceUrl(config.publicUrl, route.canonicalPath));
-    document.querySelector<HTMLMetaElement>('meta[name="robots"]')?.setAttribute(
-      "content",
-      route.surface === "workspace" ? "noindex,nofollow" : "index,follow",
-    );
-
-    if (route.normalizedPath) {
-      window.history.replaceState(
-        {},
-        document.title,
-        `${route.normalizedPath}${window.location.search}${window.location.hash}`,
-      );
-      setNormalized(true);
-    }
-  }, [config.publicUrl, route.canonicalPath, route.normalizedPath, route.surface]);
-
-  if (!normalized) return <div className="loading">Opening AgentCert...</div>;
-  if (route.surface === "workspace") return <HostedApp config={config} />;
-  if (route.surface === "public-demo") return <MonitorApp deployment="hosted" />;
-  return <NotFound />;
+  return <ErrorState message="The hosted workspace configuration is unavailable. Open the public evidence page or retry after the control plane is running." />;
 }
 
 function MonitorApp({ deployment }: { deployment: MonitorDeployment }) {
@@ -103,6 +106,18 @@ function MonitorApp({ deployment }: { deployment: MonitorDeployment }) {
     failureType: ALL,
     reviewStatus: ALL,
   });
+
+  useEffect(() => {
+    if (deployment !== "hosted") return;
+    const title = "Public Evidence | AgentCert";
+    const description = "Inspect versioned AgentCert evidence, lifecycle checks, failure patterns, and reviewed agent behavior.";
+    document.title = title;
+    document.querySelector<HTMLMetaElement>('meta[name="description"]')?.setAttribute("content", description);
+    document.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.setAttribute("content", title);
+    document.querySelector<HTMLMetaElement>('meta[property="og:description"]')?.setAttribute("content", description);
+    document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.setAttribute("content", `${window.location.origin}/evidence`);
+    document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute("href", `${window.location.origin}/evidence`);
+  }, [deployment]);
 
   useEffect(() => {
     loadMonitorSnapshot(deployment === "local")
@@ -169,9 +184,9 @@ function MonitorApp({ deployment }: { deployment: MonitorDeployment }) {
   }
 
   const brandHref = deployment === "hosted"
-    ? "/demo"
+    ? "/"
     : deployment === "archive"
-      ? "https://agentcert-control-plane.onrender.com/demo"
+      ? "https://agentcert-control-plane.onrender.com/evidence"
       : "https://github.com/Kakarottoooo/agentcert";
   const publicDetailUrl = snapshot.links.detailUrl
     ? publicEvidenceUrl(snapshot.links.detailUrl, deployment)
@@ -204,27 +219,27 @@ function MonitorApp({ deployment }: { deployment: MonitorDeployment }) {
 
         <div className="sidebar-note">
           <strong>Data source</strong>
-          <span>{source === "api" ? "Live local server API." : "Static monitor snapshot."}</span>
+          <span>{source === "api" ? "Live local server API." : "Versioned public evidence snapshot."}</span>
         </div>
       </aside>
 
       <main className="workspace">
         {deployment === "archive" ? (
-          <section className="migration-banner" aria-label="AgentCert public demo migration">
+          <section className="migration-banner" aria-label="AgentCert public evidence migration">
             <div>
               <strong>This snapshot is now the public evidence archive.</strong>
-              <span>The current demo and authenticated workspace share one product surface in AgentCert Hosted.</span>
+              <span>The current evidence explorer and authenticated workspace share one product surface in AgentCert Hosted.</span>
             </div>
-            <a href="https://agentcert-control-plane.onrender.com/demo">Open current demo</a>
+            <a href="https://agentcert-control-plane.onrender.com/evidence">Open current evidence</a>
           </section>
         ) : null}
         <header className="page-header">
           <div>
-            <h1>AgentCert Monitor</h1>
-            <p>{snapshot.subject}</p>
+            <h1>Public Evidence</h1>
+            <p>Inspectable lifecycle checks, observed behavior, and failure records.</p>
           </div>
           <div className="header-actions">
-            <span className={`source-badge ${source}`}>{source === "api" ? "Local server" : "Static demo"}</span>
+            <span className={`source-badge ${source}`}>{source === "api" ? "Local server" : "Evidence snapshot"}</span>
             <a href={source === "api" ? "/api/corpus/reviewed-dataset" : publicEvidenceUrl("../browser-agent-robustness/evidence/reviewed-failure-dataset.jsonl", deployment)}>
               Export reviewed dataset
             </a>
@@ -429,10 +444,10 @@ function NotFound() {
     <main className="surface-not-found">
       <div className="hosted-brand">AgentCert</div>
       <h1>Page not found</h1>
-      <p>Open the public assurance demo or sign in to your private workspace.</p>
+      <p>Return to the product site, inspect public evidence, or sign in to your workspace.</p>
       <div>
-        <a href="/demo">Public demo</a>
-        <a href="/app">Workspace</a>
+        <a href="/">AgentCert home</a>
+        <a href="/evidence">Public evidence</a>
       </div>
     </main>
   );
