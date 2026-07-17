@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { compactBytes, compactDate, compactDuration, loadMonitorSnapshot, loadRunDetail, percent, submitFailureReview } from "./data";
 import HostedApp from "./HostedApp";
+import { BrandLink, ProductHeader } from "./Brand";
 import { detectHostedConfig, type HostedConfig } from "./hosted-api";
 import { LandingPage, PricingPage, SecurityPage } from "./ProductSite";
 import { isPublicArchiveLocation, resolveHostedSurface, type SurfaceRoute } from "./surface-routing";
@@ -193,37 +194,17 @@ function MonitorApp({ deployment }: { deployment: MonitorDeployment }) {
     : undefined;
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar" aria-label="AgentCert navigation">
-        <a className="brand" href={brandHref}>
-          <span className="brand-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <path d="M12 2.5 20 6v5.6c0 5.1-3.3 8.8-8 10-4.7-1.2-8-4.9-8-10V6l8-3.5Z" />
-              <path d="m8.3 12 2.3 2.3 5.1-5.2" />
-            </svg>
-          </span>
-          <span>AgentCert</span>
-        </a>
+    <div className="evidence-surface">
+      {deployment === "hosted" ? (
+        <ProductHeader active="evidence" />
+      ) : (
+        <header className="evidence-utility-nav">
+          <BrandLink href={brandHref} suffix={deployment === "archive" ? "Evidence archive" : "Local monitor"} />
+          <a href="https://agentcert-control-plane.onrender.com/evidence">Open hosted evidence</a>
+        </header>
+      )}
 
-        <nav>
-          <button className={view === "overview" ? "active" : ""} onClick={() => setView("overview")}>
-            Overview
-          </button>
-          <button className={view === "runs" ? "active" : ""} onClick={() => setView("runs")}>
-            Runs
-          </button>
-          <button className={view === "patterns" ? "active" : ""} onClick={() => setView("patterns")}>
-            Patterns
-          </button>
-        </nav>
-
-        <div className="sidebar-note">
-          <strong>Data source</strong>
-          <span>{source === "api" ? "Live local server API." : "Versioned public evidence snapshot."}</span>
-        </div>
-      </aside>
-
-      <main className="workspace">
+      <main className="evidence-workspace">
         {deployment === "archive" ? (
           <section className="migration-banner" aria-label="AgentCert public evidence migration">
             <div>
@@ -233,10 +214,14 @@ function MonitorApp({ deployment }: { deployment: MonitorDeployment }) {
             <a href="https://agentcert-control-plane.onrender.com/evidence">Open current evidence</a>
           </section>
         ) : null}
-        <header className="page-header">
-          <div>
-            <h1>Public Evidence</h1>
-            <p>Inspectable lifecycle checks, observed behavior, and failure records.</p>
+        <header className="evidence-page-header">
+          <div className="evidence-title-block">
+            <span className="surface-mode">Public evidence</span>
+            <h1>Observed agent behavior, open for inspection.</h1>
+            <p>Versioned lifecycle checks, traces, artifacts, failure taxonomy, and reviewer decisions.</p>
+            <div className="evidence-context-note">
+              Failures on this page are findings from evaluated agents and scenarios. They are not AgentCert service-health incidents.
+            </div>
           </div>
           <div className="header-actions">
             <span className={`source-badge ${source}`}>{source === "api" ? "Local server" : "Evidence snapshot"}</span>
@@ -248,6 +233,13 @@ function MonitorApp({ deployment }: { deployment: MonitorDeployment }) {
             <a href="https://github.com/Kakarottoooo/agentcert">GitHub</a>
           </div>
         </header>
+
+        <nav className="evidence-tabs" aria-label="Evidence views">
+          <button className={view === "overview" ? "active" : ""} onClick={() => setView("overview")}>Overview</button>
+          <button className={view === "runs" ? "active" : ""} onClick={() => setView("runs")}>Runs</button>
+          <button className={view === "patterns" ? "active" : ""} onClick={() => setView("patterns")}>Patterns</button>
+          <span>{source === "api" ? "Live local server API" : "Versioned public snapshot"}</span>
+        </nav>
 
         <section className="lifecycle-grid" aria-label="Lifecycle gates">
           {snapshot.lifecycle.map((gate) => (
@@ -288,6 +280,12 @@ function MonitorApp({ deployment }: { deployment: MonitorDeployment }) {
         ) : null}
         {view === "patterns" ? <PatternsView snapshot={snapshot} /> : null}
       </main>
+      <footer className="evidence-footer">
+        <span>AgentCert public beta</span>
+        <a href="/">Product</a>
+        <a href="/security">Security</a>
+        <a href="/app?mode=signup">Create workspace</a>
+      </footer>
     </div>
   );
 }

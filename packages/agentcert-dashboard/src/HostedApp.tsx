@@ -61,6 +61,8 @@ import HostedOnboarding from "./HostedOnboarding";
 import HostedProjectSwitcher from "./HostedProjectSwitcher";
 import HostedPilotReport from "./HostedPilotReport";
 import HostedAssuranceView from "./HostedAssuranceView";
+import { BrandMark, ProductHeader } from "./Brand";
+import { resolveAuthMode } from "./auth-routing";
 import { isSandboxCertificationRun } from "./sandbox-certifications";
 
 type HostedView = "overview" | "agents" | "runs" | "assurance" | "sandbox" | "gates" | "actions" | "incidents" | "evidence" | "integrations" | "governance";
@@ -84,7 +86,7 @@ export default function HostedApp({ config }: { config: HostedConfig }) {
 }
 
 function AuthScreen({ config, onAuthenticated }: { config: HostedConfig; onAuthenticated: (session: HostedSession) => void }) {
-  const [mode, setMode] = useState<"signin" | "signup">(() => new URLSearchParams(window.location.search).get("mode") === "signup" ? "signup" : "signin");
+  const [mode, setMode] = useState<"signin" | "signup">(() => resolveAuthMode(window.location.search));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -116,39 +118,43 @@ function AuthScreen({ config, onAuthenticated }: { config: HostedConfig; onAuthe
   }
 
   return (
-    <main className="auth-page">
-      <section className="auth-intro">
-        <div className="hosted-brand">AgentCert</div>
-        <h1>Independent evidence for agents that take real actions.</h1>
-        <p>Gate releases, review high-risk actions, verify outcomes, and retain evidence in one control plane.</p>
-        <ol>
-          <li><strong>Know</strong> what every agent is allowed to do.</li>
-          <li><strong>Prove</strong> reliability before release.</li>
-          <li><strong>Decide</strong> whether a live action should proceed.</li>
-          <li><strong>Trace</strong> what happened and who approved it.</li>
-        </ol>
-      </section>
-      <section className="auth-form-panel">
-        <div className="auth-tabs" role="tablist">
-          <button className={mode === "signin" ? "active" : ""} onClick={() => setMode("signin")}>Sign in</button>
-          <button className={mode === "signup" ? "active" : ""} onClick={() => setMode("signup")}>Create account</button>
-        </div>
-        <h2>{mode === "signin" ? "Sign in to AgentCert" : "Start an AgentCert workspace"}</h2>
-        <form onSubmit={submit}>
-          <label>Email<input type="email" required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-          <label>Password<input type="password" required minLength={10} autoComplete={mode === "signin" ? "current-password" : "new-password"} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-          {error ? <div className="form-error">{error}</div> : null}
-          {message ? <div className="form-message">{message}</div> : null}
-          <button className="primary-action" disabled={busy}>{busy ? "Working..." : mode === "signin" ? "Sign in" : "Create account"}</button>
-          {mode === "signin" && config.auth.provider === "supabase" ? (
-            <button type="button" className="auth-secondary-action" disabled={busy || !email.trim()} onClick={() => void resendConfirmation()}>
-              Resend confirmation email
-            </button>
-          ) : null}
-        </form>
-        <p className="auth-note">Registration is open. Confirmed accounts receive an isolated organization and assurance project.</p>
-      </section>
-    </main>
+    <div className="auth-surface">
+      <ProductHeader />
+      <main className="auth-page">
+        <section className="auth-intro">
+          <span className="surface-mode inverse">Workspace access</span>
+          <h1>Independent evidence for agents that take real actions.</h1>
+          <p>Gate releases, review high-risk actions, verify outcomes, and retain evidence in one control plane.</p>
+          <ol>
+            <li><strong>Know</strong> what every agent is allowed to do.</li>
+            <li><strong>Prove</strong> reliability before release.</li>
+            <li><strong>Decide</strong> whether a live action should proceed.</li>
+            <li><strong>Trace</strong> what happened and who approved it.</li>
+          </ol>
+          <a className="auth-evidence-link" href="/evidence">Inspect public evidence before signing in</a>
+        </section>
+        <section className="auth-form-panel">
+          <div className="auth-tabs" role="tablist">
+            <button className={mode === "signin" ? "active" : ""} onClick={() => setMode("signin")}>Sign in</button>
+            <button className={mode === "signup" ? "active" : ""} onClick={() => setMode("signup")}>Create account</button>
+          </div>
+          <h2>{mode === "signin" ? "Sign in to AgentCert" : "Start an AgentCert workspace"}</h2>
+          <form onSubmit={submit}>
+            <label>Email<input type="email" required autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+            <label>Password<input type="password" required minLength={10} autoComplete={mode === "signin" ? "current-password" : "new-password"} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+            {error ? <div className="form-error">{error}</div> : null}
+            {message ? <div className="form-message">{message}</div> : null}
+            <button className="primary-action" disabled={busy}>{busy ? "Working..." : mode === "signin" ? "Sign in" : "Create account"}</button>
+            {mode === "signin" && config.auth.provider === "supabase" ? (
+              <button type="button" className="auth-secondary-action" disabled={busy || !email.trim()} onClick={() => void resendConfirmation()}>
+                Resend confirmation email
+              </button>
+            ) : null}
+          </form>
+          <p className="auth-note">Registration is open. Confirmed accounts receive an isolated organization and assurance project.</p>
+        </section>
+      </main>
+    </div>
   );
 }
 
@@ -212,13 +218,17 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
   return (
     <div className="hosted-shell">
       <aside className="hosted-sidebar">
-        <div className="hosted-brand">AgentCert</div>
+        <a className="workspace-brand" href="/">
+          <BrandMark />
+          <span><strong>AgentCert</strong><small>Workspace</small></span>
+        </a>
+        <div className="workspace-return-links"><a href="/evidence">Public evidence</a><a href="/">Product site</a></div>
         <HostedProjectSwitcher session={session} projects={projects} current={project} onSelect={setProject} onChange={(nextProjects, selected) => { setProjects(nextProjects); setProject(selected); }} />
         <nav>{navigation.map(([id, label, count]) => <button key={id} className={view === id ? "active" : ""} onClick={() => setView(id)}><span>{label}</span>{count ? <em>{count}</em> : null}</button>)}</nav>
         <div className="account-block"><span>{session.email ?? config.auth.provider}</span><button onClick={onSignOut}>Sign out</button></div>
       </aside>
       <main className="hosted-workspace">
-        <header className="hosted-header"><div><span className="eyebrow">{project?.slug ?? "workspace"}</span><h1>{viewTitle(view)}</h1></div><button onClick={() => void refresh()} disabled={loading}>Refresh</button></header>
+        <header className="hosted-header"><div><span className="surface-mode">Workspace</span><span className="workspace-project">{project?.slug ?? "project"}</span><h1>{viewTitle(view)}</h1></div><button onClick={() => void refresh()} disabled={loading}>Refresh</button></header>
         {error ? <div className="console-error">{error}</div> : null}
         {!data || !project ? <div className="loading">Loading control plane...</div> : (
           <HostedViewContent view={view} data={data} project={project} session={session} onboarding={onboarding} refresh={refresh} onNavigate={setView} />

@@ -1,16 +1,4 @@
 .product-site {
-  --product-ink: #10231d;
-  --product-muted: #51635c;
-  --product-green: #087a5b;
-  --product-green-dark: #07513f;
-  --product-green-soft: #dff5ed;
-  --product-blue: #2259c7;
-  --product-blue-soft: #e8efff;
-  --product-amber: #b55711;
-  --product-red: #bd2c43;
-  --product-line: #d7e0dc;
-  --product-paper: #ffffff;
-  --product-canvas: #f4f7f5;
   min-height: 100vh;
   overflow-x: hidden;
   color: var(--product-ink);
@@ -43,6 +31,22 @@
   width: fit-content;
   font-size: 21px;
   font-weight: 850;
+}
+
+.product-brand-copy {
+  display: grid;
+  gap: 1px;
+}
+
+.product-brand-copy strong {
+  font-size: inherit;
+}
+
+.product-brand-copy small {
+  color: var(--product-muted);
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .product-brand-mark {
