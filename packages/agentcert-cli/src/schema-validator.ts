@@ -12,7 +12,11 @@ export type AgentCertSchemaId =
   | "robustness-lab"
   | "release-gate"
   | "assurance-report"
-  | "evidence-signature";
+  | "evidence-signature"
+  | "evidence-strength"
+  | "action-mandate"
+  | "trusted-action-record"
+  | "trusted-run-receipt";
 
 export interface SchemaValidationResult {
   schema: AgentCertSchemaId;
@@ -32,12 +36,16 @@ export function parseSchemaId(input: string | undefined): AgentCertSchemaId {
     value === "robustness-lab" ||
     value === "release-gate" ||
     value === "assurance-report" ||
-    value === "evidence-signature"
+    value === "evidence-signature" ||
+    value === "evidence-strength" ||
+    value === "action-mandate" ||
+    value === "trusted-action-record" ||
+    value === "trusted-run-receipt"
   ) {
     return value;
   }
   throw new Error(
-    `Unsupported schema "${value}". Use evidence-bundle, result, corpus-record, failure-review, classifier-eval, monitor-snapshot, robustness-lab, release-gate, assurance-report, or evidence-signature.`
+    `Unsupported schema "${value}". Use evidence-bundle, result, corpus-record, failure-review, classifier-eval, monitor-snapshot, robustness-lab, release-gate, assurance-report, evidence-signature, evidence-strength, action-mandate, trusted-action-record, or trusted-run-receipt.`
   );
 }
 
@@ -61,6 +69,10 @@ export function validateAgentCertSchema(schema: AgentCertSchemaId, input: unknow
     if (schema === "monitor-snapshot") validateMonitorSnapshot(value, errors);
     if (schema === "robustness-lab") validateRobustnessLab(value, errors);
     if (schema === "assurance-report") validateAssuranceReport(value, errors);
+    if (schema === "evidence-strength") validateEvidenceStrength(value, errors);
+    if (schema === "action-mandate") validateActionMandate(value, errors);
+    if (schema === "trusted-action-record") validateTrustedActionRecord(value, errors);
+    if (schema === "trusted-run-receipt") validateTrustedRunReceipt(value, errors);
   }
   return { schema, valid: errors.length === 0, errors };
 }
@@ -79,6 +91,11 @@ function validateEvidenceBundle(value: Record<string, unknown>, errors: string[]
   requiredArray(value, "evidence", errors);
   requiredObject(value, "artifacts", errors);
   requiredArray(value, "standards", errors);
+  if (value.evidenceStrength !== undefined) {
+    const strength = recordValue(value.evidenceStrength);
+    if (!strength) errors.push("evidenceStrength must be an object.");
+    else validateEvidenceStrength(strength, errors, "evidenceStrength.");
+  }
 
   const subject = recordValue(value.subject);
   if (subject) {
@@ -103,6 +120,82 @@ function validateEvidenceBundle(value: Record<string, unknown>, errors: string[]
   validateResultArray(value.results, "results", errors);
   validateEvidenceArray(value.evidence, "evidence", errors);
   validateStandards(value.standards, errors);
+}
+
+const EVIDENCE_LEVELS = ["reported", "recorded", "enforced", "outcome_verified", "independently_reviewed"];
+const ACTION_TYPES = ["SUBMIT", "PAY", "SEND", "UPDATE"];
+
+function validateEvidenceStrength(value: Record<string, unknown>, errors: string[], prefix = ""): void {
+  requiredConst(value, "schemaVersion", "agentcert.evidence_strength.v0.1", errors);
+  requiredEnumAt(value, "level", EVIDENCE_LEVELS, `${prefix}level`, errors);
+  requiredArray(value, "claims", errors);
+  requiredArray(value, "limitations", errors);
+  stringArray(value.claims, `${prefix}claims`, errors);
+  stringArray(value.limitations, `${prefix}limitations`, errors);
+}
+
+function validateActionMandate(value: Record<string, unknown>, errors: string[]): void {
+  requiredConst(value, "schemaVersion", "agentcert.action_mandate.v0.1", errors);
+  for (const field of ["mandateId", "policySha256", "validFrom", "expiresAt", "issuedAt", "digestSha256"]) requiredString(value, field, errors);
+  requiredObject(value, "issuer", errors);
+  requiredObject(value, "subject", errors);
+  requiredObject(value, "scope", errors);
+  requiredObject(value, "sourceSignature", errors);
+  sha256Field(value, "policySha256", errors);
+  sha256Field(value, "digestSha256", errors);
+  for (const field of ["validFrom", "expiresAt", "issuedAt"]) validateTimestamp(value[field], field, errors);
+  const scope = recordValue(value.scope);
+  if (scope) {
+    requiredArray(scope, "actionTypes", errors);
+    requiredArray(scope, "targetSystems", errors);
+    requiredArray(scope, "permissions", errors);
+    if (Array.isArray(scope.actionTypes)) scope.actionTypes.forEach((item, index) => {
+      if (!ACTION_TYPES.includes(String(item))) errors.push(`scope.actionTypes[${index}] is not supported.`);
+    });
+  }
+  validateSourceSignature(value.sourceSignature, "sourceSignature", errors);
+}
+
+function validateTrustedActionRecord(value: Record<string, unknown>, errors: string[]): void {
+  requiredConst(value, "schemaVersion", "agentcert.trusted_action_record.v0.1", errors);
+  for (const field of ["recordId", "runId", "occurredAt", "type", "payloadSha256", "eventHash"]) requiredString(value, field, errors);
+  requiredNonNegativeInteger(value, "sequence", "sequence", errors);
+  requiredObject(value, "collector", errors);
+  requiredObject(value, "payload", errors);
+  requiredObject(value, "sourceSignature", errors);
+  sha256Field(value, "payloadSha256", errors);
+  sha256Field(value, "eventHash", errors);
+  if (value.previousEventHash !== undefined) sha256Field(value, "previousEventHash", errors);
+  validateTimestamp(value.occurredAt, "occurredAt", errors);
+  validateSourceSignature(value.sourceSignature, "sourceSignature", errors);
+}
+
+function validateTrustedRunReceipt(value: Record<string, unknown>, errors: string[]): void {
+  requiredConst(value, "schemaVersion", "agentcert.trusted_run_receipt.v0.1", errors);
+  for (const field of ["runId", "startedAt", "completedAt", "firstEventHash", "lastEventHash", "sourcePublicKeyPem", "receiptSha256"]) requiredString(value, field, errors);
+  for (const field of ["eventCount", "droppedEventCount"]) requiredNonNegativeInteger(value, field, field, errors);
+  requiredObject(value, "collector", errors);
+  requiredArray(value, "mandateDigests", errors);
+  requiredArray(value, "actionIds", errors);
+  requiredObject(value, "journal", errors);
+  requiredObject(value, "evidenceStrength", errors);
+  requiredObject(value, "sourceSignature", errors);
+  for (const field of ["firstEventHash", "lastEventHash", "receiptSha256"]) sha256Field(value, field, errors);
+  const strength = recordValue(value.evidenceStrength);
+  if (strength) validateEvidenceStrength(strength, errors, "evidenceStrength.");
+  validateSourceSignature(value.sourceSignature, "sourceSignature", errors);
+}
+
+function sha256Field(value: Record<string, unknown>, field: string, errors: string[]): void {
+  if (typeof value[field] === "string" && !/^[0-9a-f]{64}$/.test(value[field])) errors.push(`${field} must be a lowercase SHA-256 digest.`);
+}
+
+function validateSourceSignature(value: unknown, path: string, errors: string[]): void {
+  const signature = recordValue(value);
+  if (!signature) return;
+  if (signature.algorithm !== "Ed25519") errors.push(`${path}.algorithm must equal Ed25519.`);
+  requiredStringAt(signature, "keyId", `${path}.keyId`, errors);
+  requiredStringAt(signature, "signature", `${path}.signature`, errors);
 }
 
 function validateResult(value: Record<string, unknown>, errors: string[]): void {

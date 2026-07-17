@@ -9,6 +9,35 @@ The checked-in implementation is local and mock-only. It does not connect to
 real payment systems, email providers, vendor portals, production ERPs, or real
 credentials.
 
+## Trusted Action Recorder and Mandate v0.1
+
+The trusted runtime adds a stronger evidence path for consequential actions:
+
+- an immutable, Ed25519-signed mandate limits principal, action type, target,
+  permissions, business object, amount, currency, and validity window;
+- signed run start/end records and strictly increasing event sequences expose
+  gaps, duplicates, mutation, and malformed crash tails;
+- a durable JSONL queue and acknowledgement file provide at-least-once sink
+  delivery after restart;
+- execution requires a credential-isolated capability created by
+  `createControlledActionAdapter()`;
+- a separate read path observes the resulting system state;
+- reports distinguish `reported`, `recorded`, `enforced`,
+  `outcome_verified`, and `independently_reviewed` evidence.
+
+Run the complete local browser-agent SUBMIT example:
+
+```powershell
+npm run build
+npm run demo:trusted-browser
+```
+
+It reads a local purchase-order page, proposes a $4,850 `SUBMIT`, obtains human
+approval, writes through a gateway-only credential, verifies `DRAFT ->
+SUBMITTED` through an independent GET endpoint, and emits a signed receipt.
+The fixture is a deterministic infrastructure demonstration, not a model
+benchmark. See [Action Assurance Protocol v0.1](../../docs/action-assurance-protocol.md).
+
 ## SDK
 
 This is currently a repository-local preview package, not a published npm
@@ -154,6 +183,7 @@ See [the Adapter Kit guide](../../docs/sandbox-adapter-kit.md) and the
 npm --prefix packages/onegent-runtime ci
 npm --prefix packages/onegent-runtime run build
 npm --prefix packages/onegent-runtime run demo:procurement
+npm --prefix packages/onegent-runtime run demo:trusted-browser
 ```
 
 Outputs:
@@ -161,6 +191,9 @@ Outputs:
 - `.onegent/procurement/walkthrough-before-approval.html`
 - `.onegent/procurement/walkthrough-after-approval.html`
 - `.onegent/procurement/audit-packet.json`
+- `.onegent/trusted-browser-submit/trusted-audit-packet.json`
+- `.onegent/trusted-browser-submit/recorder/browser-submit-po-4850-<execution-id>.journal.jsonl`
+- `.onegent/trusted-browser-submit/trusted-browser-submit.html`
 
 ## Local Server
 

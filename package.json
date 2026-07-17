@@ -18,6 +18,7 @@
     "onegent:build": "npm --prefix packages/onegent-runtime run build",
     "onegent:test": "npm --prefix packages/onegent-runtime test",
     "onegent:demo": "npm --prefix packages/onegent-runtime run demo:procurement",
+    "onegent:trusted-browser-demo": "npm run onegent:build && npm --prefix packages/onegent-runtime run demo:trusted-browser",
     "onegent:sandbox-certify": "npm run onegent:build && node packages/onegent-runtime/dist/cli.js sandbox-certify --out .onegent/sandbox-certification",
     "onegent:sandbox-conformance": "npm run onegent:build && node packages/onegent-runtime/dist/cli.js sandbox-conformance --out .onegent/sandbox-conformance",
     "onegent:serve": "npm --prefix packages/onegent-runtime run serve",

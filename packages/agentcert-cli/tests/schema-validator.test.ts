@@ -2,6 +2,16 @@ import { describe, expect, it } from "vitest";
 import { validateAgentCertSchema } from "../src/schema-validator.js";
 
 describe("AgentCert schema validator", () => {
+  it("validates evidence strength as an explicit ordered claim", () => {
+    const result = validateAgentCertSchema("evidence-strength", {
+      schemaVersion: "agentcert.evidence_strength.v0.1",
+      level: "outcome_verified",
+      claims: ["A separate read path observed the expected state."],
+      limitations: ["Future behavior is not guaranteed."],
+    });
+    expect(result).toEqual({ schema: "evidence-strength", valid: true, errors: [] });
+  });
+
   it("accepts a minimal evidence bundle", () => {
     const result = validateAgentCertSchema("evidence-bundle", {
       schemaName: "agentcert.evidence_bundle",

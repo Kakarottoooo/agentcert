@@ -27,6 +27,12 @@ export interface EvidenceBundleDocument {
   evidence: BundleEvidence[];
   artifacts: Record<string, string>;
   standards: Array<{ id: string; name: string; status: string; note: string }>;
+  evidenceStrength?: {
+    schemaVersion: string;
+    level: "reported" | "recorded" | "enforced" | "outcome_verified" | "independently_reviewed";
+    claims: string[];
+    limitations: string[];
+  };
 }
 
 export interface BundleResult {
@@ -70,6 +76,8 @@ export function parseEvidenceBundle(value: unknown): EvidenceBundleDocument | un
   const subject = object(input.subject);
   const verdict = object(input.verdict);
   const summary = object(input.summary);
+  const strength = object(input.evidenceStrength);
+  const strengthLevel = evidenceStrengthLevel(strength.level);
   return {
     schemaName: "agentcert.evidence_bundle",
     schemaVersion: input.schemaVersion,
@@ -90,7 +98,21 @@ export function parseEvidenceBundle(value: unknown): EvidenceBundleDocument | un
       const standard = object(entry);
       return { id: text(standard.id), name: text(standard.name), status: text(standard.status), note: text(standard.note) };
     }),
+    evidenceStrength: strength.schemaVersion === "agentcert.evidence_strength.v0.1" && strengthLevel
+      ? {
+          schemaVersion: String(strength.schemaVersion),
+          level: strengthLevel,
+          claims: strings(strength.claims),
+          limitations: strings(strength.limitations),
+        }
+      : undefined,
   };
+}
+
+function evidenceStrengthLevel(value: unknown): NonNullable<EvidenceBundleDocument["evidenceStrength"]>["level"] | undefined {
+  return value === "reported" || value === "recorded" || value === "enforced" || value === "outcome_verified" || value === "independently_reviewed"
+    ? value
+    : undefined;
 }
 
 export function findingsForBundle(bundle: EvidenceBundleDocument | undefined, reviews: HostedFailureReview[]): EvidenceFinding[] {

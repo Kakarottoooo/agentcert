@@ -1,4 +1,4 @@
-import { AGENTCERT_EVIDENCE_SCHEMA_SEMVER, AGENTCERT_EVIDENCE_SCHEMA_VERSION, type AgentCertBundle, type AgentCertResult } from "./types.js";
+import { AGENTCERT_EVIDENCE_SCHEMA_SEMVER, AGENTCERT_EVIDENCE_SCHEMA_VERSION, type AgentCertBundle, type AgentCertEvidenceStrength, type AgentCertResult } from "./types.js";
 
 export function buildEvidenceBundle(results: AgentCertResult[], subjectName: string, subjectType = "agent"): AgentCertBundle {
   const evidence = results.flatMap((result) => result.evidence);
@@ -39,6 +39,7 @@ export function buildEvidenceBundle(results: AgentCertResult[], subjectName: str
     results,
     evidence,
     artifacts,
+    evidenceStrength: evidenceStrengthFor(results),
     standards: [
       {
         id: "aiuc-1",
@@ -59,6 +60,26 @@ export function buildEvidenceBundle(results: AgentCertResult[], subjectName: str
         note: "AgentCert scenarios cover prompt injection, tool misuse, excessive agency, and runtime action governance.",
       },
     ],
+  };
+}
+
+const STRENGTH_ORDER: AgentCertEvidenceStrength["level"][] = ["reported", "recorded", "enforced", "outcome_verified", "independently_reviewed"];
+
+function evidenceStrengthFor(results: AgentCertResult[]): AgentCertEvidenceStrength {
+  const values = results.map((result) => result.evidenceStrength ?? {
+    schemaVersion: "agentcert.evidence_strength.v0.1" as const,
+    level: "reported" as const,
+    claims: ["A producer supplied a result for this run."],
+    limitations: ["The result does not contain a source-signed action record."],
+  });
+  const weakest = values.length
+    ? values.reduce((left, right) => STRENGTH_ORDER.indexOf(left.level) <= STRENGTH_ORDER.indexOf(right.level) ? left : right)
+    : { schemaVersion: "agentcert.evidence_strength.v0.1" as const, level: "reported" as const, claims: [], limitations: ["The bundle contains no results."] };
+  return {
+    schemaVersion: "agentcert.evidence_strength.v0.1",
+    level: weakest.level,
+    claims: [...new Set(values.flatMap((value) => value.claims))],
+    limitations: [...new Set(values.flatMap((value) => value.limitations))],
   };
 }
 

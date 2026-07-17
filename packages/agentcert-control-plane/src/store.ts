@@ -56,6 +56,7 @@ export const CONTROL_PLANE_MIGRATIONS = [
   "012_pilot_funnel_indexes.sql",
   "013_assurance_cases.sql",
   "014_team_access_management.sql",
+  "015_trusted_action_assurance.sql",
 ] as const;
 
 const DEFAULT_PROJECT_NAME = "Agent assurance project";
@@ -1493,19 +1494,20 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     if (update) {
       await this.pool.query(
         `UPDATE agentcert_actions SET decision=$2,status=$3,reasons=$4,observed_state=$5,
-         verification_success=$6,updated_at=$7 WHERE id=$1`,
-        [action.id, action.decision, action.status, JSON.stringify(action.reasons), jsonOrNull(action.observedState), action.verificationSuccess ?? null, action.updatedAt],
+       verification_success=$6,updated_at=$7,assurance_context=$8 WHERE id=$1`,
+        [action.id, action.decision, action.status, JSON.stringify(action.reasons), jsonOrNull(action.observedState), action.verificationSuccess ?? null, action.updatedAt, JSON.stringify(action.assuranceContext ?? {})],
       );
       return;
     }
     await this.pool.query(
       `INSERT INTO agentcert_actions (id,project_id,agent_id,external_id,principal,action_type,target_system,requested_permissions,
-       amount,currency,risk_level,risk_score,decision,status,policy_version,reasons,expected_state,observed_state,verification_success,created_at,updated_at,trace_id,span_id,parent_span_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
+       amount,currency,risk_level,risk_score,decision,status,policy_version,reasons,expected_state,observed_state,verification_success,created_at,updated_at,trace_id,span_id,parent_span_id,assurance_context)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`,
       [action.id, action.projectId, action.agentId ?? null, action.externalId, JSON.stringify(action.principal), action.actionType, action.targetSystem,
        JSON.stringify(action.requestedPermissions), action.amount ?? null, action.currency ?? null, action.riskLevel, action.riskScore, action.decision,
        action.status, action.policyVersion, JSON.stringify(action.reasons), jsonOrNull(action.expectedState), jsonOrNull(action.observedState),
-       action.verificationSuccess ?? null, action.createdAt, action.updatedAt, action.traceId ?? null, action.spanId ?? null, action.parentSpanId ?? null],
+       action.verificationSuccess ?? null, action.createdAt, action.updatedAt, action.traceId ?? null, action.spanId ?? null, action.parentSpanId ?? null,
+       JSON.stringify(action.assuranceContext ?? {})],
     );
   }
 
@@ -2412,7 +2414,8 @@ function actionFromRow(row: Record<string, unknown>): ActionRecord {
     decision: text(row.decision) as ActionRecord["decision"], status: text(row.status) as ActionRecord["status"], policyVersion: text(row.policy_version),
     reasons: stringArray(row.reasons), expectedState: optionalObject(row.expected_state), observedState: optionalObject(row.observed_state),
     verificationSuccess: optionalBoolean(row.verification_success), createdAt: iso(row.created_at), updatedAt: iso(row.updated_at),
-    traceId: optionalText(row.trace_id), spanId: optionalText(row.span_id), parentSpanId: optionalText(row.parent_span_id) };
+    traceId: optionalText(row.trace_id), spanId: optionalText(row.span_id), parentSpanId: optionalText(row.parent_span_id),
+    assuranceContext: optionalObject(row.assurance_context) as ActionRecord["assuranceContext"] };
 }
 function evidenceFromRow(row: Record<string, unknown>): EvidenceRecord {
   return { id: text(row.id), projectId: text(row.project_id), runId: optionalText(row.run_id), actionId: optionalText(row.action_id), kind: text(row.kind),

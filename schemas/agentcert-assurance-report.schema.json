@@ -18,6 +18,18 @@
     "expiresAt": { "type": "string", "format": "date-time" },
     "limitations": { "type": "array", "items": { "type": "string" } },
     "statement": { "type": "string", "minLength": 1 },
+    "evidenceStrength": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "level", "underlyingLevel", "claims", "limitations"],
+      "properties": {
+        "schemaVersion": { "const": "agentcert.evidence_strength.v0.1" },
+        "level": { "enum": ["reported", "recorded", "enforced", "outcome_verified", "independently_reviewed"] },
+        "underlyingLevel": { "enum": ["reported", "recorded", "enforced", "outcome_verified"] },
+        "claims": { "type": "array", "items": { "type": "string" } },
+        "limitations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
     "attestation": { "$ref": "agentcert-server-attestation.schema.json" }
   },
   "additionalProperties": false

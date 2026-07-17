@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { AgentCertEvidence, AgentCertResult } from "./types.js";
+import type { AgentCertEvidence, AgentCertEvidenceStrength, AgentCertResult } from "./types.js";
 
 export function normalizeMcpBenchResult(input: unknown, artifactPath: string): AgentCertResult {
   const value = asRecord(input);
@@ -47,6 +47,7 @@ export function normalizeMcpBenchResult(input: unknown, artifactPath: string): A
     passed,
     certLevel: stringValue(value.cert_level),
     summary: passed ? "MCPBench completed without blocking violations." : "MCPBench found blocking evidence.",
+    evidenceStrength: reportedStrength("MCPBench result was imported without a source-signed action journal."),
     artifacts: recordOfStrings(value.artifact_paths, { results: artifactPath }),
     evidence,
   };
@@ -93,6 +94,7 @@ export function normalizeTripwireResult(input: unknown, artifactPath: string): A
     score: overallScore,
     passed,
     summary: passed ? "Tripwire CI gate passed." : "Tripwire CI gate failed.",
+    evidenceStrength: reportedStrength("Tripwire result was imported without a source-signed action journal."),
     artifacts: { result: artifactPath, outDir: stringValue(value.outDir) ?? "" },
     evidence,
   };
@@ -107,6 +109,10 @@ export function normalizeOnegentAuditPacket(input: unknown, artifactPath: string
   const authorization = asRecord(value.authorizationDecision);
   const verification = asRecord(value.verificationResult);
   const auditEvents = Array.isArray(value.auditEvents) ? value.auditEvents : [];
+  const trusted = asRecord(value.trustedActionEvidence);
+  const trustedStrength = evidenceStrengthValue(trusted.evidenceStrength);
+  const mandate = asRecord(trusted.mandate);
+  const receipt = asRecord(trusted.runReceipt);
   const verificationSuccess = verification.success === true;
   const approved = approval.status === "APPROVED" || approval.status === undefined;
   const passed = verificationSuccess && approved;
@@ -172,6 +178,26 @@ export function normalizeOnegentAuditPacket(input: unknown, artifactPath: string
     metadata: verification,
   });
 
+  if (trustedStrength) {
+    evidence.push({
+      id: "onegent_action_mandate",
+      kind: "action_mandate",
+      severity: "info",
+      message: `High-risk action was bound to mandate ${stringValue(mandate.mandateId) ?? "UNKNOWN"}.`,
+      source: "onegent-runtime",
+      artifactPath,
+      metadata: { mandateId: mandate.mandateId, mandateDigestSha256: mandate.digestSha256 },
+    }, {
+      id: "onegent_trusted_journal",
+      kind: "trusted_action_journal",
+      severity: asRecord(receipt.journal).valid === true ? "info" : "critical",
+      message: `Source-signed action journal strength: ${trustedStrength.level}.`,
+      source: "onegent-runtime",
+      artifactPath,
+      metadata: { receiptSha256: receipt.receiptSha256, collector: receipt.collector, journal: receipt.journal },
+    });
+  }
+
   for (const event of auditEvents) {
     const record = asRecord(event);
     evidence.push({
@@ -196,8 +222,31 @@ export function normalizeOnegentAuditPacket(input: unknown, artifactPath: string
     summary: passed
       ? "Runtime action was approved, mock-executed, verified, and audited."
       : "Runtime action did not complete the approval and verification gate.",
+    evidenceStrength: trustedStrength ?? reportedStrength("Onegent audit packet does not include a trusted action receipt."),
     artifacts: { auditPacket: artifactPath },
     evidence,
+  };
+}
+
+function reportedStrength(limitation: string): AgentCertEvidenceStrength {
+  return {
+    schemaVersion: "agentcert.evidence_strength.v0.1",
+    level: "reported",
+    claims: ["A producer supplied a result for this run."],
+    limitations: [limitation],
+  };
+}
+
+function evidenceStrengthValue(input: unknown): AgentCertEvidenceStrength | undefined {
+  const value = asRecord(input);
+  const level = value.level;
+  if (value.schemaVersion !== "agentcert.evidence_strength.v0.1"
+    || !["reported", "recorded", "enforced", "outcome_verified", "independently_reviewed"].includes(String(level))) return undefined;
+  return {
+    schemaVersion: "agentcert.evidence_strength.v0.1",
+    level: level as AgentCertEvidenceStrength["level"],
+    claims: Array.isArray(value.claims) ? value.claims.filter((item): item is string => typeof item === "string") : [],
+    limitations: Array.isArray(value.limitations) ? value.limitations.filter((item): item is string => typeof item === "string") : [],
   };
 }
 

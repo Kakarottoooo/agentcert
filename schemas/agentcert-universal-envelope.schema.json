@@ -67,7 +67,19 @@
         "currency": { "type": "string", "minLength": 1 },
         "externalRecipient": { "type": "boolean" },
         "sensitive": { "type": "boolean" },
-        "expectedState": { "type": "object" }
+        "expectedState": { "type": "object" },
+        "assurance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mandateId", "mandateDigestSha256"],
+          "properties": {
+            "mandateId": { "type": "string", "minLength": 1 },
+            "mandateDigestSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "sourceReceiptSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "sourceKeyId": { "type": "string", "minLength": 1 },
+            "evidenceStrength": { "enum": ["reported", "recorded", "enforced", "outcome_verified"] }
+          }
+        }
       }
     }
   },

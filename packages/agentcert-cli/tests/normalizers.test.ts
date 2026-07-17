@@ -68,6 +68,29 @@ describe("AgentCert evidence normalization", () => {
     expect(result.evidence.map((item) => item.kind)).toContain("approval_record");
   });
 
+  it("preserves trusted Onegent evidence strength and mandate provenance", () => {
+    const result = normalizeOnegentAuditPacket({
+      actionIntent: { id: "act_trusted" },
+      riskAssessment: { riskLevel: "HIGH" },
+      approvalRequest: { status: "APPROVED" },
+      verificationResult: { success: true },
+      trustedActionEvidence: {
+        mandate: { mandateId: "mandate-1", digestSha256: "a".repeat(64) },
+        runReceipt: { receiptSha256: "b".repeat(64), journal: { valid: true }, collector: { id: "collector-1" } },
+        evidenceStrength: {
+          schemaVersion: "agentcert.evidence_strength.v0.1",
+          level: "outcome_verified",
+          claims: ["A separate read path observed the expected state."],
+          limitations: ["The source key remains a customer responsibility."],
+        },
+      },
+    }, "trusted-audit-packet.json");
+
+    expect(result.evidenceStrength?.level).toBe("outcome_verified");
+    expect(result.evidence.map((item) => item.kind)).toEqual(expect.arrayContaining(["action_mandate", "trusted_action_journal"]));
+    expect(buildEvidenceBundle([result], "trusted-agent").evidenceStrength?.level).toBe("outcome_verified");
+  });
+
   it("builds a unified bundle from multiple products", () => {
     const mcpbench = normalizeMcpBenchResult({ run_id: "run_1", total_score: 100, passed: true }, "results.json");
     const onegent = normalizeOnegentAuditPacket(
@@ -89,5 +112,6 @@ describe("AgentCert evidence normalization", () => {
     expect(bundle.subject.name).toBe("demo-agent");
     expect(bundle.verdict.passed).toBe(true);
     expect(bundle.summary.products).toEqual(["mcpbench", "onegent-runtime"]);
+    expect(bundle.evidenceStrength?.level).toBe("reported");
   });
 });

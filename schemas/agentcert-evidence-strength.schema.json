@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.app/schemas/agentcert-evidence-strength.schema.json",
+  "title": "AgentCert Evidence Strength v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "level", "claims", "limitations"],
+  "properties": {
+    "schemaVersion": { "const": "agentcert.evidence_strength.v0.1" },
+    "level": {
+      "type": "string",
+      "enum": ["reported", "recorded", "enforced", "outcome_verified", "independently_reviewed"]
+    },
+    "claims": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "limitations": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+  }
+}

@@ -37,6 +37,12 @@ export interface ValidatedEvidenceUpload {
   format: typeof ACCEPTED_EVIDENCE_FORMATS[number];
   artifactReferenceCount?: number;
   artifactManifest?: EvidenceArtifactManifest;
+  evidenceStrength?: {
+    schemaVersion: "agentcert.evidence_strength.v0.1";
+    level: "reported" | "recorded" | "enforced" | "outcome_verified";
+    claims: string[];
+    limitations: string[];
+  };
 }
 
 export class EvidenceUploadValidationError extends Error {
@@ -98,7 +104,25 @@ export function validateEvidenceUpload(
     ...(input.kind === "evidence_bundle" ? {
       artifactReferenceCount: countArtifactReferences(parsedJson),
       artifactManifest: parseArtifactManifest(parsedJson),
+      evidenceStrength: parseEvidenceStrength(parsedJson),
     } : {}),
+  };
+}
+
+export function parseEvidenceStrength(value: unknown): ValidatedEvidenceUpload["evidenceStrength"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const bundle = value as Record<string, unknown>;
+  const strength = bundle.evidenceStrength;
+  if (!strength || typeof strength !== "object" || Array.isArray(strength)) return undefined;
+  const input = strength as Record<string, unknown>;
+  const level = input.level;
+  if (input.schemaVersion !== "agentcert.evidence_strength.v0.1"
+    || !["reported", "recorded", "enforced", "outcome_verified"].includes(String(level))) return undefined;
+  return {
+    schemaVersion: "agentcert.evidence_strength.v0.1",
+    level: level as NonNullable<ValidatedEvidenceUpload["evidenceStrength"]>["level"],
+    claims: stringValues(input.claims),
+    limitations: stringValues(input.limitations),
   };
 }
 
@@ -380,4 +404,8 @@ function timestamp(value: unknown): number {
 function numeric(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function stringValues(value: unknown): string[] {
+  return Array.isArray(value) ? [...new Set(value.filter((item): item is string => typeof item === "string" && item.trim().length > 0))] : [];
 }

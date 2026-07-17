@@ -12,7 +12,7 @@ const user: AuthContext = { kind: "user", userId: "00000000-0000-4000-8000-00000
 
 describe("control-plane migrations", () => {
   it("loads the latest production migration during startup", () => {
-    expect(CONTROL_PLANE_MIGRATIONS.at(-1)).toBe("014_team_access_management.sql");
+    expect(CONTROL_PLANE_MIGRATIONS.at(-1)).toBe("015_trusted_action_assurance.sql");
   });
 });
 
@@ -48,9 +48,13 @@ describe("Universal Event/Action Envelope v0.1", () => {
       occurredAt: "2026-07-15T12:00:00.000Z", source: { agentId: "procurement-agent", framework: "openai-agents" },
       run: { externalId: "runtime-run-1", kind: "runtime" }, trace: createTraceContext(),
       action: { externalId: "po-4850", principal: { id: "procurement-agent" }, actionType: "SUBMIT", targetSystem: "MockERP",
-        requestedPermissions: [], amount: 4850, currency: "USD", expectedState: { status: "SUBMITTED" } },
+        requestedPermissions: [], amount: 4850, currency: "USD", expectedState: { status: "SUBMITTED" },
+        assurance: { mandateId: "mandate-po-4850", mandateDigestSha256: "a".repeat(64), sourceReceiptSha256: "b".repeat(64), sourceKeyId: "customer-key-v1", evidenceStrength: "outcome_verified" } },
     });
-    expect(result.action).toMatchObject({ riskLevel: "HIGH", decision: "REQUIRE_APPROVAL", status: "PENDING_APPROVAL" });
+    expect(result.action).toMatchObject({
+      riskLevel: "HIGH", decision: "REQUIRE_APPROVAL", status: "PENDING_APPROVAL",
+      assuranceContext: { mandateId: "mandate-po-4850", evidenceStrength: "outcome_verified" },
+    });
   });
 });
 

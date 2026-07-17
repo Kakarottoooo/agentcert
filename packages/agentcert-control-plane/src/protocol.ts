@@ -44,6 +44,13 @@ export interface UniversalEnvelope {
     externalRecipient?: boolean;
     sensitive?: boolean;
     expectedState?: Record<string, unknown>;
+    assurance?: {
+      mandateId: string;
+      mandateDigestSha256: string;
+      sourceReceiptSha256?: string;
+      sourceKeyId?: string;
+      evidenceStrength?: "reported" | "recorded" | "enforced" | "outcome_verified";
+    };
   };
 }
 
@@ -114,8 +121,32 @@ export function parseUniversalEnvelope(input: unknown): UniversalEnvelope {
       externalRecipient: optionalBoolean(action.externalRecipient, "action.externalRecipient"),
       sensitive: optionalBoolean(action.sensitive, "action.sensitive"),
       expectedState: action.expectedState === undefined ? undefined : object(action.expectedState, "action.expectedState"),
+      assurance: action.assurance === undefined ? undefined : parseActionAssurance(action.assurance),
     },
   };
+}
+
+function parseActionAssurance(input: unknown): NonNullable<NonNullable<UniversalEnvelope["action"]>["assurance"]> {
+  const value = object(input, "action.assurance");
+  const mandateDigestSha256 = digest(value.mandateDigestSha256, "action.assurance.mandateDigestSha256");
+  const sourceReceiptSha256 = value.sourceReceiptSha256 === undefined ? undefined : digest(value.sourceReceiptSha256, "action.assurance.sourceReceiptSha256");
+  const evidenceStrength = value.evidenceStrength;
+  if (evidenceStrength !== undefined && !["reported", "recorded", "enforced", "outcome_verified"].includes(String(evidenceStrength))) {
+    throw new EnvelopeValidationError("action.assurance.evidenceStrength is not supported.");
+  }
+  return {
+    mandateId: string(value.mandateId, "action.assurance.mandateId"),
+    mandateDigestSha256,
+    sourceReceiptSha256,
+    sourceKeyId: optionalString(value.sourceKeyId, "action.assurance.sourceKeyId"),
+    evidenceStrength: evidenceStrength as NonNullable<NonNullable<UniversalEnvelope["action"]>["assurance"]>["evidenceStrength"],
+  };
+}
+
+function digest(value: unknown, path: string): string {
+  const result = string(value, path);
+  if (!/^[a-f0-9]{64}$/.test(result)) throw new EnvelopeValidationError(`${path} must be a lowercase SHA-256 digest.`);
+  return result;
 }
 
 export function parseTraceContext(input: unknown): TraceContext {

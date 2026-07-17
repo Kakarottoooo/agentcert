@@ -52,7 +52,7 @@ export interface OnegentRuntime {
   executeAfterApproval(action: ActionIntent | string, adapter?: LocalActionAdapter): Promise<ActionExecutionSummary>;
   rollbackAfterExecution(action: ActionIntent | string, adapter: LocalActionAdapter, reason: string): Promise<ActionExecutionReceipt>;
   getExecutionReceipt(action: ActionIntent | string): Promise<ActionExecutionReceipt | undefined>;
-  verifyOutcome(action: ActionIntent | string, observedState?: ActionExecutionSummary | Record<string, unknown>): VerificationResult;
+  verifyOutcome(action: ActionIntent | string, observedState?: ActionExecutionSummary | Record<string, unknown>, method?: import("./types.js").VerificationMethod): VerificationResult;
   writeAuditPacket(action: ActionIntent | string): Promise<ActionAuditPacket>;
   getActionReview(action: ActionIntent | string): ActionReview;
   listActionReviews(): ActionReview[];
@@ -156,7 +156,7 @@ export function createOnegentRuntime(options: OnegentRuntimeOptions = {}): Onege
       return next;
     },
     getExecutionReceipt: async (actionInput) => executionStore.get(getActionReview(actionId(actionInput)).action.idempotencyKey),
-    verifyOutcome: (action, observedState) => verifyActionOutcome(actionId(action), observedStateForVerification(observedState)),
+    verifyOutcome: (action, observedState, method) => verifyActionOutcome(actionId(action), observedStateForVerification(observedState), method),
     writeAuditPacket: async (action) => {
       const packet = generateAuditPacket(actionId(action));
       await options.auditStore?.writeAuditPacket(packet);

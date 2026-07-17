@@ -20,7 +20,7 @@ export type PolicyEffect = "ALLOW" | "REQUIRE_APPROVAL" | "BLOCK";
 
 export type ApprovalStatus = "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED";
 
-export type VerificationMethod = "MOCK" | "LOCAL_MOCK_ERP" | "LOCAL_ADAPTER";
+export type VerificationMethod = "MOCK" | "LOCAL_MOCK_ERP" | "LOCAL_ADAPTER" | "INDEPENDENT_PROBE";
 
 export interface ActionFieldChange {
   field: string;
@@ -44,6 +44,7 @@ export interface ActionIntent {
   sourceAgentRunId?: string;
   principal: AgentPrincipal;
   requestedPermissions: string[];
+  mandateId?: string;
   actionType: ActionType;
   targetSystem: string;
   targetUrl?: string;
@@ -72,6 +73,7 @@ export interface CreateActionIntentInput {
   sourceAgentRunId?: string;
   principal?: AgentPrincipal;
   requestedPermissions?: string[];
+  mandateId?: string;
   actionType: ActionType;
   targetSystem: string;
   targetUrl?: string;
@@ -331,6 +333,7 @@ export interface ActionAuditPacket {
   execution: ActionExecutionSummary;
   verificationResult?: VerificationResult;
   auditEvents: AuditEvent[];
+  trustedActionEvidence?: import("./trust-types.js").TrustedActionEvidence;
   disclaimer: string;
 }
 

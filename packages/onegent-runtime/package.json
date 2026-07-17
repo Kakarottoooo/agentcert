@@ -12,7 +12,11 @@
     },
     "./sandbox-certification.schema.json": "./sandbox-certification.schema.json",
     "./sandbox-adapter-conformance.schema.json": "./sandbox-adapter-conformance.schema.json",
-    "./stripe-sandbox-readonly.schema.json": "./stripe-sandbox-readonly.schema.json"
+    "./stripe-sandbox-readonly.schema.json": "./stripe-sandbox-readonly.schema.json",
+    "./schemas/evidence-strength": "./dist/schemas/agentcert-evidence-strength.schema.json",
+    "./schemas/action-mandate": "./dist/schemas/agentcert-action-mandate.schema.json",
+    "./schemas/trusted-action-record": "./dist/schemas/agentcert-trusted-action-record.schema.json",
+    "./schemas/trusted-run-receipt": "./dist/schemas/agentcert-trusted-run-receipt.schema.json"
   },
   "bin": {
     "onegent-runtime": "dist/cli.js"
@@ -27,10 +31,11 @@
     "package.json"
   ],
   "scripts": {
-    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && node scripts/copy-trust-schemas.mjs",
     "prepack": "npm run build",
     "test": "vitest run tests",
     "demo:procurement": "node dist/cli.js procurement-demo --out .onegent/procurement",
+    "demo:trusted-browser": "node dist/cli.js trusted-browser-demo --out .onegent/trusted-browser-submit",
     "demo:sandbox": "node dist/cli.js sandbox-certify --out .onegent/sandbox-certification",
     "demo:sandbox-conformance": "node dist/cli.js sandbox-conformance --out .onegent/sandbox-conformance",
     "serve": "node dist/cli.js serve --port 3310"
