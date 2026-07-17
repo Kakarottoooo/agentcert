@@ -20,7 +20,8 @@ evidence, separates case creation from issuance review, signs issued reports,
 and keeps suspension, revocation, and expiry observable. It is an auditable
 assurance decision, not an official certification.
 
-**Use AgentCert:** [Public assurance demo](https://agentcert-control-plane.onrender.com/demo) |
+**Use AgentCert:** [Product site](https://agentcert-control-plane.onrender.com/) |
+[Public evidence](https://agentcert-control-plane.onrender.com/evidence) |
 [Private workspace](https://agentcert-control-plane.onrender.com/app) |
 [GitHub source](https://github.com/Kakarottoooo/agentcert) |
 [v0.5.2 release](https://github.com/Kakarottoooo/agentcert/releases/tag/v0.5.2)
@@ -159,7 +160,8 @@ Production Acceptance Lab: [docs/production-acceptance-lab.md](docs/production-a
 Corpus governance: [docs/corpus-governance.md](docs/corpus-governance.md).
 Adapter compatibility: [docs/adapter-compatibility.md](docs/adapter-compatibility.md).
 Sandbox Adapter Kit: [docs/sandbox-adapter-kit.md](docs/sandbox-adapter-kit.md).
-Public demo: [agentcert-control-plane.onrender.com/demo](https://agentcert-control-plane.onrender.com/demo).
+Product site: [agentcert-control-plane.onrender.com](https://agentcert-control-plane.onrender.com/).
+Public evidence: [agentcert-control-plane.onrender.com/evidence](https://agentcert-control-plane.onrender.com/evidence).
 Authenticated workspace: [agentcert-control-plane.onrender.com/app](https://agentcert-control-plane.onrender.com/app).
 
 Once a project API key is created in **Integrations**, connect the CLI once and
@@ -441,7 +443,8 @@ reads the aggregated snapshot.
 - Schema guide: [docs/evidence-schema.md](docs/evidence-schema.md)
 - Extended standards/taxonomy notes: [docs/standards/evidence-schema.md](docs/standards/evidence-schema.md)
 - Corpus, review ledger, monitor, and local console reference: [docs/evidence-and-corpus.md](docs/evidence-and-corpus.md)
-- Public assurance demo: [AgentCert Hosted](https://agentcert-control-plane.onrender.com/demo)
+- Product site: [AgentCert Hosted](https://agentcert-control-plane.onrender.com/)
+- Public evidence: [AgentCert evidence explorer](https://agentcert-control-plane.onrender.com/evidence)
 - Immutable evidence archive: [GitHub Pages snapshot](https://kakarottoooo.github.io/agentcert/public-demo/agentcert-monitor/)
 
 Validate any evidence artifact:

@@ -172,7 +172,7 @@ adds API-backed inspection:
 
 Canonical public demo:
 
-[https://agentcert-control-plane.onrender.com/demo](https://agentcert-control-plane.onrender.com/demo)
+[https://agentcert-control-plane.onrender.com/evidence](https://agentcert-control-plane.onrender.com/evidence)
 
 Immutable GitHub Pages archive:
 

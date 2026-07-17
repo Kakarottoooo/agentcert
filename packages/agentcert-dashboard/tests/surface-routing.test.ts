@@ -3,17 +3,34 @@ import { describe, expect, it } from "vitest";
 import { absoluteSurfaceUrl, isPublicArchiveLocation, resolveHostedSurface } from "../src/surface-routing";
 
 describe("hosted product surface routing", () => {
-  it("opens the public demo without authentication and canonicalizes the root URL", () => {
+  it("opens the product homepage at the root without authentication", () => {
     expect(resolveHostedSurface("/", "")).toEqual({
-      surface: "public-demo",
+      surface: "home",
       access: "public",
-      canonicalPath: "/demo",
-      normalizedPath: "/demo",
+      canonicalPath: "/",
     });
+  });
+
+  it("keeps old demo links working while making evidence the canonical public path", () => {
     expect(resolveHostedSurface("/demo", "")).toEqual({
-      surface: "public-demo",
+      surface: "public-evidence",
       access: "public",
-      canonicalPath: "/demo",
+      canonicalPath: "/evidence",
+      normalizedPath: "/evidence",
+    });
+    expect(resolveHostedSurface("/evidence", "")).toEqual({
+      surface: "public-evidence",
+      access: "public",
+      canonicalPath: "/evidence",
+    });
+  });
+
+  it("serves pricing and security as public product surfaces", () => {
+    expect(resolveHostedSurface("/pricing", "")).toMatchObject({ surface: "pricing", access: "public" });
+    expect(resolveHostedSurface("/security/", "")).toMatchObject({
+      surface: "security",
+      access: "public",
+      normalizedPath: "/security",
     });
   });
 
@@ -32,7 +49,7 @@ describe("hosted product surface routing", () => {
       canonicalPath: "/app",
       normalizedPath: "/app",
     });
-    expect(resolveHostedSurface("/demo", "#error=access_denied&error_code=otp_expired")).toMatchObject({
+    expect(resolveHostedSurface("/evidence", "#error=access_denied&error_code=otp_expired")).toMatchObject({
       surface: "workspace",
       access: "authenticated",
       normalizedPath: "/app",
@@ -43,12 +60,13 @@ describe("hosted product surface routing", () => {
     expect(resolveHostedSurface("/private-evidence", "")).toEqual({
       surface: "not-found",
       access: "public",
-      canonicalPath: "/demo",
+      canonicalPath: "/",
     });
   });
 
   it("builds stable public and workspace URLs", () => {
-    expect(absoluteSurfaceUrl("https://agentcert.example.com/", "/demo")).toBe("https://agentcert.example.com/demo");
+    expect(absoluteSurfaceUrl("https://agentcert.example.com/", "/")).toBe("https://agentcert.example.com/");
+    expect(absoluteSurfaceUrl("https://agentcert.example.com/", "/evidence")).toBe("https://agentcert.example.com/evidence");
     expect(absoluteSurfaceUrl("https://agentcert.example.com", "/app")).toBe("https://agentcert.example.com/app");
   });
 

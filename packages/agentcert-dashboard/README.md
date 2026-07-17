@@ -1,8 +1,9 @@
 # AgentCert Dashboard
 
-The same React build serves both public and authenticated product surfaces.
-AgentCert Hosted exposes the public snapshot at `/demo` without loading a user
-session or private API, and reserves `/app` for the authenticated control plane.
+The same React build serves the product site, public evidence, and authenticated
+surfaces. AgentCert Hosted exposes the product site at `/`, the public snapshot
+at `/evidence` without loading a user session or private API, and reserves
+`/app` for the authenticated control plane. `/demo` remains an alias for old links.
 In hosted control-plane mode, the authenticated **Runs** workspace combines run state, ordered
 events, evidence bundles, incidents, private artifacts, and persisted human
 failure reviews. The static corpus adapter remains for the deterministic public

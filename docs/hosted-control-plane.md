@@ -1,10 +1,11 @@
 # Hosted Control Plane
 
-AgentCert Hosted is the canonical product entry point. `/demo` is an anonymous
-public assurance snapshot, while `/app` is the authenticated operational
+AgentCert Hosted is the canonical product entry point. `/` is the public product
+site, `/evidence` is the anonymous assurance snapshot, and `/app` is the authenticated operational
 surface for organizations, projects, agents, runs, runtime actions, incidents,
 and private evidence. The legacy GitHub Pages monitor remains an immutable
-public evidence archive and links visitors to `/demo`.
+public evidence archive and links visitors to `/evidence`. Existing `/demo`
+links are preserved as a compatibility alias for `/evidence`.
 
 ## Recommended Production Profile
 
@@ -63,7 +64,8 @@ $env:AGENTCERT_DASHBOARD_DIR="../../public-demo/agentcert-monitor"
 npm --prefix packages/agentcert-control-plane start
 ```
 
-Open `http://127.0.0.1:8787/demo` for the public snapshot or
+Open `http://127.0.0.1:8787/` for the product site,
+`http://127.0.0.1:8787/evidence` for the public snapshot, or
 `http://127.0.0.1:8787/app` for the workspace. Development mode uses an in-memory database,
 loopback-only auth, and local artifact files.
 
@@ -209,7 +211,7 @@ fallbacks, but new deployments should use the current key types above.
    that key return `401`.
 
 The hosted console is the canonical operational UI. The checked-in static
-monitor remains a deterministic public demo and compatibility view; new
+monitor remains a deterministic public evidence snapshot and compatibility view; new
 interactive evidence analysis and review workflows belong in the hosted run
 workspace rather than a second stateful frontend.
 
