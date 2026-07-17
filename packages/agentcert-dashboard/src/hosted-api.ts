@@ -354,7 +354,7 @@ export interface HostedWebhookJob {
 export interface HostedNotificationJob {
   id: string;
   destinationId: string;
-  alertType: HostedNotificationAlertType | "destination_verification";
+  alertType: HostedNotificationAlertType | "destination_verification" | "test_alert";
   recipient: string;
   subject: string;
   status: "pending" | "processing" | "retrying" | "delivered" | "dead_letter";
@@ -702,6 +702,14 @@ export async function createHostedNotificationDestination(
 
 export async function disableHostedNotificationDestination(session: HostedSession, projectId: string, destinationId: string) {
   return apiRequest(session, path(projectId, `notification-destinations/${encodeURIComponent(destinationId)}`), { method: "DELETE" });
+}
+
+export async function sendHostedTestNotification(
+  session: HostedSession,
+  projectId: string,
+  destinationId: string,
+): Promise<HostedNotificationJob> {
+  return apiRequest(session, path(projectId, `notification-destinations/${encodeURIComponent(destinationId)}/test`), { method: "POST" });
 }
 
 export async function loadHostedEvidence(session: HostedSession, projectId: string): Promise<HostedEvidence[]> {

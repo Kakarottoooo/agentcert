@@ -10,6 +10,7 @@ import {
   requestHostedLegalHold,
   resendSignUpConfirmation,
   reviewHostedFailure,
+  sendHostedTestNotification,
   type HostedConfig,
 } from "../src/hosted-api";
 
@@ -169,6 +170,20 @@ describe("hosted run analysis", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/v1/projects/project-1/runs/run-1/failure-reviews",
       expect.objectContaining({ method: "POST", body: JSON.stringify(input) }),
+    );
+  });
+
+  it("queues a test alert for one verified project destination", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: "job-1", alertType: "test_alert", status: "pending",
+    }), { status: 202, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendHostedTestNotification({ accessToken: "user-token" }, "project-1", "destination-1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/v1/projects/project-1/notification-destinations/destination-1/test",
+      expect.objectContaining({ method: "POST" }),
     );
   });
 });

@@ -45,6 +45,7 @@ import type {
   NotificationDestinationRecord,
   PublicNotificationDestinationRecord,
   NotificationJobRecord,
+  PublicNotificationVerificationResult,
   PilotFeedbackCategory,
   PilotFeedbackOutcome,
   PilotFeedbackRecord,
@@ -86,6 +87,7 @@ const DEFAULT_NOTIFICATION_MAX_ATTEMPTS = 5;
 const DEFAULT_NOTIFICATION_LEASE_MS = 60_000;
 const DEFAULT_NOTIFICATION_RETRY_BASE_MS = 60_000;
 const MAX_NOTIFICATION_RETRY_MS = 6 * 60 * 60 * 1000;
+const TEST_NOTIFICATION_COOLDOWN_MS = 60_000;
 
 interface SloBurnEvaluation {
   status: "healthy" | "warning" | "critical";
@@ -1266,11 +1268,14 @@ export class AgentCertControlPlane {
     return publicNotificationDestination(destination);
   }
 
-  async verifyNotificationDestination(token: string): Promise<PublicNotificationDestinationRecord> {
-    if (!token || token.length > 512) throw new ControlPlaneError("Verification token is invalid.");
-    const destination = await this.store.verifyNotificationDestination(createHash("sha256").update(token).digest("hex"), new Date().toISOString());
-    if (!destination) throw new ControlPlaneError("Verification token is invalid or expired.", 400);
-    return publicNotificationDestination(destination);
+  async verifyNotificationDestination(token: string, now = new Date()): Promise<PublicNotificationVerificationResult> {
+    if (!token || token.length > 512) return { outcome: "invalid" };
+    const result = await this.store.verifyNotificationDestination(
+      createHash("sha256").update(token).digest("hex"),
+      now.toISOString(),
+    );
+    if (!("destination" in result)) return result;
+    return { outcome: result.outcome, destination: publicNotificationDestination(result.destination) };
   }
 
   async listNotificationDestinations(auth: AuthContext, projectId: string) {
@@ -1283,6 +1288,37 @@ export class AgentCertControlPlane {
     const destination = await this.store.disableNotificationDestination(projectId, destinationId, new Date().toISOString());
     if (!destination) throw new ControlPlaneError("Notification destination was not found.", 404);
     return publicNotificationDestination(destination);
+  }
+
+  async sendTestNotification(
+    auth: AuthContext,
+    projectId: string,
+    destinationId: string,
+    now = new Date(),
+  ): Promise<NotificationJobRecord> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    if (!this.emailProvider.configured) throw new ControlPlaneError("Email notifications are not configured by the AgentCert platform.", 503);
+    const destination = (await this.store.listNotificationDestinations(projectId)).find((item) => item.id === destinationId);
+    if (!destination) throw new ControlPlaneError("Notification destination was not found.", 404);
+    if (destination.status !== "active") {
+      throw new ControlPlaneError(
+        "Verify this email address before sending a test alert.", 409, "notification_destination_unverified",
+        "Open the newest verification email, then retry the test alert.",
+      );
+    }
+    const recentTest = (await this.store.listNotificationJobs(projectId, 100)).find(
+      (job) => job.destinationId === destinationId && job.alertType === "test_alert",
+    );
+    if (recentTest && now.getTime() - Date.parse(recentTest.createdAt) < TEST_NOTIFICATION_COOLDOWN_MS) {
+      throw new ControlPlaneError(
+        "A test alert was sent to this address less than 60 seconds ago.", 429, "test_alert_cooldown",
+        "Wait 60 seconds before sending another test alert.",
+      );
+    }
+    return this.enqueueEmail(destination, "test_alert", "[AgentCert] Test alert delivery", {
+      text: `This is a test alert for AgentCert project ${projectId}. No incident was created.\n\nOpen AgentCert: ${this.publicUrl}`,
+      html: `<p><strong>AgentCert test alert</strong></p><p>Email delivery is configured for this project. No incident was created.</p><p><a href="${escapeHtml(this.publicUrl)}">Open AgentCert</a></p>`,
+    }, now);
   }
 
   async retryNotificationJob(auth: AuthContext, projectId: string, jobId: string): Promise<NotificationJobRecord> {
@@ -1728,7 +1764,7 @@ export class AgentCertControlPlane {
   }
 
   private async sendIncidentNotification(
-    alertType: Exclude<NotificationAlertType, "destination_verification">,
+    alertType: Exclude<NotificationAlertType, "destination_verification" | "test_alert">,
     incident: IncidentRecord,
     transition: IncidentTransitionRecord,
   ): Promise<void> {
@@ -1755,12 +1791,13 @@ export class AgentCertControlPlane {
     alertType: NotificationAlertType,
     subject: string,
     content: { text: string; html: string },
+    now = new Date(),
   ): Promise<NotificationJobRecord> {
-    const now = new Date().toISOString();
+    const createdAt = now.toISOString();
     return this.store.enqueueNotificationJob({
       id: randomUUID(), projectId: destination.projectId, destinationId: destination.id, alertType,
       recipient: destination.email, subject, text: content.text, html: content.html, status: "pending",
-      attemptCount: 0, maxAttempts: DEFAULT_NOTIFICATION_MAX_ATTEMPTS, nextAttemptAt: now, createdAt: now,
+      attemptCount: 0, maxAttempts: DEFAULT_NOTIFICATION_MAX_ATTEMPTS, nextAttemptAt: createdAt, createdAt,
     });
   }
 

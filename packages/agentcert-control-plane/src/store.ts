@@ -31,6 +31,7 @@ import type {
   NotificationDeliveryRecord,
   NotificationJobRecord,
   NotificationJobCounts,
+  NotificationVerificationStoreResult,
   PilotFeedbackRecord,
   PilotFunnelSource,
   AssuranceCaseRecord,
@@ -158,7 +159,7 @@ export interface ControlPlaneStore {
   listTrustHealthSamples(projectId: string, since: string, limit?: number): Promise<TrustHealthSampleRecord[]>;
   trustHealthCounts(projectId: string, since: string): Promise<{ total: number; passed: number; failed: number }>;
   saveNotificationDestination(destination: NotificationDestinationRecord): Promise<NotificationDestinationRecord>;
-  verifyNotificationDestination(tokenHash: string, now: string): Promise<NotificationDestinationRecord | undefined>;
+  verifyNotificationDestination(tokenHash: string, now: string): Promise<NotificationVerificationStoreResult>;
   listNotificationDestinations(projectId: string): Promise<NotificationDestinationRecord[]>;
   disableNotificationDestination(projectId: string, destinationId: string, disabledAt: string): Promise<NotificationDestinationRecord | undefined>;
   insertNotificationDelivery(delivery: NotificationDeliveryRecord): Promise<NotificationDeliveryRecord>;
@@ -757,12 +758,14 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
     return next;
   }
 
-  async verifyNotificationDestination(tokenHash: string, now: string): Promise<NotificationDestinationRecord | undefined> {
-    const destination = [...this.notificationDestinations.values()].find((item) => item.verificationTokenHash === tokenHash && item.verificationExpiresAt && item.verificationExpiresAt >= now && item.status === "pending_verification");
-    if (!destination) return undefined;
-    const verified = { ...destination, status: "active" as const, verificationTokenHash: undefined, verificationExpiresAt: undefined, verifiedAt: now };
+  async verifyNotificationDestination(tokenHash: string, now: string): Promise<NotificationVerificationStoreResult> {
+    const destination = [...this.notificationDestinations.values()].find((item) => item.verificationTokenHash === tokenHash);
+    if (!destination || destination.status === "disabled") return { outcome: "invalid" };
+    if (destination.status === "active") return { outcome: "already_verified", destination };
+    if (!destination.verificationExpiresAt || destination.verificationExpiresAt < now) return { outcome: "expired" };
+    const verified = { ...destination, status: "active" as const, verifiedAt: now };
     this.notificationDestinations.set(destination.id, verified);
-    return verified;
+    return { outcome: "verified", destination: verified };
   }
 
   async listNotificationDestinations(projectId: string): Promise<NotificationDestinationRecord[]> {
@@ -1863,13 +1866,22 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     return notificationDestinationFromRow(result.rows[0]);
   }
 
-  async verifyNotificationDestination(tokenHash: string, now: string): Promise<NotificationDestinationRecord | undefined> {
-    return one(this.pool.query(
-      `UPDATE agentcert_notification_destinations SET status='active',verification_token_hash=NULL,
-       verification_expires_at=NULL,verified_at=$2 WHERE verification_token_hash=$1 AND status='pending_verification'
+  async verifyNotificationDestination(tokenHash: string, now: string): Promise<NotificationVerificationStoreResult> {
+    const verified = await one(this.pool.query(
+      `UPDATE agentcert_notification_destinations SET status='active',verified_at=$2
+       WHERE verification_token_hash=$1 AND status='pending_verification'
        AND verification_expires_at >= $2 RETURNING *`,
       [tokenHash, now],
     ), notificationDestinationFromRow);
+    if (verified) return { outcome: "verified", destination: verified };
+    const destination = await one(this.pool.query(
+      "SELECT * FROM agentcert_notification_destinations WHERE verification_token_hash=$1",
+      [tokenHash],
+    ), notificationDestinationFromRow);
+    if (!destination || destination.status === "disabled") return { outcome: "invalid" };
+    if (destination.status === "active") return { outcome: "already_verified", destination };
+    if (!destination.verificationExpiresAt || destination.verificationExpiresAt < now) return { outcome: "expired" };
+    return { outcome: "invalid" };
   }
 
   async listNotificationDestinations(projectId: string): Promise<NotificationDestinationRecord[]> {
