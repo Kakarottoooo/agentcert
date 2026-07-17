@@ -1,5 +1,5 @@
 export const HOSTED_VIEWS = [
-  "overview", "agents", "runs", "assurance", "sandbox", "gates", "actions", "incidents", "evidence", "integrations", "governance", "account",
+  "overview", "agents", "runs", "assurance", "sandbox", "gates", "actions", "incidents", "evidence", "integrations", "team", "governance", "account",
 ] as const;
 
 export type HostedView = typeof HOSTED_VIEWS[number];

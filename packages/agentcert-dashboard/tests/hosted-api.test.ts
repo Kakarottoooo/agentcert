@@ -4,6 +4,7 @@ import {
   loadHostedRunAnalysis,
   createHostedProject,
   loadHostedOnboarding,
+  loadHostedTeam,
   loadAdminPilotReport,
   HostedApiError,
   readHostedAuthCallbackError,
@@ -138,6 +139,19 @@ describe("hosted run analysis", () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/v1/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ name: "Coding agents" }) }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/v1/projects/project-2/onboarding", expect.any(Object));
+  });
+
+  it("keeps team and new-project requests scoped to the selected organization", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "project-3", organizationId: "org-2", name: "Team project" }), { status: 201, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ organization: { id: "org-2" }, currentMembership: { role: "admin" }, members: [], invitations: [], audit: [] }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createHostedProject({ accessToken: "user-token" }, "Team project", "org-2");
+    await loadHostedTeam({ accessToken: "user-token" }, "org-2");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/v1/projects", expect.objectContaining({ body: JSON.stringify({ name: "Team project", organizationId: "org-2" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/v1/organizations/org-2/team", expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer user-token" }) }));
   });
 
   it("preserves structured diagnosis and request IDs from hosted errors", async () => {

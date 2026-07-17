@@ -7,6 +7,10 @@ describe("hosted workspace routing", () => {
     expect(resolveHostedRoute("?view=account")).toEqual({ view: "account" });
   });
 
+  it("opens team access from a direct project link", () => {
+    expect(resolveHostedRoute("?view=team&project=project-1")).toEqual({ view: "team", projectId: "project-1" });
+  });
+
   it("preserves the project and focus for an email-alert deep link", () => {
     expect(resolveHostedRoute("?view=integrations&focus=email-alerts&project=project-1")).toEqual({
       view: "integrations",

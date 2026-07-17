@@ -28,6 +28,41 @@ export interface HostedProject {
   createdAt: string;
 }
 
+export type HostedMemberRole = "owner" | "admin" | "operator" | "viewer";
+
+export interface HostedTeamMember {
+  organizationId: string;
+  userId: string;
+  email?: string;
+  role: HostedMemberRole;
+  projectIds: string[];
+  createdAt: string;
+}
+
+export interface HostedTeamInvitation {
+  id: string;
+  organizationId: string;
+  email: string;
+  role: HostedMemberRole;
+  projectIds: string[];
+  status: "pending" | "accepted" | "revoked" | "expired";
+  deliveryStatus: "pending" | "sent" | "failed";
+  deliveryError?: string;
+  invitedBy: string;
+  invitedByEmail?: string;
+  expiresAt: string;
+  createdAt: string;
+  sentAt?: string;
+}
+
+export interface HostedTeamSnapshot {
+  organization: { id: string; name: string; slug: string; createdAt: string };
+  currentMembership: HostedTeamMember;
+  members: HostedTeamMember[];
+  invitations: HostedTeamInvitation[];
+  audit: Array<{ id: string; action: string; actorId: string; actorEmail?: string; targetUserId?: string; targetEmail?: string; metadata: Record<string, unknown>; occurredAt: string }>;
+}
+
 export interface HostedOnboardingStatus {
   projectId: string;
   complete: boolean;
@@ -550,8 +585,8 @@ export function saveHostedSession(session: HostedSession | undefined): void {
   else window.localStorage.removeItem(SESSION_KEY);
 }
 
-export async function signUp(config: HostedConfig, email: string, password: string): Promise<{ session?: HostedSession; message: string }> {
-  const response = await supabaseRequest(config, `/auth/v1/signup?redirect_to=${encodeURIComponent(config.publicUrl)}`, {
+export async function signUp(config: HostedConfig, email: string, password: string, redirectTo = config.publicUrl): Promise<{ session?: HostedSession; message: string }> {
+  const response = await supabaseRequest(config, `/auth/v1/signup?redirect_to=${encodeURIComponent(redirectTo)}`, {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
@@ -562,10 +597,10 @@ export async function signUp(config: HostedConfig, email: string, password: stri
   return { session, message: session ? "Account created." : "Check your email to confirm the account, then sign in." };
 }
 
-export async function resendSignUpConfirmation(config: HostedConfig, email: string): Promise<string> {
+export async function resendSignUpConfirmation(config: HostedConfig, email: string, redirectTo = config.publicUrl): Promise<string> {
   const normalizedEmail = email.trim();
   if (!normalizedEmail) throw new Error("Enter your email before requesting a new confirmation message.");
-  const response = await supabaseRequest(config, `/auth/v1/resend?redirect_to=${encodeURIComponent(config.publicUrl)}`, {
+  const response = await supabaseRequest(config, `/auth/v1/resend?redirect_to=${encodeURIComponent(redirectTo)}`, {
     method: "POST",
     body: JSON.stringify({ email: normalizedEmail, type: "signup" }),
   });
@@ -643,8 +678,32 @@ export async function loadProjects(session: HostedSession): Promise<HostedProjec
   return (await apiRequest<{ projects: HostedProject[] }>(session, "/v1/projects")).projects;
 }
 
-export async function createHostedProject(session: HostedSession, name: string): Promise<HostedProject> {
-  return apiRequest(session, "/v1/projects", { method: "POST", body: JSON.stringify({ name }) });
+export async function acceptHostedInvitation(session: HostedSession, token: string): Promise<{ organizationId: string; projectId: string }> {
+  return apiRequest(session, "/v1/invitations/accept", { method: "POST", body: JSON.stringify({ token }) });
+}
+
+export async function loadHostedTeam(session: HostedSession, organizationId: string): Promise<HostedTeamSnapshot> {
+  return apiRequest(session, `/v1/organizations/${encodeURIComponent(organizationId)}/team`);
+}
+
+export async function createHostedTeamInvitation(session: HostedSession, organizationId: string, input: { email: string; role: HostedMemberRole; projectIds: string[] }): Promise<HostedTeamInvitation> {
+  return apiRequest(session, `/v1/organizations/${encodeURIComponent(organizationId)}/invitations`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function revokeHostedTeamInvitation(session: HostedSession, organizationId: string, invitationId: string): Promise<HostedTeamInvitation> {
+  return apiRequest(session, `/v1/organizations/${encodeURIComponent(organizationId)}/invitations/${encodeURIComponent(invitationId)}`, { method: "DELETE" });
+}
+
+export async function updateHostedTeamMember(session: HostedSession, organizationId: string, userId: string, input: { role: HostedMemberRole; projectIds: string[] }): Promise<HostedTeamMember> {
+  return apiRequest(session, `/v1/organizations/${encodeURIComponent(organizationId)}/members/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export async function removeHostedTeamMember(session: HostedSession, organizationId: string, userId: string): Promise<void> {
+  await apiRequest(session, `/v1/organizations/${encodeURIComponent(organizationId)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" });
+}
+
+export async function createHostedProject(session: HostedSession, name: string, organizationId?: string): Promise<HostedProject> {
+  return apiRequest(session, "/v1/projects", { method: "POST", body: JSON.stringify({ name, organizationId }) });
 }
 
 export async function renameHostedProject(session: HostedSession, projectId: string, name: string): Promise<HostedProject> {
