@@ -22,7 +22,7 @@ jobs:
     environment:
       name: vendor-sandbox
     env:
-      AGENTCERT_BASE_URL: https://agentcert-control-plane.onrender.com
+      AGENTCERT_BASE_URL: https://agentcert.app
       AGENTCERT_PROJECT_ID: ${{ secrets.AGENTCERT_PROJECT_ID }}
       AGENTCERT_API_KEY: ${{ secrets.AGENTCERT_API_KEY }}
       STRIPE_RESTRICTED_TEST_KEY: ${{ secrets.STRIPE_RESTRICTED_TEST_KEY }}

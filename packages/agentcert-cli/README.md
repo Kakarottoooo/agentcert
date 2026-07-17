@@ -6,8 +6,8 @@ AgentCert checks what an agent may do, whether it passed pre-release evidence,
 whether a high-risk runtime action may proceed, and who can verify the observed
 outcome. It writes portable reports and accumulates a local failure corpus.
 
-[Public assurance demo](https://agentcert-control-plane.onrender.com/demo) |
-[Private workspace](https://agentcert-control-plane.onrender.com/app) |
+[Public evidence](https://agentcert.app/evidence) |
+[Private workspace](https://agentcert.app/app) |
 [GitHub source](https://github.com/Kakarottoooo/agentcert)
 
 ## 5-minute local path
@@ -53,7 +53,7 @@ Default outputs:
 Push the validated evidence bundle into a hosted AgentCert project:
 
 ```bash
-npx agentcert connect --server https://agentcert-control-plane.onrender.com --project your-project-id
+npx agentcert connect --server https://agentcert.app --project your-project-id
 npx agentcert push --evidence .agentcert/latest/agentcert-evidence.json
 ```
 

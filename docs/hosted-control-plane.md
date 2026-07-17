@@ -125,10 +125,9 @@ GitHub Pages, source control, or a client-side build variable.
 2. Enable **Allow new users to sign up**.
 3. Keep **Confirm Email** enabled for production.
 4. Open **Authentication -> URL Configuration**.
-5. Initially set **Site URL** to the Render URL, for example
-   `https://agentcert-control-plane.onrender.com`.
-6. Add the same exact URL under **Redirect URLs**. Replace both with the custom
-   domain after DNS is verified.
+5. Set **Site URL** to the canonical product URL: `https://agentcert.app`.
+6. Add `https://agentcert.app` under **Redirect URLs**. Keep the generated
+   Render service URL only as a temporary recovery redirect if needed.
 7. Before public launch, configure **Authentication -> Emails -> SMTP
    Settings** with Resend, Postmark, SES, or another production SMTP provider.
    Supabase's built-in mail service is restricted and is not a production

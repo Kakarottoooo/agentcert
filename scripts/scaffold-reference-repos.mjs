@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      AGENTCERT_BASE_URL: https://agentcert-control-plane.onrender.com
+      AGENTCERT_BASE_URL: https://agentcert.app
       AGENTCERT_PROJECT_ID: \${{ secrets.AGENTCERT_PROJECT_ID }}
       AGENTCERT_API_KEY: \${{ secrets.AGENTCERT_API_KEY }}
       AGENTCERT_TEMPLATE: ${template}

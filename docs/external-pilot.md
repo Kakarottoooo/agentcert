@@ -11,7 +11,7 @@ data.
 The first useful checkpoint is one locally validated evidence bundle visible in
 the hosted control plane.
 
-1. Sign in at the [AgentCert workspace](https://agentcert-control-plane.onrender.com/app).
+1. Sign in at the [AgentCert workspace](https://agentcert.app/app).
 2. Create or select a project. The Overview page shows live progress for key
    creation, first authenticated CLI use, and first evidence.
 3. Open **Integrations**, create a project API key, and keep it out of source
@@ -21,7 +21,7 @@ the hosted control plane.
    profile.
 
    ```bash
-   npx agentcert connect --server https://agentcert-control-plane.onrender.com --project <project-id>
+   npx agentcert connect --server https://agentcert.app --project <project-id>
    ```
 
 5. Produce an AgentCert evidence bundle from an existing Tripwire, MCPBench, or

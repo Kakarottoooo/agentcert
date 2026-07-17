@@ -72,6 +72,6 @@ describe("hosted product surface routing", () => {
 
   it("recognizes the immutable GitHub Pages evidence archive", () => {
     expect(isPublicArchiveLocation({ hostname: "kakarottoooo.github.io", pathname: "/agentcert/public-demo/agentcert-monitor/", protocol: "https:" })).toBe(true);
-    expect(isPublicArchiveLocation({ hostname: "agentcert-control-plane.onrender.com", pathname: "/demo", protocol: "https:" })).toBe(false);
+    expect(isPublicArchiveLocation({ hostname: "agentcert.app", pathname: "/evidence", protocol: "https:" })).toBe(false);
   });
 });

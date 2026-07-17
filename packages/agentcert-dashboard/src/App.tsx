@@ -187,7 +187,7 @@ function MonitorApp({ deployment }: { deployment: MonitorDeployment }) {
   const brandHref = deployment === "hosted"
     ? "/"
     : deployment === "archive"
-      ? "https://agentcert-control-plane.onrender.com/evidence"
+      ? "https://agentcert.app/evidence"
       : "https://github.com/Kakarottoooo/agentcert";
   const publicDetailUrl = snapshot.links.detailUrl
     ? publicEvidenceUrl(snapshot.links.detailUrl, deployment)
@@ -200,7 +200,7 @@ function MonitorApp({ deployment }: { deployment: MonitorDeployment }) {
       ) : (
         <header className="evidence-utility-nav">
           <BrandLink href={brandHref} suffix={deployment === "archive" ? "Evidence archive" : "Local monitor"} />
-          <a href="https://agentcert-control-plane.onrender.com/evidence">Open hosted evidence</a>
+          <a href="https://agentcert.app/evidence">Open hosted evidence</a>
         </header>
       )}
 
@@ -211,7 +211,7 @@ function MonitorApp({ deployment }: { deployment: MonitorDeployment }) {
               <strong>This snapshot is now the public evidence archive.</strong>
               <span>The current evidence explorer and authenticated workspace share one product surface in AgentCert Hosted.</span>
             </div>
-            <a href="https://agentcert-control-plane.onrender.com/evidence">Open current evidence</a>
+            <a href="https://agentcert.app/evidence">Open current evidence</a>
           </section>
         ) : null}
         <header className="evidence-page-header">

@@ -33,7 +33,7 @@ jobs:
       AGENTCERT_ACCEPTANCE_DATABASE_URL: postgresql://agentcert:agentcert@127.0.0.1:5432/agentcert_acceptance
       AGENTCERT_ACCEPTANCE_REDIS_URL: redis://127.0.0.1:6379
       AGENTCERT_ACCEPTANCE_OUTPUT: .agentcert/acceptance/production-acceptance.json
-      AGENTCERT_BASE_URL: https://agentcert-control-plane.onrender.com
+      AGENTCERT_BASE_URL: https://agentcert.app
       AGENTCERT_PROJECT_ID: ${{ secrets.AGENTCERT_PROJECT_ID }}
       AGENTCERT_API_KEY: ${{ secrets.AGENTCERT_API_KEY }}
     steps:
