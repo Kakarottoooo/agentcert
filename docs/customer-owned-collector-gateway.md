@@ -80,7 +80,7 @@ Run the black-box suite against any compatible gateway:
 ```bash
 AGENTCERT_GATEWAY_URL=http://127.0.0.1:8787 \
 AGENTCERT_GATEWAY_TOKEN=... \
-npx agentcert-collector-conformance
+npx --package agentcert-sdk agentcert-collector-conformance
 ```
 
 ## Evidence strength and non-claims

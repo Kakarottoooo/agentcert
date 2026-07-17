@@ -19,8 +19,8 @@
     "./remote-collector.schema.json": "./remote-collector.schema.json"
   },
   "bin": {
-    "agentcert-collector-gateway": "./dist/collector-gateway-cli.js",
-    "agentcert-collector-conformance": "./dist/gateway-conformance-cli.js"
+    "agentcert-collector-gateway": "dist/collector-gateway-cli.js",
+    "agentcert-collector-conformance": "dist/gateway-conformance-cli.js"
   },
   "files": [
     "dist",
