@@ -213,7 +213,10 @@ describe("Trust Operations v0.5", () => {
     await service.processNotificationJobs("notification-worker");
     expect(provider.messages).toHaveLength(1);
     const token = new URL(provider.messages[0]!.text.match(/https:\/\/\S+/)![0]).searchParams.get("token")!;
-    await expect(service.verifyNotificationDestination(token)).resolves.toMatchObject({ status: "active" });
+    await expect(service.verifyNotificationDestination(token)).resolves.toMatchObject({
+      outcome: "verified",
+      destination: { status: "active" },
+    });
 
     await service.recordTrustHealthSample(user, projectId, {
       externalId: "notification-failure", source: "production_smoke", status: "failed",
@@ -253,6 +256,69 @@ describe("Trust Operations v0.5", () => {
     await expect(service.retryNotificationJob(user, projectId, job!.id)).resolves.toMatchObject({
       status: "pending", attemptCount: 0, lastError: undefined,
     });
+  });
+
+  it("distinguishes first, repeated, expired, and invalid recipient verification", async () => {
+    const provider = new RecordingEmailProvider();
+    const store = new InMemoryControlPlaneStore();
+    const service = new AgentCertControlPlane(
+      store, new MemoryArtifactStore(), undefined, [], undefined, undefined, fetch, provider, "https://agentcert.example",
+    );
+    const projectId = (await service.bootstrap(user)).project.id;
+    await service.createNotificationDestination(user, projectId, {
+      email: "security@example.com", alertTypes: ["incident_opened"],
+    });
+    await service.processNotificationJobs("verification-worker");
+    const token = new URL(provider.messages[0]!.text.match(/https:\/\/\S+/)![0]).searchParams.get("token")!;
+
+    await expect(service.verifyNotificationDestination(token)).resolves.toMatchObject({
+      outcome: "verified", destination: { email: "security@example.com", status: "active" },
+    });
+    await expect(service.verifyNotificationDestination(token)).resolves.toMatchObject({
+      outcome: "already_verified", destination: { status: "active" },
+    });
+
+    await service.createNotificationDestination(user, projectId, {
+      email: "expired@example.com", alertTypes: ["incident_opened"],
+    });
+    await service.processNotificationJobs("verification-worker");
+    const expiredToken = new URL(provider.messages[1]!.text.match(/https:\/\/\S+/)![0]).searchParams.get("token")!;
+    await expect(service.verifyNotificationDestination(expiredToken, new Date(Date.now() + 25 * 60 * 60 * 1000)))
+      .resolves.toEqual({ outcome: "expired" });
+    await expect(service.verifyNotificationDestination("not-a-real-token"))
+      .resolves.toEqual({ outcome: "invalid" });
+  });
+
+  it("sends a rate-bounded test alert through the delivery ledger without creating an incident", async () => {
+    const provider = new RecordingEmailProvider();
+    const store = new InMemoryControlPlaneStore();
+    const service = new AgentCertControlPlane(
+      store, new MemoryArtifactStore(), undefined, [], undefined, undefined, fetch, provider, "https://agentcert.example",
+    );
+    const projectId = (await service.bootstrap(user)).project.id;
+    const pending = await service.createNotificationDestination(user, projectId, {
+      email: "security@example.com", alertTypes: ["incident_opened"],
+    });
+    await expect(service.sendTestNotification(user, projectId, pending.id)).rejects.toMatchObject({ status: 409 });
+    await service.processNotificationJobs("verification-worker");
+    const token = new URL(provider.messages[0]!.text.match(/https:\/\/\S+/)![0]).searchParams.get("token")!;
+    await service.verifyNotificationDestination(token);
+
+    const now = new Date("2026-07-16T20:00:00.000Z");
+    const job = await service.sendTestNotification(user, projectId, pending.id, now);
+    expect(job).toMatchObject({ alertType: "test_alert", status: "pending", recipient: "security@example.com" });
+    await expect(service.sendTestNotification(user, projectId, pending.id, new Date(now.getTime() + 30_000)))
+      .rejects.toMatchObject({ status: 429, code: "test_alert_cooldown" });
+    await service.processNotificationJobs("test-alert-worker", now);
+
+    expect(await store.listIncidents(projectId)).toHaveLength(0);
+    expect(await store.listNotificationDeliveries(projectId)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ jobId: job.id, alertType: "test_alert", status: "delivered" }),
+    ]));
+    const operations = await service.operationsOverview(user, projectId, undefined, now);
+    expect(operations.notifications.recentJobs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: job.id, alertType: "test_alert", status: "delivered" }),
+    ]));
   });
 
   it("recovers an email job after its worker lease expires", async () => {

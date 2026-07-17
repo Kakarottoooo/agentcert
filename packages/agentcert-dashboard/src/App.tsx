@@ -4,6 +4,7 @@ import HostedApp from "./HostedApp";
 import { BrandLink, ProductHeader } from "./Brand";
 import { detectHostedConfig, type HostedConfig } from "./hosted-api";
 import { LandingPage, PricingPage, SecurityPage } from "./ProductSite";
+import EmailVerificationPage from "./EmailVerificationPage";
 import { isPublicArchiveLocation, resolveHostedSurface, type SurfaceRoute } from "./surface-routing";
 import type {
   EvidenceArtifact,
@@ -62,7 +63,7 @@ function ProductSurface({ route }: { route: SurfaceRoute }) {
     }
     document.querySelector<HTMLMetaElement>('meta[name="robots"]')?.setAttribute(
       "content",
-      route.surface === "workspace" ? "noindex,nofollow" : "index,follow",
+      route.surface === "workspace" || route.surface === "email-verification" ? "noindex,nofollow" : "index,follow",
     );
   }, [route.normalizedPath, route.surface]);
 
@@ -70,6 +71,7 @@ function ProductSurface({ route }: { route: SurfaceRoute }) {
   if (route.surface === "public-evidence") return <MonitorApp deployment="hosted" />;
   if (route.surface === "pricing") return <PricingPage />;
   if (route.surface === "security") return <SecurityPage />;
+  if (route.surface === "email-verification") return <EmailVerificationPage />;
   if (route.surface === "workspace") return <WorkspaceSurface />;
   return <NotFound />;
 }

@@ -110,10 +110,13 @@ async function handleRequest(
     return;
   }
   if (request.method === "GET" && url.pathname === "/v1/notification-destinations/verify") {
-    sendJson(response, 200, {
-      verified: true,
-      destination: await options.service.verifyNotificationDestination(url.searchParams.get("token") ?? ""),
-    });
+    const result = await options.service.verifyNotificationDestination(url.searchParams.get("token") ?? "");
+    const verified = result.outcome === "verified" || result.outcome === "already_verified";
+    if (request.headers.accept?.includes("text/html")) {
+      sendRedirect(response, `/verify-email?status=${encodeURIComponent(result.outcome)}`);
+    } else {
+      sendJson(response, verified ? 200 : 400, { verified, outcome: result.outcome });
+    }
     return;
   }
   if (request.method === "GET" && url.pathname.startsWith("/v1/signing-keys/")) {
@@ -239,6 +242,7 @@ async function handleRequest(
   if (collection === "notification-destinations") {
     if (request.method === "GET" && !entityId) sendJson(response, 200, { destinations: await options.service.listNotificationDestinations(auth, projectId) });
     else if (request.method === "POST" && !entityId) sendJson(response, 201, await options.service.createNotificationDestination(auth, projectId, await readJson(request)));
+    else if (request.method === "POST" && entityId && child === "test") sendJson(response, 202, await options.service.sendTestNotification(auth, projectId, entityId));
     else if (request.method === "DELETE" && entityId) sendJson(response, 200, await options.service.disableNotificationDestination(auth, projectId, entityId));
     else throw new ControlPlaneError("Notification destination route was not found.", 404);
     return;
@@ -420,6 +424,11 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   const payload = JSON.stringify(body);
   response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "content-length": Buffer.byteLength(payload) });
   response.end(payload);
+}
+
+function sendRedirect(response: ServerResponse, location: string): void {
+  response.writeHead(303, { location, "cache-control": "no-store", "content-length": "0" });
+  response.end();
 }
 
 async function serveStatic(response: ServerResponse, root: string, pathname: string): Promise<void> {

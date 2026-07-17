@@ -34,6 +34,7 @@ import {
   revokeHostedApiKey,
   retryHostedWebhookJob,
   retryHostedNotificationJob,
+  sendHostedTestNotification,
   signIn,
   signOut,
   signUp,
@@ -409,6 +410,7 @@ function NotificationDestinations({ project, session, operations, refresh }: { p
   const [email, setEmail] = useState("");
   const [selected, setSelected] = useState<HostedNotificationAlertType[]>(alertTypes);
   const [busy, setBusy] = useState(false);
+  const [testingId, setTestingId] = useState<string>();
   const [message, setMessage] = useState<string>();
   const [error, setError] = useState<string>();
   async function submit(event: FormEvent) {
@@ -425,10 +427,26 @@ function NotificationDestinations({ project, session, operations, refresh }: { p
     catch (value) { setError(value instanceof Error ? value.message : String(value)); }
     finally { setBusy(false); }
   }
+  async function sendTest(id: string) {
+    setTestingId(id); setError(undefined); setMessage(undefined);
+    try {
+      await sendHostedTestNotification(session, project.id, id);
+      setMessage("Test alert queued. Delivery status will update below without creating an Incident.");
+      await refresh();
+      window.setTimeout(() => { void refresh(); }, 2_000);
+      window.setTimeout(() => { void refresh(); }, 5_000);
+    } catch (value) { setError(value instanceof Error ? value.message : String(value)); }
+    finally { setTestingId(undefined); }
+  }
   return <section className="data-section notification-destinations"><SectionTitle title="Email alerts" caption="Verified recipients choose incident alerts; AgentCert owns provider credentials" />
     {!operations.notifications.configured ? <div className="form-message">Platform email delivery is not configured yet.</div> : <form onSubmit={submit}><label>Email<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="security@example.com" /></label><div className="alert-type-options">{alertTypes.map((type) => <label key={type}><input type="checkbox" checked={selected.includes(type)} onChange={() => setSelected((current) => current.includes(type) ? current.filter((item) => item !== type) : [...current, type])} />{type.replace("incident_", "").replace("_", " ")}</label>)}</div><button className="primary-action compact" disabled={busy || selected.length === 0}>Send verification</button></form>}
     {message ? <div className="form-message">{message}</div> : null}{error ? <div className="form-error">{error}</div> : null}
-    <div className="entity-list">{operations.notifications.destinations.map((destination) => <article key={destination.id}><div><strong>{destination.email}</strong><span>{destination.alertTypes.map((type) => type.replace("incident_", "")).join(", ")}</span></div><Status value={destination.status} />{destination.status === "disabled" ? null : <button disabled={busy} onClick={() => void disable(destination.id)}>Disable</button>}</article>)}{operations.notifications.destinations.length === 0 ? <EmptyHosted text="No alert recipients configured." /> : null}</div>
+    <div className="entity-list">{operations.notifications.destinations.map((destination) => {
+      const testJob = operations.notifications.recentJobs.find((job) => job.destinationId === destination.id && job.alertType === "test_alert");
+      const testDelivery = testJob ? operations.notifications.recentDeliveries.find((delivery) => delivery.jobId === testJob.id) : undefined;
+      const testStatus = testDelivery?.status ?? testJob?.status;
+      return <article key={destination.id}><div><strong>{destination.email}</strong><span>{destination.alertTypes.map((type) => type.replace("incident_", "")).join(", ")}</span></div><div className="notification-health"><Status value={destination.status} />{testStatus ? <span>Last test: <Status value={testStatus} /> {testDelivery ? compactTime(testDelivery.attemptedAt) : "queued"}</span> : <span>No test delivery recorded.</span>}</div><div className="notification-actions">{destination.status === "active" ? <button disabled={Boolean(testingId)} onClick={() => void sendTest(destination.id)}>{testingId === destination.id ? "Queueing..." : "Send test alert"}</button> : null}{destination.status === "disabled" ? null : <button disabled={busy || Boolean(testingId)} onClick={() => void disable(destination.id)}>Disable</button>}</div></article>;
+    })}{operations.notifications.destinations.length === 0 ? <EmptyHosted text="No alert recipients configured." /> : null}</div>
   </section>;
 }
 

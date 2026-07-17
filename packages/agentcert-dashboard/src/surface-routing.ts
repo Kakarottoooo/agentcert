@@ -1,6 +1,6 @@
-export type ProductSurface = "home" | "public-evidence" | "pricing" | "security" | "workspace" | "not-found";
+export type ProductSurface = "home" | "public-evidence" | "pricing" | "security" | "email-verification" | "workspace" | "not-found";
 
-export type ProductPath = "/" | "/evidence" | "/pricing" | "/security" | "/app";
+export type ProductPath = "/" | "/evidence" | "/pricing" | "/security" | "/verify-email" | "/app";
 
 export interface SurfaceRoute {
   surface: ProductSurface;
@@ -51,6 +51,15 @@ export function resolveHostedSurface(pathname: string, hash = ""): SurfaceRoute 
       access: "public",
       canonicalPath: "/security",
       ...(pathname === "/security" ? {} : { normalizedPath: "/security" as const }),
+    };
+  }
+
+  if (pathname === "/verify-email" || pathname === "/verify-email/") {
+    return {
+      surface: "email-verification",
+      access: "public",
+      canonicalPath: "/verify-email",
+      ...(pathname === "/verify-email" ? {} : { normalizedPath: "/verify-email" as const }),
     };
   }
 

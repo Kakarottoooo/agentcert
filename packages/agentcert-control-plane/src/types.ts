@@ -397,7 +397,7 @@ export interface IncidentTransitionRecord {
   occurredAt: string;
 }
 
-export type NotificationAlertType = "destination_verification" | "incident_opened" | "incident_regressed" | "incident_recovered" | "incident_resolved" | "slo_burn_rate";
+export type NotificationAlertType = "destination_verification" | "test_alert" | "incident_opened" | "incident_regressed" | "incident_recovered" | "incident_resolved" | "slo_burn_rate";
 export type NotificationDestinationStatus = "pending_verification" | "active" | "disabled";
 
 export interface NotificationDestinationRecord {
@@ -415,6 +415,16 @@ export interface NotificationDestinationRecord {
 }
 
 export type PublicNotificationDestinationRecord = Omit<NotificationDestinationRecord, "verificationTokenHash">;
+
+export type NotificationVerificationOutcome = "verified" | "already_verified" | "expired" | "invalid";
+
+export type NotificationVerificationStoreResult =
+  | { outcome: "verified" | "already_verified"; destination: NotificationDestinationRecord }
+  | { outcome: "expired" | "invalid" };
+
+export type PublicNotificationVerificationResult =
+  | { outcome: "verified" | "already_verified"; destination: PublicNotificationDestinationRecord }
+  | { outcome: "expired" | "invalid" };
 
 export interface NotificationDeliveryRecord {
   id: string;

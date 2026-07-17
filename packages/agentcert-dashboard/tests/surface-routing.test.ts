@@ -34,6 +34,18 @@ describe("hosted product surface routing", () => {
     });
   });
 
+  it("serves notification verification as a public branded surface", () => {
+    expect(resolveHostedSurface("/verify-email", "")).toEqual({
+      surface: "email-verification",
+      access: "public",
+      canonicalPath: "/verify-email",
+    });
+    expect(resolveHostedSurface("/verify-email/", "")).toMatchObject({
+      surface: "email-verification",
+      normalizedPath: "/verify-email",
+    });
+  });
+
   it("keeps the private workspace behind the authenticated surface", () => {
     expect(resolveHostedSurface("/app", "")).toEqual({
       surface: "workspace",
