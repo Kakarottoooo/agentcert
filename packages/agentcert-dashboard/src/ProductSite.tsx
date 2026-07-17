@@ -1,7 +1,6 @@
 import { useEffect, type ReactNode } from "react";
+import { GITHUB_URL, NPM_URL, ProductFooter, ProductHeader } from "./Brand";
 
-const GITHUB_URL = "https://github.com/Kakarottoooo/agentcert";
-const NPM_URL = "https://www.npmjs.com/package/agentcert";
 const STRIPE_EVIDENCE_URL = "https://kakarottoooo.github.io/agentcert/public-demo/vendor-sandbox-acceptance/";
 
 export function LandingPage() {
@@ -13,7 +12,7 @@ export function LandingPage() {
 
   return (
     <div className="product-site">
-      <SiteNav />
+      <ProductHeader active="product" />
       <main>
         <section className="product-hero" aria-labelledby="product-headline">
           <div className="product-hero-copy">
@@ -152,7 +151,7 @@ export function LandingPage() {
           </div>
         </section>
       </main>
-      <SiteFooter />
+      <ProductFooter />
     </div>
   );
 }
@@ -165,7 +164,7 @@ export function PricingPage() {
   );
   return (
     <div className="product-site subpage-site">
-      <SiteNav active="pricing" />
+      <ProductHeader active="pricing" />
       <main>
         <section className="subpage-hero">
           <p className="product-eyebrow">Plans</p>
@@ -204,7 +203,7 @@ export function PricingPage() {
           <p>Custom retention, legal hold, policy packs, and support are evaluated with design partners. AgentCert does not claim an enterprise SLA or compliance certification during beta.</p>
         </section>
       </main>
-      <SiteFooter />
+      <ProductFooter />
     </div>
   );
 }
@@ -217,7 +216,7 @@ export function SecurityPage() {
   );
   return (
     <div className="product-site subpage-site">
-      <SiteNav active="security" />
+      <ProductHeader active="security" />
       <main>
         <section className="subpage-hero security-hero">
           <p className="product-eyebrow">Security and trust</p>
@@ -238,36 +237,8 @@ export function SecurityPage() {
           <a className="product-button dark" href={`${GITHUB_URL}/security/policy`} target="_blank" rel="noreferrer">View security policy</a>
         </section>
       </main>
-      <SiteFooter />
+      <ProductFooter />
     </div>
-  );
-}
-
-function SiteNav({ active }: { active?: "pricing" | "security" }) {
-  return (
-    <header className="product-nav">
-      <a className="product-brand" href="/" aria-label="AgentCert home"><BrandMark /><span>AgentCert</span></a>
-      <nav aria-label="Product navigation">
-        <a href="/#product">Product</a>
-        <a href="/evidence">Evidence</a>
-        <a className={active === "pricing" ? "active" : ""} href="/pricing">Plans</a>
-        <a className={active === "security" ? "active" : ""} href="/security">Security</a>
-        <a href={`${GITHUB_URL}#5-minute-quickstart`} target="_blank" rel="noreferrer">Docs</a>
-      </nav>
-      <div className="product-nav-actions"><a href="/app">Sign in</a><a className="product-button primary compact" href="/app?mode=signup">Start free</a></div>
-    </header>
-  );
-}
-
-function SiteFooter() {
-  return (
-    <footer className="product-footer">
-      <div><a className="product-brand" href="/"><BrandMark /><span>AgentCert</span></a><p>Independent assurance and evidence for agents that take real actions.</p></div>
-      <div><strong>Product</strong><a href="/evidence">Public evidence</a><a href="/pricing">Plans</a><a href="/app">Workspace</a></div>
-      <div><strong>Developers</strong><a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a><a href={NPM_URL} target="_blank" rel="noreferrer">npm</a><a href={`${GITHUB_URL}/tree/main/docs`} target="_blank" rel="noreferrer">Documentation</a></div>
-      <div><strong>Trust</strong><a href="/security">Security</a><a href={`${GITHUB_URL}/blob/main/docs/threat-model.md`} target="_blank" rel="noreferrer">Threat model</a><a href={`${GITHUB_URL}/blob/main/LICENSE`} target="_blank" rel="noreferrer">Apache-2.0</a></div>
-      <p className="product-copyright">AgentCert public beta. Assurance evidence is not a guarantee or an official certification.</p>
-    </footer>
   );
 }
 
@@ -314,10 +285,6 @@ function Plan({ name, price, cadence, description, items, action, featured = fal
 
 function SecurityColumn({ title, items }: { title: string; items: string[] }) {
   return <article><h2>{title}</h2><ul>{items.map((item) => <li key={item}>{item}</li>)}</ul></article>;
-}
-
-function BrandMark() {
-  return <span className="product-brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2.5 20 6v5.6c0 5.1-3.3 8.8-8 10-4.7-1.2-8-4.9-8-10V6l8-3.5Z" /><path d="m8.3 12 2.3 2.3 5.1-5.2" /></svg></span>;
 }
 
 function useProductMetadata(title: string, description: string, path: string) {
