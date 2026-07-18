@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { MemoryArtifactStore } from "../src/artifacts.js";
+import { markContinuousAssuranceCurrent } from "../src/continuous-assurance.js";
 import type { EvidenceGovernancePolicy } from "../src/evidence-governance.js";
 import { AgentCertControlPlane, ControlPlaneError } from "../src/service.js";
 import { InMemoryControlPlaneStore } from "../src/store.js";
@@ -81,16 +82,45 @@ describe("AgentCertControlPlane", () => {
       fileName: "agentcert-evidence.json", contentType: "application/json", kind: "evidence_bundle",
       schemaVersion: "agentcert.evidence.v0.1",
     });
+    const assuranceCase = await service.createAssuranceCase(user, projectId, {
+      name: "Continuous browser assurance",
+      subject: { id: "browser-agent", name: "Browser Agent", version: "1.0.0", kind: "browser" },
+      policyPackVersion: "agentcert.browser.v0.1",
+      evaluationPlan: {
+        requiredEvidenceKinds: ["evidence_bundle"],
+        controls: [{ id: "browser-suite", title: "Browser fault suite", mode: "automated" }],
+      },
+      continuousAssurance: {
+        scope: {
+          schemaVersion: "agentcert.assurance_scope.v0.1",
+          agent: { id: "browser-agent", version: "1.0.0", artifactSha256: "a".repeat(64) },
+          model: { provider: "openai", name: "gpt-4.1-mini", version: "2026-07-01" },
+          prompt: { sha256: "b".repeat(64) },
+          tools: { manifestSha256: "c".repeat(64) },
+          policy: { id: "agentcert.browser.v0.1", version: "agentcert.browser.v0.1", sha256: "d".repeat(64) },
+          scenarioSuite: { id: "tripwire-browser", version: "2026.07", sha256: "e".repeat(64) },
+        },
+      },
+    });
+    const firstCurrentAt = new Date(Date.now() + 1_000).toISOString();
+    await store.updateAssuranceCase({
+      ...assuranceCase,
+      continuousAssurance: markContinuousAssuranceCurrent(assuranceCase.continuousAssurance!, firstCurrentAt),
+      updatedAt: firstCurrentAt,
+    }, assuranceCase.status, assuranceCase.updatedAt);
     await service.submitPilotFeedback(user, keyOnly.id, {
       stage: "cli_connect", category: "authentication", outcome: "blocked", reasonCode: "invalid_api_key",
     });
 
     const report = await service.pilotFunnelReport(user, 30);
     expect(report.stages.map((stage) => [stage.id, stage.count])).toEqual([
-      ["project_created", 3], ["key_created", 2], ["cli_connected", 1], ["first_evidence", 1],
+      ["project_created", 3], ["key_created", 2], ["cli_connected", 1], ["first_evidence", 1], ["first_current", 1],
     ]);
+    expect(report.timing).toMatchObject({ medianInstallToCurrentMs: expect.any(Number), medianProjectToCurrentMs: expect.any(Number) });
     expect(report.feedback).toMatchObject({ total: 1, friction: 1, topReasons: [{ reasonCode: "invalid_api_key", count: 1 }] });
-    expect(report.projects.find((project) => project.projectId === projectId)).toMatchObject({ stage: "first_evidence", totalDurationMs: expect.any(Number) });
+    expect(report.projects.find((project) => project.projectId === projectId)).toMatchObject({
+      stage: "first_current", installToCurrentMs: expect.any(Number), totalDurationMs: expect.any(Number),
+    });
     await expect(service.pilotFunnelReport(user, 14)).rejects.toMatchObject<Partial<ControlPlaneError>>({ status: 422, code: "invalid_pilot_period" });
   });
 

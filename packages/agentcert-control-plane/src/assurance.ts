@@ -124,6 +124,12 @@ function continuityStatement(caseRecord: AssuranceCaseRecord): AssuranceReportPa
       "The tool manifest or policy pack changes.",
       "The scenario suite changes or an authoritative release/nightly evaluation fails.",
     ],
+    ciPolicy: {
+      pullRequest: "prospective",
+      release: "authoritative",
+      nightly: "authoritative",
+      nextStep: "Generate the Continuous Assurance CI kit from this issued 7-Day Review and install it in the subject repository.",
+    },
   };
 }
 

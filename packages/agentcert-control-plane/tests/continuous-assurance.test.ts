@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import { MemoryArtifactStore } from "../src/artifacts.js";
 import {
   assuranceScopeFingerprint,
+  buildContinuousAssuranceAdoptionKit,
   compareAssuranceScopes,
+  createContinuousAssuranceContract,
+  createContinuousAssuranceRevalidation,
+  markContinuousAssuranceCurrent,
   reconcileContinuousAssurance,
   type AssuranceScopeInput,
 } from "../src/continuous-assurance.js";
@@ -11,7 +15,7 @@ import type { EmailMessage, EmailProvider } from "../src/notifications.js";
 import { AgentCertControlPlane } from "../src/service.js";
 import { EvidenceSigner } from "../src/signing.js";
 import { InMemoryControlPlaneStore } from "../src/store.js";
-import type { AuthContext } from "../src/types.js";
+import type { AssuranceCaseRecord, AuthContext, NotificationJobRecord } from "../src/types.js";
 
 const owner: AuthContext = { kind: "user", userId: "00000000-0000-4000-8000-000000000001", email: "owner@example.com" };
 
@@ -61,6 +65,128 @@ describe("continuous assurance scope", () => {
 
     const nightlyFailure = reconcileContinuousAssurance({ baseline: scope, observed: scope, trigger: "nightly", runStatus: "failed" });
     expect(nightlyFailure).toMatchObject({ outcome: "revalidation_required", nextStatus: "REVALIDATION_REQUIRED", reasonCode: "evaluation_failed" });
+  });
+
+  it("generates a deterministic secret-free CI kit and carries revalidation cycle metrics forward", () => {
+    const issuedAt = "2026-07-17T00:00:00.000Z";
+    const baseline = markContinuousAssuranceCurrent(createContinuousAssuranceContract(scope, issuedAt), issuedAt);
+    const first = buildContinuousAssuranceAdoptionKit({
+      contract: baseline, projectId: "project-1", assuranceCaseId: "case-1", generatedAt: issuedAt,
+    });
+    const second = buildContinuousAssuranceAdoptionKit({
+      contract: baseline, projectId: "project-1", assuranceCaseId: "case-1", generatedAt: issuedAt,
+    });
+    expect(second).toEqual(first);
+    expect(first.files.map((file) => file.path)).toEqual([
+      "agentcert.assurance-scope.json",
+      ".github/workflows/agentcert-continuous-assurance.yml",
+      "AGENTCERT-CONTINUOUS-ASSURANCE.md",
+    ]);
+    const workflow = first.files.find((file) => file.path.endsWith(".yml"))!.content;
+    expect(workflow).toContain("pull_request:");
+    expect(workflow).toContain("schedule:");
+    expect(workflow).toContain("assurance-trigger: auto");
+    expect(workflow).toContain("${{ secrets.AGENTCERT_API_KEY }}");
+    expect(workflow).not.toMatch(/ac_(?:live|test)_/);
+
+    const changed = { ...scope, model: { ...scope.model, version: "2026-07-18" } };
+    const revalidation = createContinuousAssuranceRevalidation(baseline, changed, "2026-07-18T00:00:00.000Z", "case-1");
+    const current = markContinuousAssuranceCurrent(revalidation, "2026-07-18T02:00:00.000Z");
+    expect(current).toMatchObject({
+      firstCurrentAt: issuedAt,
+      revalidation: { cycleNumber: 1, sourceCaseId: "case-1", durationMs: 7_200_000 },
+      metrics: {
+        revalidationStartedCount: 1,
+        revalidationCompletedCount: 1,
+        totalRevalidationDurationMs: 7_200_000,
+        lastRevalidationDurationMs: 7_200_000,
+      },
+    });
+    expect(current.history?.map((event) => event.kind)).toEqual(expect.arrayContaining(["contract_created", "current", "revalidation_started"]));
+  });
+
+  it("queues each expiry threshold once and expires the case through scheduled maintenance", async () => {
+    const store = new FailOnceNotificationStore();
+    const email = new RecordingEmailProvider();
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const signer = new EvidenceSigner("expiry-test", privateKey.export({ type: "pkcs8", format: "pem" }).toString());
+    const service = new AgentCertControlPlane(
+      store, new MemoryArtifactStore(), undefined, [], signer, undefined, fetch, email, "https://agentcert.app",
+    );
+    const projectId = (await service.bootstrap(owner)).project.id;
+    await service.createNotificationDestination(owner, projectId, {
+      email: "security@example.com", alertTypes: ["assurance_expiry_warning", "assurance_expired"],
+    });
+    await service.processNotificationJobs("verification-worker");
+    const token = new URL(email.messages[0]!.text.match(/https:\/\/\S+/)![0]).searchParams.get("token")!;
+    await service.verifyNotificationDestination(token);
+    const evidence = await service.uploadEvidence(owner, projectId, Buffer.from("{}"), {
+      fileName: "evidence.json", contentType: "application/json", kind: "evidence_bundle", schemaVersion: "agentcert.evidence.v0.1",
+    });
+    const created = await service.createAssuranceCase(owner, projectId, {
+      name: "Expiring assurance", subject: { id: "browser-agent", name: "Browser Agent", version: "2.4.0", kind: "browser" },
+      policyPackVersion: scope.policy.version,
+      evaluationPlan: {
+        requiredEvidenceKinds: ["evidence_bundle"],
+        controls: [{ id: "fault-suite", title: "Deterministic fault suite", mode: "automated" }],
+        limitations: ["Synthetic browser environment."],
+      },
+      continuousAssurance: { scope },
+    });
+    await service.transitionAssuranceCase(owner, projectId, created.id, "start", { reason: "Start." });
+    await service.transitionAssuranceCase(owner, projectId, created.id, "submit", { reason: "Review.", evidenceIds: [evidence.id] });
+    const reviewReady = (await store.getAssuranceCase(projectId, created.id))!;
+    await store.updateAssuranceCase({ ...reviewReady, createdBy: "independent-creator" }, reviewReady.status);
+    const expiresAt = new Date(Date.now() + 40 * 86_400_000);
+    const issued = await service.transitionAssuranceCase(owner, projectId, created.id, "issue", {
+      reason: "Issue.", expiresAt: expiresAt.toISOString(),
+    });
+    const reminderAt = new Date(Date.parse(issued.assuranceCase.expiresAt!) - 6 * 86_400_000);
+    store.failNextNotification = true;
+    expect(await service.processContinuousAssuranceMaintenance(reminderAt)).toMatchObject({ remindersQueued: 0, expired: 0, failed: 1 });
+    expect((await store.getAssuranceCase(projectId, created.id))?.continuousAssurance?.reminders?.expiryThresholdDaysSent).toEqual([]);
+    expect(await service.processContinuousAssuranceMaintenance(reminderAt)).toMatchObject({ remindersQueued: 1, expired: 0, failed: 0 });
+    expect(await service.processContinuousAssuranceMaintenance(new Date(reminderAt.getTime() + 60_000))).toMatchObject({ remindersQueued: 0 });
+    expect((await store.getAssuranceCase(projectId, created.id))?.continuousAssurance?.reminders?.expiryThresholdDaysSent).toEqual([30, 7]);
+    await service.processNotificationJobs("expiry-worker");
+    expect(email.messages.map((message) => message.subject)).toContain("[AgentCert] Assurance expires within 7 days: Browser Agent");
+
+    expect(await service.processContinuousAssuranceMaintenance(new Date(expiresAt.getTime() + 1_000))).toMatchObject({ expired: 1 });
+    expect((await store.getAssuranceCase(projectId, created.id))).toMatchObject({
+      status: "expired", continuousAssurance: { freshness: { status: "EXPIRED" } },
+    });
+  });
+
+  it("does not let already-reminded cases consume a limited maintenance batch", async () => {
+    const store = new InMemoryControlPlaneStore();
+    const now = "2026-07-17T00:00:00.000Z";
+    const dueContract = markContinuousAssuranceCurrent(createContinuousAssuranceContract(scope, now), now);
+    const alreadyReminded = structuredClone(dueContract);
+    alreadyReminded.reminders = {
+      expiryThresholdDaysSent: [30, 7],
+      lastExpiryReminderAt: "2026-07-16T00:00:00.000Z",
+    };
+    const record = (id: string, expiresAt: string, continuousAssurance: typeof dueContract): AssuranceCaseRecord => ({
+      id,
+      projectId: "project-1",
+      name: id,
+      subject: { id: "browser-agent", name: "Browser Agent", version: "2.4.0", kind: "browser" },
+      status: "issued",
+      policyPackVersion: scope.policy.version,
+      evaluationPlan: { requiredEvidenceKinds: [], controls: [], limitations: [] },
+      evaluationPlanSha256: "f".repeat(64),
+      evidenceIds: [],
+      createdBy: owner.userId,
+      continuousAssurance,
+      expiresAt,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await store.insertAssuranceCase(record("already-reminded", "2026-07-22T00:00:00.000Z", alreadyReminded));
+    await store.insertAssuranceCase(record("pending-reminder", "2026-07-23T00:00:00.000Z", dueContract));
+
+    const batch = await store.listAssuranceCasesForMaintenance(now, "2026-08-16T00:00:00.000Z", 1);
+    expect(batch.map((item) => item.id)).toEqual(["pending-reminder"]);
   });
 
   it("binds an issued baseline to PR, release, notifications, and an explicit successor revalidation", async () => {
@@ -173,5 +299,17 @@ class RecordingEmailProvider implements EmailProvider {
   async send(message: EmailMessage) {
     this.messages.push(message);
     return { provider: this.name, messageId: `message-${this.messages.length}` };
+  }
+}
+
+class FailOnceNotificationStore extends InMemoryControlPlaneStore {
+  failNextNotification = false;
+
+  override async enqueueNotificationJob(record: NotificationJobRecord): Promise<NotificationJobRecord> {
+    if (this.failNextNotification) {
+      this.failNextNotification = false;
+      throw new Error("Synthetic notification queue failure.");
+    }
+    return super.enqueueNotificationJob(record);
   }
 }

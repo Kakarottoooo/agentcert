@@ -4,6 +4,7 @@ import {
   loadHostedAssuranceCase,
   transitionHostedAssuranceCase,
   type HostedAssuranceCase,
+  type HostedContinuousAssuranceAdoptionKit,
   type HostedAssuranceDecision,
   type HostedEvidence,
   type HostedProject,
@@ -35,10 +36,12 @@ export default function HostedAssuranceView({ cases, evidence, project, session,
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [selectedEvidenceIds, setSelectedEvidenceIds] = useState<string[]>([]);
+  const [adoptionKit, setAdoptionKit] = useState<HostedContinuousAssuranceAdoptionKit>();
   const selected = cases.find((item) => item.id === selectedId);
 
   useEffect(() => {
     setSelectedEvidenceIds([]);
+    setAdoptionKit(undefined);
     if (!selectedId) { setDecisions([]); return; }
     void loadHostedAssuranceCase(session, project.id, selectedId)
       .then((detail) => setDecisions(detail.decisions))
@@ -154,6 +157,18 @@ export default function HostedAssuranceView({ cases, evidence, project, session,
     finally { setBusy(false); }
   }
 
+  async function activateContinuousAssurance() {
+    if (!selected?.continuousAssurance) return;
+    setBusy(true); setError(undefined);
+    try {
+      const result = await transitionHostedAssuranceCase(session, project.id, selected.id, "activate-continuous", {});
+      if (!result.kit) throw new Error("The server did not return a continuous assurance kit.");
+      setAdoptionKit(result.kit);
+      await refresh();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  }
+
   function downloadDeliveryPacket() {
     if (!selected?.deliveryPacket) return;
     const url = URL.createObjectURL(new Blob([JSON.stringify(selected.deliveryPacket, null, 2)], { type: "application/json" }));
@@ -192,7 +207,13 @@ export default function HostedAssuranceView({ cases, evidence, project, session,
     {selected ? <section className="data-section assurance-detail">
       <div className="section-actions"><div><span className="eyebrow">{selected.subject.kind}</span><h2>{selected.name}</h2></div><strong>{selected.status.replaceAll("_", " ")}</strong></div>
       <dl><div><dt>Plan SHA-256</dt><dd className="hash">{selected.evaluationPlanSha256}</dd></div><div><dt>Evidence</dt><dd>{selected.evidenceIds.length} attached / {selected.evaluationPlan.requiredEvidenceKinds.join(", ")}</dd></div><div><dt>Signed report</dt><dd>{selected.report?.attestation?.keyId ?? "Not issued"}</dd></div><div><dt>Expires</dt><dd>{selected.expiresAt ?? "Not issued"}</dd></div></dl>
-      {selected.continuousAssurance ? <ContinuousAssurancePanel assuranceCase={selected} busy={busy} revalidate={() => void startRevalidation()} /> : null}
+      {selected.continuousAssurance ? <ContinuousAssurancePanel
+        assuranceCase={selected}
+        busy={busy}
+        revalidate={() => void startRevalidation()}
+        activate={() => void activateContinuousAssurance()}
+      /> : null}
+      {adoptionKit ? <AdoptionKitPanel kit={adoptionKit} /> : null}
       {selected.engagement ? <div className="engagement-summary">
         <div><span>Customer</span><strong>{selected.engagement.customer.name}</strong></div><div><span>Workflow</span><strong>{selected.engagement.workflow.name}</strong></div>
         <div><span>Due</span><strong>{new Date(selected.engagement.dueAt).toLocaleString()}</strong></div><div><span>Scope</span><strong>$5,000 · 1 workflow · 1 retest</strong></div>
@@ -215,19 +236,32 @@ export default function HostedAssuranceView({ cases, evidence, project, session,
   </div>;
 }
 
-function ContinuousAssurancePanel({ assuranceCase, busy, revalidate }: { assuranceCase: HostedAssuranceCase; busy: boolean; revalidate: () => void }) {
+function ContinuousAssurancePanel({ assuranceCase, busy, revalidate, activate }: {
+  assuranceCase: HostedAssuranceCase; busy: boolean; revalidate: () => void; activate: () => void;
+}) {
   const contract = assuranceCase.continuousAssurance!;
   const metrics = contract.metrics;
   const passRate = metrics.totalEvaluations ? `${Math.round((metrics.passedEvaluations / metrics.totalEvaluations) * 100)}%` : "No runs";
+  const remainingDays = assuranceCase.expiresAt ? Math.ceil((Date.parse(assuranceCase.expiresAt) - Date.now()) / 86_400_000) : undefined;
+  const revalidationStartedCount = metrics.revalidationStartedCount ?? 0;
+  const revalidationCompletedCount = metrics.revalidationCompletedCount ?? 0;
+  const totalRevalidationDurationMs = metrics.totalRevalidationDurationMs ?? 0;
+  const averageRevalidationMs = revalidationCompletedCount ? totalRevalidationDurationMs / revalidationCompletedCount : undefined;
+  const canActivate = assuranceCase.status === "issued" && contract.freshness.status === "CURRENT"
+    && Boolean(assuranceCase.engagement || contract.supersedesCaseId);
+  const history = [...(contract.history ?? [])].reverse().slice(0, 8);
   return <section className="continuous-assurance-panel">
     <div className="continuous-assurance-heading"><div><span className="eyebrow">Continuous assurance contract</span><h3>Current validity</h3></div><Freshness value={contract.freshness.status} /></div>
     <p className="continuous-assurance-reason">{contract.freshness.reason}</p>
     {contract.freshness.changedComponents.length ? <p><strong>Changed:</strong> {contract.freshness.changedComponents.map((item) => item.component).join(", ")}</p> : null}
     {contract.prospective?.outcome === "would_require_revalidation" ? <div className="prospective-warning"><strong>PR drift detected</strong><span>{contract.prospective.changes.map((item) => item.component).join(", ")} would require revalidation if released. Production status is unchanged.</span></div> : null}
+    {remainingDays !== undefined && remainingDays <= 30 && remainingDays > 0 ? <div className={`assurance-expiry-callout ${remainingDays <= 7 ? "urgent" : ""}`}><strong>Expires in {remainingDays} day{remainingDays === 1 ? "" : "s"}</strong><span>Revalidate before {new Date(assuranceCase.expiresAt!).toLocaleDateString()} to keep the contract CURRENT.</span></div> : null}
     <div className="assurance-metrics">
       <div><span>Evaluations</span><strong>{metrics.totalEvaluations}</strong></div><div><span>Pass rate</span><strong>{passRate}</strong></div>
       <div><span>PR / release / nightly</span><strong>{metrics.triggerCounts.pull_request} / {metrics.triggerCounts.release} / {metrics.triggerCounts.nightly}</strong></div>
       <div><span>Last checked</span><strong>{metrics.lastEvaluationAt ? new Date(metrics.lastEvaluationAt).toLocaleString() : "At issuance"}</strong></div>
+      <div><span>Revalidation cycles</span><strong>{revalidationCompletedCount} / {revalidationStartedCount}</strong></div>
+      <div><span>Average cycle</span><strong>{compactMilliseconds(averageRevalidationMs)}</strong></div>
     </div>
     <dl className="assurance-scope-grid">
       <div><dt>Agent</dt><dd>{contract.scope.agent.id} @ {contract.scope.agent.version}</dd></div>
@@ -239,7 +273,17 @@ function ContinuousAssurancePanel({ assuranceCase, busy, revalidate }: { assuran
       <div className="wide"><dt>Scope fingerprint</dt><dd className="hash">{contract.scopeFingerprintSha256}</dd></div>
     </dl>
     <div className="trigger-policy"><strong>Trigger policy</strong><span>Pull requests are prospective. Releases and nightly runs are authoritative.</span></div>
+    <div className="continuous-adoption"><div><strong>{contract.adoption ? "CI contract activated" : "Continuous CI not installed"}</strong><span>{contract.adoption ? `Workflow generated ${new Date(contract.adoption.activatedAt).toLocaleString()}` : "Generate the exact scope file and PR / release / nightly workflow from this signed review."}</span></div>{canActivate ? <button className="primary-action compact" disabled={busy} onClick={activate}>{contract.adoption ? "Download CI kit again" : "Generate continuous CI kit"}</button> : null}</div>
     {contract.freshness.status !== "CURRENT" ? <button className="primary-action compact" disabled={busy} onClick={revalidate}>Start revalidation</button> : null}
+    <div className="freshness-history"><div className="history-heading"><strong>Freshness history</strong><span>{contract.historyTruncated ? `${contract.historyTruncated} older events compacted` : "Recorded contract state changes"}</span></div>{history.map((event, index) => <article key={`${event.occurredAt}:${event.kind}:${index}`}><i className={event.status.toLowerCase()} /><div><strong>{historyLabel(event.kind)}</strong><span>{event.reason}{event.changedComponents.length ? ` Changed: ${event.changedComponents.join(", ")}.` : ""}</span></div><time>{new Date(event.occurredAt).toLocaleString()}</time></article>)}{history.length === 0 ? <p>No contract history has been recorded.</p> : null}</div>
+  </section>;
+}
+
+function AdoptionKitPanel({ kit }: { kit: HostedContinuousAssuranceAdoptionKit }) {
+  return <section className="continuous-kit-panel">
+    <div className="section-actions"><div><span className="eyebrow">Generated from signed review</span><h3>Continuous assurance installation kit</h3><p>Add the files at the exact paths below, then store only {kit.requiredSecret} in GitHub Actions.</p></div><button onClick={() => downloadGeneratedFile(`agentcert-continuous-assurance-kit-${kit.assuranceCaseId}.json`, "application/json", JSON.stringify(kit, null, 2))}>Download manifest</button></div>
+    <div className="continuous-kit-files">{kit.files.map((file) => <article key={file.path}><div><strong>{file.path}</strong><span>SHA-256 {file.sha256.slice(0, 16)}...</span></div><button onClick={() => downloadGeneratedFile(file.path.split("/").at(-1) ?? "agentcert-file", file.contentType, file.content)}>Download</button></article>)}</div>
+    <div className="trigger-policy"><strong>Three-layer policy</strong><span>PR: prospective drift check. Release: authoritative gate. Nightly: authoritative expiry and regression signal.</span></div>
   </section>;
 }
 
@@ -267,4 +311,20 @@ function duration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3_600) return `${Math.round(seconds / 60)}m`;
   return `${(seconds / 3_600).toFixed(1)}h`;
+}
+
+function compactMilliseconds(value?: number): string {
+  if (value === undefined) return "No completed cycle";
+  if (value < 60_000) return `${Math.round(value / 1_000)}s`;
+  if (value < 3_600_000) return `${Math.round(value / 60_000)}m`;
+  return `${(value / 3_600_000).toFixed(1)}h`;
+}
+
+function historyLabel(kind: string): string {
+  return String(kind).replaceAll("_", " ");
+}
+
+function downloadGeneratedFile(fileName: string, contentType: string, content: string): void {
+  const url = URL.createObjectURL(new Blob([content], { type: contentType }));
+  const anchor = document.createElement("a"); anchor.href = url; anchor.download = fileName; anchor.click(); URL.revokeObjectURL(url);
 }

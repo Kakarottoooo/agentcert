@@ -77,9 +77,13 @@ import { buildAssuranceDeliveryPacket, buildAssuranceReport, canTransitionAssura
 import {
   applyContinuousAssuranceObservation,
   assuranceScopeFingerprint,
+  buildContinuousAssuranceAdoptionKit,
   createContinuousAssuranceContract,
+  createContinuousAssuranceRevalidation,
   forceContinuousAssuranceFreshness,
+  markContinuousAssuranceAdopted,
   markContinuousAssuranceCurrent,
+  markContinuousAssuranceExpiryReminder,
   normalizeAssuranceScope,
   reconcileContinuousAssurance,
   type AssuranceScopeInput,
@@ -118,6 +122,7 @@ const DEFAULT_NOTIFICATION_LEASE_MS = 60_000;
 const DEFAULT_NOTIFICATION_RETRY_BASE_MS = 60_000;
 const MAX_NOTIFICATION_RETRY_MS = 6 * 60 * 60 * 1000;
 const TEST_NOTIFICATION_COOLDOWN_MS = 60_000;
+const ASSURANCE_EXPIRY_REMINDER_DAYS = [1, 7, 30] as const;
 
 interface SloBurnEvaluation {
   status: "healthy" | "warning" | "critical";
@@ -491,6 +496,7 @@ export class AgentCertControlPlane {
 
   async transitionAssuranceCase(auth: AuthContext, projectId: string, caseId: string, action: string, input: unknown) {
     if (action === "revalidate") return { assuranceCase: await this.createAssuranceRevalidation(auth, projectId, caseId) };
+    if (action === "activate-continuous") return this.activateContinuousAssurance(auth, projectId, caseId);
     if (action === "baseline" || action === "remediation" || action === "retest") {
       return this.updateAssuranceEngagement(auth, projectId, caseId, action, input);
     }
@@ -572,11 +578,60 @@ export class AgentCertControlPlane {
       evaluationPlanSha256: current.evaluationPlanSha256,
       evidenceIds: [],
       createdBy: auth.userId,
-      continuousAssurance: createContinuousAssuranceContract(scope, now, current.id),
+      continuousAssurance: createContinuousAssuranceRevalidation(current.continuousAssurance, scope, now, current.id),
       createdAt: now,
       updatedAt: now,
     };
     return this.store.insertAssuranceCaseWithDecision(next, assuranceDecision(next, auth, undefined, "draft", `Revalidation created for ${current.id}.`, now));
+  }
+
+  private async activateContinuousAssurance(auth: AuthContext, projectId: string, caseId: string) {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    requireUser(auth);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const current = await this.store.getAssuranceCase(projectId, caseId);
+      if (!current) throw new ControlPlaneError("Assurance case was not found.", 404);
+      if (!(await this.hasSevenDayAssuranceOrigin(projectId, current))) throw new ControlPlaneError(
+        "Continuous CI activation is available after a 7-Day Assurance Review.", 409, "assurance_engagement_required",
+      );
+      if (current.status !== "issued" || !current.report) throw new ControlPlaneError(
+        "Issue the independently reviewed assurance report before activating continuous CI.", 409, "assurance_case_not_issued",
+      );
+      if (!current.continuousAssurance) throw new ControlPlaneError(
+        "This review does not contain a locked continuous assurance scope.", 409, "continuous_assurance_required",
+      );
+      if (current.continuousAssurance.freshness.status !== "CURRENT") throw new ControlPlaneError(
+        "Revalidate the assurance scope before activating continuous CI.", 409, "continuous_assurance_not_current",
+      );
+      const generatedAt = current.continuousAssurance.adoption?.activatedAt
+        ?? new Date(Math.max(Date.now(), Date.parse(current.updatedAt) + 1)).toISOString();
+      const kit = buildContinuousAssuranceAdoptionKit({
+        contract: current.continuousAssurance, projectId, assuranceCaseId: current.id, generatedAt,
+      });
+      if (current.continuousAssurance.adoption) return { assuranceCase: current, kit };
+      const workflowSha256 = kit.files.find((file) => file.path.endsWith(".yml"))!.sha256;
+      const next: AssuranceCaseRecord = {
+        ...current,
+        continuousAssurance: markContinuousAssuranceAdopted(current.continuousAssurance, generatedAt, auth.userId, workflowSha256),
+        updatedAt: generatedAt,
+      };
+      const updated = await this.store.updateAssuranceCase(next, current.status, current.updatedAt);
+      if (updated) return { assuranceCase: updated, kit };
+    }
+    throw new ControlPlaneError("Assurance case changed concurrently. Reload and retry.", 409, "assurance_transition_conflict");
+  }
+
+  private async hasSevenDayAssuranceOrigin(projectId: string, assuranceCase: AssuranceCaseRecord): Promise<boolean> {
+    let current: AssuranceCaseRecord | undefined = assuranceCase;
+    const visited = new Set<string>();
+    for (let depth = 0; current && depth < 50; depth += 1) {
+      if (current.engagement) return true;
+      const sourceCaseId = current.continuousAssurance?.supersedesCaseId;
+      if (!sourceCaseId || visited.has(sourceCaseId)) return false;
+      visited.add(sourceCaseId);
+      current = await this.store.getAssuranceCase(projectId, sourceCaseId);
+    }
+    return false;
   }
 
   private async updateAssuranceEngagement(
@@ -672,9 +727,9 @@ export class AgentCertControlPlane {
     };
   }
 
-  private async expireAssuranceCaseIfNeeded(assuranceCase: AssuranceCaseRecord): Promise<AssuranceCaseRecord> {
-    if (assuranceCase.status !== "issued" || !assuranceCase.expiresAt || Date.parse(assuranceCase.expiresAt) > Date.now()) return assuranceCase;
-    const occurredAt = new Date().toISOString();
+  private async expireAssuranceCaseIfNeeded(assuranceCase: AssuranceCaseRecord, now = new Date()): Promise<AssuranceCaseRecord> {
+    if (assuranceCase.status !== "issued" || !assuranceCase.expiresAt || Date.parse(assuranceCase.expiresAt) > now.getTime()) return assuranceCase;
+    const occurredAt = new Date(Math.max(now.getTime(), Date.parse(assuranceCase.updatedAt) + 1)).toISOString();
     const next = {
       ...assuranceCase,
       status: "expired" as const,
@@ -1362,6 +1417,48 @@ export class AgentCertControlPlane {
       }
     }
     return { cutoff, scanned: expired.length, deleted, bytesDeleted, failed: failures.length, failures: failures.slice(0, 20) };
+  }
+
+  async processContinuousAssuranceMaintenance(now = new Date(), limit = 200) {
+    const reminderHorizon = new Date(now.getTime() + 30 * 86_400_000).toISOString();
+    const candidates = await this.store.listAssuranceCasesForMaintenance(now.toISOString(), reminderHorizon, limit);
+    const failures: Array<{ assuranceCaseId: string; message: string }> = [];
+    let expired = 0;
+    let remindersQueued = 0;
+    for (const candidate of candidates) {
+      try {
+        if (candidate.expiresAt && Date.parse(candidate.expiresAt) <= now.getTime()) {
+          const updated = await this.expireAssuranceCaseIfNeeded(candidate, now);
+          if (updated.status === "expired") expired += 1;
+          continue;
+        }
+        const contract = candidate.continuousAssurance;
+        if (!contract || contract.freshness.status !== "CURRENT" || !candidate.expiresAt) continue;
+        const remainingMs = Date.parse(candidate.expiresAt) - now.getTime();
+        const threshold = ASSURANCE_EXPIRY_REMINDER_DAYS.find((days) => remainingMs <= days * 86_400_000);
+        if (!threshold || contract.reminders?.expiryThresholdDaysSent.includes(threshold)) continue;
+        await this.notifyContinuousAssuranceExpiryWarning(candidate, threshold);
+        const reminderAt = new Date(Math.max(now.getTime(), Date.parse(candidate.updatedAt) + 1)).toISOString();
+        const next: AssuranceCaseRecord = {
+          ...candidate,
+          continuousAssurance: markContinuousAssuranceExpiryReminder(contract, threshold, reminderAt),
+          updatedAt: reminderAt,
+        };
+        const updated = await this.store.updateAssuranceCase(next, candidate.status, candidate.updatedAt);
+        if (!updated) continue;
+        remindersQueued += 1;
+      } catch (error) {
+        failures.push({ assuranceCaseId: candidate.id, message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    return {
+      reminderHorizon,
+      scanned: candidates.length,
+      remindersQueued,
+      expired,
+      failed: failures.length,
+      failures: failures.slice(0, 20),
+    };
   }
 
   async requestLegalHold(auth: AuthContext, projectId: string, input: unknown): Promise<LegalHoldRequestRecord> {
@@ -2495,6 +2592,39 @@ export class AgentCertControlPlane {
     })));
   }
 
+  private async notifyContinuousAssuranceExpiryWarning(
+    assuranceCase: AssuranceCaseRecord,
+    thresholdDays: 30 | 7 | 1,
+  ): Promise<void> {
+    const contract = assuranceCase.continuousAssurance!;
+    const expiresAt = assuranceCase.expiresAt!;
+    const workspaceUrl = `${this.publicUrl.replace(/\/$/, "")}/app?view=assurance&caseId=${encodeURIComponent(assuranceCase.id)}`;
+    await this.emitWebhook(assuranceCase.projectId, "assurance.expiry_warning", `${assuranceCase.id}:${thresholdDays}`, {
+      assuranceCaseId: assuranceCase.id,
+      subject: assuranceCase.subject,
+      scopeFingerprintSha256: contract.scopeFingerprintSha256,
+      freshness: contract.freshness,
+      expiresAt,
+      thresholdDays,
+    });
+    if (!this.emailProvider.configured) return;
+    const destinations = (await this.store.listNotificationDestinations(assuranceCase.projectId))
+      .filter((destination) => destination.status === "active" && destination.alertTypes.includes("assurance_expiry_warning"));
+    const subject = `[AgentCert] Assurance expires within ${thresholdDays} day${thresholdDays === 1 ? "" : "s"}: ${assuranceCase.subject.name}`;
+    await Promise.all(destinations.map((destination) => this.enqueueEmail(destination, "assurance_expiry_warning", subject, {
+      text: [
+        `Assurance case: ${assuranceCase.name}`,
+        `Subject: ${assuranceCase.subject.name}`,
+        `Current status: ${contract.freshness.status}`,
+        `Expires at: ${expiresAt}`,
+        `Scope fingerprint: ${contract.scopeFingerprintSha256}`,
+        "",
+        `Review or start revalidation: ${workspaceUrl}`,
+      ].join("\n"),
+      html: `<p><strong>${escapeHtml(assuranceCase.subject.name)}</strong> assurance expires within ${thresholdDays} day${thresholdDays === 1 ? "" : "s"}.</p><ul><li>Current status: ${escapeHtml(contract.freshness.status)}</li><li>Expires at: ${escapeHtml(expiresAt)}</li><li>Scope fingerprint: <code>${escapeHtml(contract.scopeFingerprintSha256)}</code></li></ul><p><a href="${escapeHtml(workspaceUrl)}">Review assurance status</a></p>`,
+    })));
+  }
+
   private async sendIncidentNotification(
     alertType: Exclude<NotificationAlertType, "destination_verification" | "test_alert">,
     incident: IncidentRecord,
@@ -2682,7 +2812,7 @@ function notificationEmail(value: string): string {
 function notificationAlertTypes(value: unknown): NotificationAlertType[] {
   const allowed = new Set<NotificationAlertType>([
     "incident_opened", "incident_regressed", "incident_recovered", "incident_resolved", "slo_burn_rate",
-    "assurance_current", "assurance_revalidation_required", "assurance_suspended", "assurance_expired",
+    "assurance_current", "assurance_revalidation_required", "assurance_suspended", "assurance_expired", "assurance_expiry_warning",
   ]);
   const selected = stringList(value);
   if (selected.length === 0 || selected.some((item) => !allowed.has(item as NotificationAlertType))) {
@@ -3008,26 +3138,31 @@ function buildPilotFunnelReport(
   generatedAt: string,
 ): PilotFunnelReport {
   const frictionOutcomes = new Set<PilotFeedbackOutcome>(["blocked", "confusing", "failed"]);
-  const projects = source.projects.map(({ project, firstKeyAt, firstConnectionAt, firstEvidenceAt }) => {
+  const projects = source.projects.map(({ project, firstKeyAt, firstConnectionAt, firstEvidenceAt, firstCurrentAt }) => {
     let stage: PilotFunnelReport["projects"][number]["stage"] = "project_created";
     if (firstKeyAt) stage = "key_created";
     if (firstConnectionAt) stage = "cli_connected";
     if (firstEvidenceAt) stage = "first_evidence";
+    if (firstCurrentAt) stage = "first_current";
     const feedback = source.feedback.filter((item) => item.projectId === project.id);
     return {
       projectId: project.id, name: project.name, slug: project.slug, createdAt: project.createdAt, stage,
-      firstKeyAt, firstConnectionAt, firstEvidenceAt,
-      totalDurationMs: firstEvidenceAt ? elapsedMs(project.createdAt, firstEvidenceAt) : undefined,
+      firstKeyAt, firstConnectionAt, firstEvidenceAt, firstCurrentAt,
+      totalDurationMs: firstCurrentAt
+        ? elapsedMs(project.createdAt, firstCurrentAt)
+        : firstEvidenceAt ? elapsedMs(project.createdAt, firstEvidenceAt) : undefined,
+      installToCurrentMs: firstConnectionAt && firstCurrentAt ? elapsedMs(firstConnectionAt, firstCurrentAt) : undefined,
       frictionCount: feedback.filter((item) => frictionOutcomes.has(item.outcome)).length,
     };
   });
   const stageCounts = {
     project_created: projects.length,
     key_created: projects.filter((project) => project.stage !== "project_created").length,
-    cli_connected: projects.filter((project) => project.stage === "cli_connected" || project.stage === "first_evidence").length,
-    first_evidence: projects.filter((project) => project.stage === "first_evidence").length,
+    cli_connected: projects.filter((project) => ["cli_connected", "first_evidence", "first_current"].includes(project.stage)).length,
+    first_evidence: projects.filter((project) => project.stage === "first_evidence" || project.stage === "first_current").length,
+    first_current: projects.filter((project) => project.stage === "first_current").length,
   };
-  const orderedStages: Array<keyof typeof stageCounts> = ["project_created", "key_created", "cli_connected", "first_evidence"];
+  const orderedStages: Array<keyof typeof stageCounts> = ["project_created", "key_created", "cli_connected", "first_evidence", "first_current"];
   const stages = orderedStages.map((id, index) => ({
     id,
     count: stageCounts[id],
@@ -3045,12 +3180,14 @@ function buildPilotFunnelReport(
   const byOutcome: PilotFunnelReport["feedback"]["byOutcome"] = { blocked: 0, confusing: 0, failed: 0, completed: 0, suggestion: 0 };
   for (const feedback of source.feedback) byOutcome[feedback.outcome] += 1;
   return {
-    schemaVersion: "agentcert.pilot_funnel.v0.1", periodDays, since, generatedAt, stages,
+    schemaVersion: "agentcert.pilot_funnel.v0.2", periodDays, since, generatedAt, stages,
     timing: {
       medianProjectToKeyMs: median(projects.flatMap((project) => project.firstKeyAt ? [elapsedMs(project.createdAt, project.firstKeyAt)] : [])),
       medianKeyToConnectionMs: median(projects.flatMap((project) => project.firstKeyAt && project.firstConnectionAt ? [elapsedMs(project.firstKeyAt, project.firstConnectionAt)] : [])),
       medianConnectionToEvidenceMs: median(projects.flatMap((project) => project.firstConnectionAt && project.firstEvidenceAt ? [elapsedMs(project.firstConnectionAt, project.firstEvidenceAt)] : [])),
-      medianProjectToEvidenceMs: median(projects.flatMap((project) => project.totalDurationMs === undefined ? [] : [project.totalDurationMs])),
+      medianProjectToEvidenceMs: median(projects.flatMap((project) => project.firstEvidenceAt ? [elapsedMs(project.createdAt, project.firstEvidenceAt)] : [])),
+      medianInstallToCurrentMs: median(projects.flatMap((project) => project.installToCurrentMs === undefined ? [] : [project.installToCurrentMs])),
+      medianProjectToCurrentMs: median(projects.flatMap((project) => project.firstCurrentAt ? [elapsedMs(project.createdAt, project.firstCurrentAt)] : [])),
     },
     feedback: {
       total: source.feedback.length,

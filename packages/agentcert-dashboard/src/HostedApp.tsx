@@ -559,7 +559,7 @@ function CollectorStatusPanel({ status }: { status?: HostedCollectorStatus }) {
 function NotificationDestinations({ project, session, operations, refresh }: { project: HostedProject; session: HostedSession; operations: HostedOperations; refresh: () => Promise<void> }) {
   const alertTypes: HostedNotificationAlertType[] = [
     "incident_opened", "incident_regressed", "incident_recovered", "incident_resolved", "slo_burn_rate",
-    "assurance_revalidation_required", "assurance_suspended", "assurance_expired", "assurance_current",
+    "assurance_revalidation_required", "assurance_suspended", "assurance_expired", "assurance_expiry_warning", "assurance_current",
   ];
   const [email, setEmail] = useState("");
   const [selected, setSelected] = useState<HostedNotificationAlertType[]>(alertTypes);
@@ -712,6 +712,7 @@ function notificationLabel(value: HostedNotificationAlertType): string {
     incident_opened: "Incident opened", incident_regressed: "Incident regressed", incident_recovered: "Incident recovered",
     incident_resolved: "Incident resolved", slo_burn_rate: "SLO burn rate", assurance_current: "Assurance current",
     assurance_revalidation_required: "Revalidation required", assurance_suspended: "Assurance suspended", assurance_expired: "Assurance expired",
+    assurance_expiry_warning: "Assurance expiry warning",
   })[value];
 }
 function authRedirectUrl(config: HostedConfig, inviteToken: string | null): string {

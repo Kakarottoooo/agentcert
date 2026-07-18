@@ -48,6 +48,9 @@ workflow is a new review, not a retroactive update.
 7. The issued scope becomes `CURRENT`; CI can then move it to
    `REVALIDATION_REQUIRED`, `SUSPENDED`, or `EXPIRED` without altering the
    historical signed decision.
+8. The customer can generate the exact scope file and PR/release/nightly
+   workflow directly from the issued review. This is the handoff from the
+   fixed review into continuous assurance, not a second product.
 
 `RELEASE` requires an independently verified outcome and no remaining required
 controls. `RELEASE_WITH_CONTROLS` requires explicit controls. `BLOCK` states why
@@ -74,6 +77,11 @@ checks are the continuous plan described in
 [Continuous Assurance Contract v0.1](continuous-assurance.md). A changed scope
 requires an explicit successor revalidation; a passing run alone does not
 silently renew independent assurance.
+
+The Hosted contract keeps a bounded freshness ledger, sends expiry reminders
+30, 7, and 1 days before the report expires, and measures each successor
+revalidation cycle. The signed report remains a historical statement even when
+the live contract later becomes stale or expires.
 
 Validate a downloaded packet with:
 

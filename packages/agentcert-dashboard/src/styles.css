@@ -2554,9 +2554,13 @@ button {
 .assurance-freshness.expired { color: #4f5962; border-color: #b7c0c7; background: #f0f2f4; }
 .prospective-warning { display: grid; gap: 4px; padding: 11px 12px; border-left: 3px solid #d09a26; background: #fff8e8; }
 .prospective-warning span { color: #67552e; font-size: 12px; line-height: 1.45; }
-.assurance-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid #d9e1de; background: white; }
+.assurance-expiry-callout { display: grid; gap: 4px; padding: 11px 12px; border-left: 3px solid #d09a26; background: #fff8e8; }
+.assurance-expiry-callout.urgent { border-left-color: #b63b4e; background: #fff1f3; }
+.assurance-expiry-callout span { color: #67552e; font-size: 12px; }
+.assurance-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid #d9e1de; background: white; }
 .assurance-metrics > div { display: grid; min-width: 0; gap: 5px; padding: 12px; border-right: 1px solid #d9e1de; }
-.assurance-metrics > div:last-child { border-right: 0; }
+.assurance-metrics > div:nth-child(3n) { border-right: 0; }
+.assurance-metrics > div:nth-child(-n + 3) { border-bottom: 1px solid #d9e1de; }
 .assurance-metrics span { color: #65716d; font-size: 11px; }
 .assurance-metrics strong { overflow-wrap: anywhere; }
 .assurance-scope-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; padding: 12px; border: 1px solid #d9e1de; background: white; }
@@ -2564,6 +2568,29 @@ button {
 .assurance-scope-grid > div.wide { grid-column: 1 / -1; }
 .trigger-policy { display: flex; justify-content: space-between; gap: 18px; padding-top: 12px; border-top: 1px solid #d9e1de; }
 .trigger-policy span { color: #65716d; text-align: right; }
+.continuous-adoption { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 12px; border: 1px solid #b8d6cb; background: #edf8f4; }
+.continuous-adoption > div { display: grid; gap: 4px; }
+.continuous-adoption span { color: #53655e; font-size: 12px; }
+.freshness-history { display: grid; gap: 0; border-top: 1px solid #d9e1de; }
+.history-heading { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0 8px; }
+.history-heading span { color: #65716d; font-size: 11px; }
+.freshness-history article { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 9px 0; border-top: 1px solid #e1e8e5; }
+.freshness-history article i { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: #87938e; }
+.freshness-history article i.current { background: #0a8a68; }
+.freshness-history article i.revalidation_required { background: #d09a26; }
+.freshness-history article i.suspended, .freshness-history article i.expired { background: #b63b4e; }
+.freshness-history article div { display: grid; gap: 3px; }
+.freshness-history article strong { text-transform: capitalize; }
+.freshness-history article span, .freshness-history article time { color: #65716d; font-size: 11px; line-height: 1.4; }
+.continuous-kit-panel { display: grid; gap: 14px; margin: 20px 0; padding: 18px; border: 1px solid #b8d6cb; border-top: 3px solid #0a8a68; background: #f5fbf8; }
+.continuous-kit-panel h3, .continuous-kit-panel p { margin: 4px 0 0; }
+.continuous-kit-panel p { color: #53655e; font-size: 12px; }
+.continuous-kit-files { display: grid; border: 1px solid #d9e1de; background: white; }
+.continuous-kit-files article { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border-bottom: 1px solid #d9e1de; }
+.continuous-kit-files article:last-child { border-bottom: 0; }
+.continuous-kit-files article div { display: grid; min-width: 0; gap: 3px; }
+.continuous-kit-files article strong { overflow-wrap: anywhere; }
+.continuous-kit-files article span { color: #65716d; font-size: 11px; }
 .engagement-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 20px 0; border: 1px solid #cad8d2; }
 .engagement-summary div { min-width: 0; padding: 12px 14px; border-bottom: 1px solid #dce5e1; }
 .engagement-summary div:nth-child(odd) { border-right: 1px solid #dce5e1; }
@@ -2581,7 +2608,7 @@ button {
 .engagement-timeline li { padding: 9px; border-top: 3px solid #c7d0cc; background: #fff; }
 .engagement-timeline li.done { border-color: #0a8a68; }
 @media (max-width: 1050px) { .assurance-layout, .assurance-layout.empty { grid-template-columns: 1fr; } }
-@media (max-width: 650px) { .assurance-form, .engagement-summary, .engagement-timeline, .assurance-metrics, .assurance-scope-grid { grid-template-columns: 1fr !important; } .engagement-summary div { border-right: 0 !important; border-bottom: 1px solid #dce5e1 !important; } .engagement-summary div:last-child { border-bottom: 0 !important; } .assurance-offer, .continuous-assurance-heading, .trigger-policy { align-items: flex-start; flex-direction: column; } .assurance-metrics > div { border-right: 0; border-bottom: 1px solid #d9e1de; } .assurance-metrics > div:last-child { border-bottom: 0; } .assurance-scope-grid > div.wide { grid-column: auto; } .trigger-policy span { text-align: left; } }
+@media (max-width: 650px) { .assurance-form, .engagement-summary, .engagement-timeline, .assurance-metrics, .assurance-scope-grid { grid-template-columns: 1fr !important; } .engagement-summary div { border-right: 0 !important; border-bottom: 1px solid #dce5e1 !important; } .engagement-summary div:last-child { border-bottom: 0 !important; } .assurance-offer, .continuous-assurance-heading, .trigger-policy, .continuous-adoption { align-items: flex-start; flex-direction: column; } .assurance-metrics > div { border-right: 0; border-bottom: 1px solid #d9e1de; } .assurance-metrics > div:last-child { border-bottom: 0; } .assurance-scope-grid > div.wide { grid-column: auto; } .trigger-policy span { text-align: left; } .freshness-history article { grid-template-columns: 10px minmax(0, 1fr); } .freshness-history article time { grid-column: 2; } .continuous-kit-files article { align-items: flex-start; flex-direction: column; } }
 
 .section-title h2 {
   margin: 0;
@@ -3094,7 +3121,7 @@ button {
 .pilot-stage-grid,
 .pilot-timing-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   border: 1px solid var(--border);
 }
 

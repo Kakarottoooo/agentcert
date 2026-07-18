@@ -153,9 +153,13 @@ taxonomy coverage/precision/correction metrics.
 
 Hosted Governance provides a 7/30/90-day pilot funnel across newly created
 projects: project creation, project-key creation, first authenticated CLI
-request, first evidence, median onboarding time, and structured failure
-reasons. It uses existing operational records rather than a parallel analytics
-store and exports `agentcert.pilot_funnel.v0.1` JSON.
+request, first evidence, and first `CURRENT` continuous-assurance contract.
+It measures install-to-CURRENT and project-to-CURRENT time, uses existing
+operational records rather than a parallel analytics store, and exports
+`agentcert.pilot_funnel.v0.2` JSON. An issued 7-Day Review can generate a
+secret-free three-layer PR/release/nightly CI kit in one action; the contract
+then keeps bounded freshness history, revalidation-cycle metrics, and
+deduplicated 30/7/1-day expiry reminders.
 
 ```text
 packages/agentcert-control-plane  # Node API + Postgres + private artifacts
@@ -170,6 +174,7 @@ Envelope contract and adapters: [docs/universal-envelope.md](docs/universal-enve
 Evidence verification chain: [docs/evidence-trust-chain.md](docs/evidence-trust-chain.md).
 Assurance lifecycle: [docs/assurance-lifecycle.md](docs/assurance-lifecycle.md).
 Continuous assurance: [docs/continuous-assurance.md](docs/continuous-assurance.md).
+Independent continuous canary: [Kakarottoooo/agentcert-continuous-assurance-canary](https://github.com/Kakarottoooo/agentcert-continuous-assurance-canary).
 Production Acceptance Lab: [docs/production-acceptance-lab.md](docs/production-acceptance-lab.md).
 Corpus governance: [docs/corpus-governance.md](docs/corpus-governance.md).
 Adapter compatibility: [docs/adapter-compatibility.md](docs/adapter-compatibility.md).

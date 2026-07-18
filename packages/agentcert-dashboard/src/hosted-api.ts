@@ -78,12 +78,12 @@ export interface HostedOnboardingStatus {
 }
 
 export interface HostedPilotFunnelReport {
-  schemaVersion: "agentcert.pilot_funnel.v0.1";
+  schemaVersion: "agentcert.pilot_funnel.v0.2";
   periodDays: 7 | 30 | 90;
   since: string;
   generatedAt: string;
   stages: Array<{
-    id: "project_created" | "key_created" | "cli_connected" | "first_evidence";
+    id: "project_created" | "key_created" | "cli_connected" | "first_evidence" | "first_current";
     count: number;
     conversionFromPrevious: number;
     conversionFromStart: number;
@@ -93,6 +93,8 @@ export interface HostedPilotFunnelReport {
     medianKeyToConnectionMs?: number;
     medianConnectionToEvidenceMs?: number;
     medianProjectToEvidenceMs?: number;
+    medianInstallToCurrentMs?: number;
+    medianProjectToCurrentMs?: number;
   };
   feedback: {
     total: number;
@@ -106,10 +108,12 @@ export interface HostedPilotFunnelReport {
     name: string;
     slug: string;
     createdAt: string;
-    stage: "project_created" | "key_created" | "cli_connected" | "first_evidence";
+    stage: "project_created" | "key_created" | "cli_connected" | "first_evidence" | "first_current";
     firstKeyAt?: string;
     firstConnectionAt?: string;
     firstEvidenceAt?: string;
+    firstCurrentAt?: string;
+    installToCurrentMs?: number;
     totalDurationMs?: number;
     frictionCount: number;
   }>;
@@ -219,7 +223,7 @@ export interface HostedIncidentTransition {
 
 export type HostedNotificationAlertType =
   | "incident_opened" | "incident_regressed" | "incident_recovered" | "incident_resolved" | "slo_burn_rate"
-  | "assurance_current" | "assurance_revalidation_required" | "assurance_suspended" | "assurance_expired";
+  | "assurance_current" | "assurance_revalidation_required" | "assurance_suspended" | "assurance_expired" | "assurance_expiry_warning";
 
 export interface HostedNotificationDestination {
   id: string;
@@ -272,6 +276,7 @@ export interface HostedContinuousAssurance {
     evaluatedAt: string;
   };
   validatedAt?: string;
+  firstCurrentAt?: string;
   currentSince?: string;
   lastObservedScope?: HostedAssuranceScope;
   lastObservedFingerprintSha256?: string;
@@ -279,12 +284,35 @@ export interface HostedContinuousAssurance {
   lastTrigger?: "pull_request" | "release" | "nightly";
   prospective?: { runId: string; observedAt: string; changes: Array<{ component: string }>; outcome: "current" | "would_require_revalidation" };
   supersedesCaseId?: string;
+  revalidation?: { cycleNumber: number; sourceCaseId: string; startedAt: string; completedAt?: string; durationMs?: number };
+  adoption?: { schemaVersion: "agentcert.continuous_assurance_adoption.v0.1"; activatedAt: string; activatedBy: string; workflowSha256: string };
+  reminders?: { expiryThresholdDaysSent: Array<30 | 7 | 1>; lastExpiryReminderAt?: string };
+  history?: Array<{
+    kind: "contract_created" | "current" | "prospective_change" | "revalidation_required" | "revalidation_started" | "suspended" | "expired" | "expiry_warning" | "ci_activated";
+    status: "CURRENT" | "REVALIDATION_REQUIRED" | "SUSPENDED" | "EXPIRED";
+    occurredAt: string; reasonCode: string; reason: string; runId?: string; trigger?: "pull_request" | "release" | "nightly";
+    changedComponents: Array<"agent" | "model" | "prompt" | "tools" | "policy" | "scenarioSuite">; remainingDays?: 30 | 7 | 1;
+  }>;
+  historyTruncated?: number;
   metrics: {
     totalEvaluations: number; passedEvaluations: number; failedEvaluations: number;
     revalidationRequiredCount: number; prospectiveChangeCount: number;
     triggerCounts: { pull_request: number; release: number; nightly: number };
     lastEvaluationAt?: string;
+    revalidationStartedCount: number; revalidationCompletedCount: number; totalRevalidationDurationMs: number;
+    lastRevalidationDurationMs?: number;
   };
+}
+
+export interface HostedContinuousAssuranceAdoptionKit {
+  schemaVersion: "agentcert.continuous_assurance_kit.v0.1";
+  projectId: string;
+  assuranceCaseId: string;
+  scopeFingerprintSha256: string;
+  generatedAt: string;
+  requiredSecret: "AGENTCERT_API_KEY";
+  triggerPolicy: { pullRequest: "prospective"; release: "authoritative"; nightly: "authoritative" };
+  files: Array<{ path: string; contentType: "application/json" | "text/yaml" | "text/markdown"; sha256: string; content: string }>;
 }
 
 export interface HostedAssuranceCase {
@@ -898,9 +926,9 @@ export async function transitionHostedAssuranceCase(
   session: HostedSession,
   projectId: string,
   caseId: string,
-  transition: "start" | "baseline" | "remediation" | "retest" | "submit" | "return" | "issue" | "suspend" | "revoke" | "expire" | "resume" | "revalidate",
+  transition: "start" | "baseline" | "remediation" | "retest" | "submit" | "return" | "issue" | "suspend" | "revoke" | "expire" | "resume" | "revalidate" | "activate-continuous",
   input: Record<string, unknown>,
-): Promise<{ assuranceCase: HostedAssuranceCase; decision?: HostedAssuranceDecision }> {
+): Promise<{ assuranceCase: HostedAssuranceCase; decision?: HostedAssuranceDecision; kit?: HostedContinuousAssuranceAdoptionKit }> {
   return apiRequest(session, path(projectId, `assurance-cases/${encodeURIComponent(caseId)}/${transition}`), {
     method: "POST", body: JSON.stringify(input),
   });

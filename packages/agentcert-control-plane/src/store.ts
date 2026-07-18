@@ -67,6 +67,7 @@ export const CONTROL_PLANE_MIGRATIONS = [
   "016_remote_collector.sql",
   "017_assurance_engagements.sql",
   "018_continuous_assurance.sql",
+  "019_continuous_assurance_adoption.sql",
 ] as const;
 
 const DEFAULT_PROJECT_NAME = "Agent assurance project";
@@ -127,6 +128,7 @@ export interface ControlPlaneStore {
   getAssuranceCase(projectId: string, caseId: string): Promise<AssuranceCaseRecord | undefined>;
   getAssuranceCaseByPublicId(publicId: string): Promise<AssuranceCaseRecord | undefined>;
   listAssuranceCases(projectId: string, limit?: number): Promise<AssuranceCaseRecord[]>;
+  listAssuranceCasesForMaintenance(now: string, before: string, limit?: number): Promise<AssuranceCaseRecord[]>;
   insertAssuranceCaseDecision(record: AssuranceCaseDecisionRecord): Promise<AssuranceCaseDecisionRecord>;
   listAssuranceCaseDecisions(projectId: string, caseId: string): Promise<AssuranceCaseDecisionRecord[]>;
   upsertAgent(agent: AgentRecord): Promise<AgentRecord>;
@@ -437,7 +439,10 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
           ? [...this.evidence.values()].filter((item) => item.projectId === project.id && item.createdAt >= firstConnectionAt)
             .map((item) => item.createdAt).sort()[0]
           : undefined;
-        return { project, firstKeyAt, firstConnectionAt, firstEvidenceAt };
+        const firstCurrentAt = [...this.assuranceCases.values()]
+          .filter((item) => item.projectId === project.id && item.continuousAssurance?.firstCurrentAt)
+          .map((item) => item.continuousAssurance!.firstCurrentAt!).sort()[0];
+        return { project, firstKeyAt, firstConnectionAt, firstEvidenceAt, firstCurrentAt };
       }),
       feedback: [...this.pilotFeedback.values()].filter((item) => projectIds.has(item.projectId)),
     };
@@ -480,6 +485,14 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
 
   async listAssuranceCases(projectId: string, limit = 100): Promise<AssuranceCaseRecord[]> {
     return newest([...this.assuranceCases.values()].filter((item) => item.projectId === projectId), "createdAt").slice(0, limit).map((item) => structuredClone(item));
+  }
+
+  async listAssuranceCasesForMaintenance(now: string, before: string, limit = 200): Promise<AssuranceCaseRecord[]> {
+    return [...this.assuranceCases.values()]
+      .filter((item) => assuranceMaintenanceDue(item, now, before))
+      .sort((left, right) => left.expiresAt!.localeCompare(right.expiresAt!))
+      .slice(0, limit)
+      .map((item) => structuredClone(item));
   }
 
   async insertAssuranceCaseDecision(record: AssuranceCaseDecisionRecord): Promise<AssuranceCaseDecisionRecord> {
@@ -1449,7 +1462,8 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
       `SELECT p.*,
               key_milestone.first_key_at,
               connection_milestone.first_connection_at,
-              evidence_milestone.first_evidence_at
+              evidence_milestone.first_evidence_at,
+              current_milestone.first_current_at
        FROM agentcert_projects p
        LEFT JOIN LATERAL (
          SELECT MIN(created_at) AS first_key_at FROM agentcert_api_keys WHERE project_id=p.id
@@ -1463,12 +1477,22 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
          WHERE project_id=p.id AND connection_milestone.first_connection_at IS NOT NULL
            AND created_at >= connection_milestone.first_connection_at
        ) evidence_milestone ON true
+       LEFT JOIN LATERAL (
+         SELECT MIN(NULLIF(COALESCE(
+           continuous_assurance->>'firstCurrentAt',
+           continuous_assurance->>'currentSince',
+           continuous_assurance->>'validatedAt'
+         ), '')::timestamptz) AS first_current_at
+         FROM agentcert_assurance_cases
+         WHERE project_id=p.id AND continuous_assurance IS NOT NULL
+       ) current_milestone ON true
        WHERE p.created_at >= $1 ORDER BY p.created_at DESC`,
       [since],
     );
     const projects = result.rows.map((row) => ({
       project: projectFromRow(row), firstKeyAt: optionalIso(row.first_key_at),
       firstConnectionAt: optionalIso(row.first_connection_at), firstEvidenceAt: optionalIso(row.first_evidence_at),
+      firstCurrentAt: optionalIso(row.first_current_at),
     }));
     const projectIds = projects.map((item) => item.project.id);
     if (projectIds.length === 0) return { projects: [], feedback: [] };
@@ -1557,6 +1581,28 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
 
   async listAssuranceCases(projectId: string, limit = 100): Promise<AssuranceCaseRecord[]> {
     return many(this.pool.query("SELECT * FROM agentcert_assurance_cases WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2", [projectId, limit]), assuranceCaseFromRow);
+  }
+
+  async listAssuranceCasesForMaintenance(now: string, before: string, limit = 200): Promise<AssuranceCaseRecord[]> {
+    return many(this.pool.query(
+      `SELECT * FROM agentcert_assurance_cases
+       WHERE status='issued' AND continuous_assurance IS NOT NULL AND expires_at IS NOT NULL AND expires_at <= $1
+         AND (
+           expires_at <= $2
+           OR (
+             continuous_assurance #>> '{freshness,status}' = 'CURRENT'
+             AND CASE
+               WHEN expires_at <= $2::timestamptz + interval '1 day'
+                 THEN NOT (COALESCE(continuous_assurance #> '{reminders,expiryThresholdDaysSent}', '[]'::jsonb) @> '[1]'::jsonb)
+               WHEN expires_at <= $2::timestamptz + interval '7 days'
+                 THEN NOT (COALESCE(continuous_assurance #> '{reminders,expiryThresholdDaysSent}', '[]'::jsonb) @> '[7]'::jsonb)
+               ELSE NOT (COALESCE(continuous_assurance #> '{reminders,expiryThresholdDaysSent}', '[]'::jsonb) @> '[30]'::jsonb)
+             END
+           )
+         )
+       ORDER BY expires_at ASC LIMIT $3`,
+      [before, now, limit],
+    ), assuranceCaseFromRow);
   }
 
   async insertAssuranceCaseDecision(record: AssuranceCaseDecisionRecord): Promise<AssuranceCaseDecisionRecord> {
@@ -3012,6 +3058,18 @@ async function insertCollectorAlert(client: pg.Pool | pg.PoolClient, alert: Trus
 
 function positiveInteger(value: unknown): number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : 0;
+}
+
+function assuranceMaintenanceDue(item: AssuranceCaseRecord, now: string, before: string): boolean {
+  if (item.status !== "issued" || !item.continuousAssurance || !item.expiresAt) return false;
+  const expiresAt = Date.parse(item.expiresAt);
+  const nowAt = Date.parse(now);
+  if (!Number.isFinite(expiresAt) || expiresAt > Date.parse(before)) return false;
+  if (expiresAt <= nowAt) return true;
+  if (item.continuousAssurance.freshness.status !== "CURRENT") return false;
+  const remainingMs = expiresAt - nowAt;
+  const threshold = ([1, 7, 30] as const).find((days) => remainingMs <= days * 86_400_000);
+  return threshold !== undefined && !(item.continuousAssurance.reminders?.expiryThresholdDaysSent ?? []).includes(threshold);
 }
 function trustHealthSampleFromRow(row: Record<string, unknown>): TrustHealthSampleRecord {
   return {
