@@ -557,7 +557,10 @@ function CollectorStatusPanel({ status }: { status?: HostedCollectorStatus }) {
 }
 
 function NotificationDestinations({ project, session, operations, refresh }: { project: HostedProject; session: HostedSession; operations: HostedOperations; refresh: () => Promise<void> }) {
-  const alertTypes: HostedNotificationAlertType[] = ["incident_opened", "incident_regressed", "incident_recovered", "incident_resolved", "slo_burn_rate"];
+  const alertTypes: HostedNotificationAlertType[] = [
+    "incident_opened", "incident_regressed", "incident_recovered", "incident_resolved", "slo_burn_rate",
+    "assurance_revalidation_required", "assurance_suspended", "assurance_expired", "assurance_current",
+  ];
   const [email, setEmail] = useState("");
   const [selected, setSelected] = useState<HostedNotificationAlertType[]>(alertTypes);
   const [busy, setBusy] = useState(false);
@@ -589,14 +592,14 @@ function NotificationDestinations({ project, session, operations, refresh }: { p
     } catch (value) { setError(value instanceof Error ? value.message : String(value)); }
     finally { setTestingId(undefined); }
   }
-  return <section id="email-alerts" tabIndex={-1} className="data-section notification-destinations"><SectionTitle title="Email alerts" caption="Verified recipients choose incident alerts; AgentCert owns provider credentials" />
-    {!operations.notifications.configured ? <div className="form-message">Platform email delivery is not configured yet.</div> : <form onSubmit={submit}><label>Email<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="security@example.com" /></label><div className="alert-type-options">{alertTypes.map((type) => <label key={type}><input type="checkbox" checked={selected.includes(type)} onChange={() => setSelected((current) => current.includes(type) ? current.filter((item) => item !== type) : [...current, type])} />{type.replace("incident_", "").replace("_", " ")}</label>)}</div><button className="primary-action compact" disabled={busy || selected.length === 0}>Send verification</button></form>}
+  return <section id="email-alerts" tabIndex={-1} className="data-section notification-destinations"><SectionTitle title="Email alerts" caption="Verified recipients choose incident and assurance-state alerts; AgentCert owns provider credentials" />
+    {!operations.notifications.configured ? <div className="form-message">Platform email delivery is not configured yet.</div> : <form onSubmit={submit}><label>Email<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="security@example.com" /></label><div className="alert-type-options">{alertTypes.map((type) => <label key={type}><input type="checkbox" checked={selected.includes(type)} onChange={() => setSelected((current) => current.includes(type) ? current.filter((item) => item !== type) : [...current, type])} />{notificationLabel(type)}</label>)}</div><button className="primary-action compact" disabled={busy || selected.length === 0}>Send verification</button></form>}
     {message ? <div className="form-message">{message}</div> : null}{error ? <div className="form-error">{error}</div> : null}
     <div className="entity-list">{operations.notifications.destinations.map((destination) => {
       const testJob = operations.notifications.recentJobs.find((job) => job.destinationId === destination.id && job.alertType === "test_alert");
       const testDelivery = testJob ? operations.notifications.recentDeliveries.find((delivery) => delivery.jobId === testJob.id) : undefined;
       const testStatus = testDelivery?.status ?? testJob?.status;
-      return <article key={destination.id}><div><strong>{destination.email}</strong><span>{destination.alertTypes.map((type) => type.replace("incident_", "")).join(", ")}</span></div><div className="notification-health"><Status value={destination.status} />{testStatus ? <span>Last test: <Status value={testStatus} /> {testDelivery ? compactTime(testDelivery.attemptedAt) : "queued"}</span> : <span>No test delivery recorded.</span>}</div><div className="notification-actions">{destination.status === "active" ? <button disabled={Boolean(testingId)} onClick={() => void sendTest(destination.id)}>{testingId === destination.id ? "Queueing..." : "Send test alert"}</button> : null}{destination.status === "disabled" ? null : <button disabled={busy || Boolean(testingId)} onClick={() => void disable(destination.id)}>Disable</button>}</div></article>;
+      return <article key={destination.id}><div><strong>{destination.email}</strong><span>{destination.alertTypes.map(notificationLabel).join(", ")}</span></div><div className="notification-health"><Status value={destination.status} />{testStatus ? <span>Last test: <Status value={testStatus} /> {testDelivery ? compactTime(testDelivery.attemptedAt) : "queued"}</span> : <span>No test delivery recorded.</span>}</div><div className="notification-actions">{destination.status === "active" ? <button disabled={Boolean(testingId)} onClick={() => void sendTest(destination.id)}>{testingId === destination.id ? "Queueing..." : "Send test alert"}</button> : null}{destination.status === "disabled" ? null : <button disabled={busy || Boolean(testingId)} onClick={() => void disable(destination.id)}>Disable</button>}</div></article>;
     })}{operations.notifications.destinations.length === 0 ? <EmptyHosted text="No alert recipients configured." /> : null}</div>
   </section>;
 }
@@ -704,6 +707,13 @@ function compactTime(value: string): string { return new Intl.DateTimeFormat("en
 function compactBytes(value: number): string { return value < 1024 ? `${value} B` : value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / 1024 / 1024).toFixed(1)} MB`; }
 function percent(value: number): string { return `${Math.round(value * 100)}%`; }
 function compactDuration(value: number): string { return value >= 1_000 ? `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}s` : `${Math.round(value)}ms`; }
+function notificationLabel(value: HostedNotificationAlertType): string {
+  return ({
+    incident_opened: "Incident opened", incident_regressed: "Incident regressed", incident_recovered: "Incident recovered",
+    incident_resolved: "Incident resolved", slo_burn_rate: "SLO burn rate", assurance_current: "Assurance current",
+    assurance_revalidation_required: "Revalidation required", assurance_suspended: "Assurance suspended", assurance_expired: "Assurance expired",
+  })[value];
+}
 function authRedirectUrl(config: HostedConfig, inviteToken: string | null): string {
   if (!inviteToken) return config.publicUrl;
   const url = new URL("/app", config.publicUrl); url.searchParams.set("invite", inviteToken); return url.toString();

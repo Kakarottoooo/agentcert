@@ -217,7 +217,9 @@ export interface HostedIncidentTransition {
   occurredAt: string;
 }
 
-export type HostedNotificationAlertType = "incident_opened" | "incident_regressed" | "incident_recovered" | "incident_resolved" | "slo_burn_rate";
+export type HostedNotificationAlertType =
+  | "incident_opened" | "incident_regressed" | "incident_recovered" | "incident_resolved" | "slo_burn_rate"
+  | "assurance_current" | "assurance_revalidation_required" | "assurance_suspended" | "assurance_expired";
 
 export interface HostedNotificationDestination {
   id: string;
@@ -247,6 +249,43 @@ export interface HostedEvidence {
 }
 
 export type HostedAssuranceCaseStatus = "draft" | "evaluating" | "review_required" | "issued" | "suspended" | "revoked" | "expired";
+
+export interface HostedAssuranceScope {
+  schemaVersion: "agentcert.assurance_scope.v0.1";
+  agent: { id: string; version: string; artifactSha256?: string };
+  model: { provider: string; name: string; version: string };
+  prompt: { sha256: string };
+  tools: { manifestSha256: string };
+  policy: { id: string; version: string; sha256?: string };
+  scenarioSuite: { id: string; version: string; sha256: string };
+}
+
+export interface HostedContinuousAssurance {
+  schemaVersion: "agentcert.continuous_assurance.v0.1";
+  scope: HostedAssuranceScope;
+  scopeFingerprintSha256: string;
+  freshness: {
+    status: "CURRENT" | "REVALIDATION_REQUIRED" | "SUSPENDED" | "EXPIRED";
+    reasonCode: string;
+    reason: string;
+    changedComponents: Array<{ component: "agent" | "model" | "prompt" | "tools" | "policy" | "scenarioSuite" }>;
+    evaluatedAt: string;
+  };
+  validatedAt?: string;
+  currentSince?: string;
+  lastObservedScope?: HostedAssuranceScope;
+  lastObservedFingerprintSha256?: string;
+  lastRunId?: string;
+  lastTrigger?: "pull_request" | "release" | "nightly";
+  prospective?: { runId: string; observedAt: string; changes: Array<{ component: string }>; outcome: "current" | "would_require_revalidation" };
+  supersedesCaseId?: string;
+  metrics: {
+    totalEvaluations: number; passedEvaluations: number; failedEvaluations: number;
+    revalidationRequiredCount: number; prospectiveChangeCount: number;
+    triggerCounts: { pull_request: number; release: number; nightly: number };
+    lastEvaluationAt?: string;
+  };
+}
 
 export interface HostedAssuranceCase {
   id: string;
@@ -281,6 +320,7 @@ export interface HostedAssuranceCase {
     };
   };
   deliveryPacket?: Record<string, unknown> & { schemaVersion: "agentcert.assurance_delivery.v0.1"; attestation: { keyId: string } };
+  continuousAssurance?: HostedContinuousAssurance;
   publicVerificationId?: string;
   expiresAt?: string;
   createdAt: string;
@@ -858,7 +898,7 @@ export async function transitionHostedAssuranceCase(
   session: HostedSession,
   projectId: string,
   caseId: string,
-  transition: "start" | "baseline" | "remediation" | "retest" | "submit" | "return" | "issue" | "suspend" | "revoke" | "expire" | "resume",
+  transition: "start" | "baseline" | "remediation" | "retest" | "submit" | "return" | "issue" | "suspend" | "revoke" | "expire" | "resume" | "revalidate",
   input: Record<string, unknown>,
 ): Promise<{ assuranceCase: HostedAssuranceCase; decision?: HostedAssuranceDecision }> {
   return apiRequest(session, path(projectId, `assurance-cases/${encodeURIComponent(caseId)}/${transition}`), {

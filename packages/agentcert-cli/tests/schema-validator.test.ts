@@ -128,8 +128,37 @@ describe("AgentCert schema validator", () => {
       policyPackVersion: "agentcert.browser.v0.1", evaluationPlanSha256: "a".repeat(64), evidence: [{ id: "e-1" }],
       decision: "issued", reviewerId: "reviewer-1", issuedAt: "2026-07-16T00:00:00.000Z", expiresAt: "2026-10-14T00:00:00.000Z",
       limitations: ["Synthetic environment only."], statement: "Scoped assurance decision.",
+      continuousAssurance: {
+        schemaVersion: "agentcert.assurance_continuity.v0.1",
+        scope: {
+          schemaVersion: "agentcert.assurance_scope.v0.1",
+          agent: { id: "browser-agent", version: "2.4.0", artifactSha256: "a".repeat(64) },
+          model: { provider: "openai", name: "gpt-4.1-mini", version: "2026-07-01" },
+          prompt: { sha256: "b".repeat(64) }, tools: { manifestSha256: "c".repeat(64) },
+          policy: { id: "agentcert.browser", version: "0.1.0", sha256: "d".repeat(64) },
+          scenarioSuite: { id: "tripwire", version: "2026.07", sha256: "e".repeat(64) },
+        },
+        scopeFingerprintSha256: "f".repeat(64),
+        freshnessAtIssuance: "CURRENT",
+        revalidationRequiredWhen: ["The agent, model, prompt, tools, policy, or scenario suite changes."],
+      },
     });
     expect(result).toEqual({ schema: "assurance-report", valid: true, errors: [] });
+  });
+
+  it("validates the complete continuous assurance scope boundary", () => {
+    const valid = validateAgentCertSchema("assurance-scope", {
+      schemaVersion: "agentcert.assurance_scope.v0.1",
+      agent: { id: "browser-agent", version: "2.4.0", artifactSha256: "a".repeat(64) },
+      model: { provider: "openai", name: "gpt-4.1-mini", version: "2026-07-01" },
+      prompt: { sha256: "b".repeat(64) }, tools: { manifestSha256: "c".repeat(64) },
+      policy: { id: "agentcert.browser", version: "0.1.0", sha256: "d".repeat(64) },
+      scenarioSuite: { id: "tripwire", version: "2026.07", sha256: "e".repeat(64) },
+    });
+    expect(valid).toEqual({ schema: "assurance-scope", valid: true, errors: [] });
+    expect(validateAgentCertSchema("assurance-scope", {
+      schemaVersion: "agentcert.assurance_scope.v0.1", agent: {}, model: {}, prompt: { sha256: "bad" }, tools: {}, policy: {}, scenarioSuite: {},
+    }).valid).toBe(false);
   });
 
   it("accepts the fixed-scope 7-Day Assurance Review delivery packet", () => {

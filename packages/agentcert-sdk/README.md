@@ -30,6 +30,34 @@ mutates external systems, approves actions, or changes agent permissions.
 Owners and admins register agent identities and grant permissions in the human
 console before giving a project API key to an agent or CI job.
 
+## Continuous assurance runs
+
+An issued assurance case can be bound to the exact agent, model, prompt,
+tools, policy, and scenario suite evaluated by CI:
+
+```ts
+const run = await agentcert.startRun({
+  externalId: "release-2.4.0",
+  kind: "release_gate",
+  assurance: {
+    caseId: process.env.AGENTCERT_ASSURANCE_CASE_ID!,
+    trigger: "release",
+    scope: {
+      schemaVersion: "agentcert.assurance_scope.v0.1",
+      agent: { id: "browser-agent", version: "2.4.0", artifactSha256: "a".repeat(64) },
+      model: { provider: "openai", name: "gpt-4.1-mini", version: "2026-07-01" },
+      prompt: { sha256: "b".repeat(64) },
+      tools: { manifestSha256: "c".repeat(64) },
+      policy: { id: "agentcert.browser", version: "0.1.0", sha256: "d".repeat(64) },
+      scenarioSuite: { id: "tripwire", version: "2026.07", sha256: "e".repeat(64) },
+    },
+  },
+});
+```
+
+The server reserves the run's assurance metadata, compares canonical scope
+fingerprints, and reconciles each run once even when completion is retried.
+
 ## Controlled action runtime
 
 The runtime is part of the same package, not a separate AgentCert product:

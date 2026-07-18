@@ -1,3 +1,10 @@
+import type {
+  AssuranceFreshnessStatus,
+  AssuranceScopeChange,
+  AssuranceScopeInput,
+  AssuranceTrigger,
+} from "./continuous-assurance.js";
+
 export type MemberRole = "owner" | "admin" | "operator" | "viewer";
 export type RunKind = "mcpbench" | "tripwire" | "release_gate" | "runtime" | "custom";
 export type RunStatus = "running" | "passed" | "failed" | "needs_evidence" | "manual_review";
@@ -476,6 +483,7 @@ export interface AssuranceDeliveryPacketPayload {
   decision: NonNullable<AssuranceEngagementScope["decision"]>;
   integration: { startedAt: string; firstEvidenceAt: string; timeToFirstEvidenceSeconds: number };
   evidenceStrength: AssuranceReportPayload["evidenceStrength"];
+  continuousAssurance?: AssuranceContinuityStatement;
   statement: string;
 }
 
@@ -502,10 +510,56 @@ export interface AssuranceCaseRecord {
   report?: AssuranceReport;
   engagement?: AssuranceEngagementScope;
   deliveryPacket?: AssuranceDeliveryPacket;
+  continuousAssurance?: ContinuousAssuranceContract;
   publicVerificationId?: string;
   expiresAt?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ContinuousAssuranceMetrics {
+  totalEvaluations: number;
+  passedEvaluations: number;
+  failedEvaluations: number;
+  revalidationRequiredCount: number;
+  prospectiveChangeCount: number;
+  triggerCounts: Record<AssuranceTrigger, number>;
+  lastEvaluationAt?: string;
+}
+
+export interface ContinuousAssuranceContract {
+  schemaVersion: "agentcert.continuous_assurance.v0.1";
+  scope: AssuranceScopeInput;
+  scopeFingerprintSha256: string;
+  freshness: {
+    status: AssuranceFreshnessStatus;
+    reasonCode: "initial_review_pending" | "scope_matches" | "scope_changed" | "evaluation_failed" | "manually_suspended" | "case_revoked" | "expired";
+    reason: string;
+    changedComponents: AssuranceScopeChange[];
+    evaluatedAt: string;
+  };
+  validatedAt?: string;
+  currentSince?: string;
+  lastObservedScope?: AssuranceScopeInput;
+  lastObservedFingerprintSha256?: string;
+  lastRunId?: string;
+  lastTrigger?: AssuranceTrigger;
+  prospective?: {
+    runId: string;
+    observedAt: string;
+    changes: AssuranceScopeChange[];
+    outcome: "current" | "would_require_revalidation";
+  };
+  supersedesCaseId?: string;
+  metrics: ContinuousAssuranceMetrics;
+}
+
+export interface AssuranceContinuityStatement {
+  schemaVersion: "agentcert.assurance_continuity.v0.1";
+  scope: AssuranceScopeInput;
+  scopeFingerprintSha256: string;
+  freshnessAtIssuance: "CURRENT";
+  revalidationRequiredWhen: string[];
 }
 
 export interface AssuranceCaseDecisionRecord {
@@ -542,6 +596,7 @@ export interface AssuranceReportPayload {
     claims: string[];
     limitations: string[];
   };
+  continuousAssurance?: AssuranceContinuityStatement;
 }
 
 export interface AssuranceReport extends AssuranceReportPayload {
@@ -651,7 +706,18 @@ export interface IncidentTransitionRecord {
   occurredAt: string;
 }
 
-export type NotificationAlertType = "destination_verification" | "test_alert" | "incident_opened" | "incident_regressed" | "incident_recovered" | "incident_resolved" | "slo_burn_rate";
+export type NotificationAlertType =
+  | "destination_verification"
+  | "test_alert"
+  | "incident_opened"
+  | "incident_regressed"
+  | "incident_recovered"
+  | "incident_resolved"
+  | "slo_burn_rate"
+  | "assurance_current"
+  | "assurance_revalidation_required"
+  | "assurance_suspended"
+  | "assurance_expired";
 export type NotificationDestinationStatus = "pending_verification" | "active" | "disabled";
 
 export interface NotificationDestinationRecord {

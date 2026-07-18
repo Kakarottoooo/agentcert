@@ -30,6 +30,17 @@
         "limitations": { "type": "array", "items": { "type": "string" } }
       }
     },
+    "continuousAssurance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "scope", "scopeFingerprintSha256", "freshnessAtIssuance", "revalidationRequiredWhen"],
+      "properties": {
+        "schemaVersion": { "const": "agentcert.assurance_continuity.v0.1" },
+        "scope": { "$ref": "agentcert-assurance-scope.schema.json" },
+        "scopeFingerprintSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "freshnessAtIssuance": { "const": "CURRENT" },
+        "revalidationRequiredWhen": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
     "attestation": { "$ref": "agentcert-server-attestation.schema.json" }
   },
   "additionalProperties": false

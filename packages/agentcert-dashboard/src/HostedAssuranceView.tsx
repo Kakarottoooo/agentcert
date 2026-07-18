@@ -27,7 +27,10 @@ export default function HostedAssuranceView({ cases, evidence, project, session,
   refresh: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState(cases[0]?.id);
+  const [selectedId, setSelectedId] = useState(() => {
+    const requested = new URLSearchParams(window.location.search).get("caseId");
+    return cases.some((item) => item.id === requested) ? requested ?? undefined : cases[0]?.id;
+  });
   const [decisions, setDecisions] = useState<HostedAssuranceDecision[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -62,6 +65,23 @@ export default function HostedAssuranceView({ cases, evidence, project, session,
           workflow: {
             name: form.get("workflowName"), description: form.get("workflowDescription"), highRiskAction: form.get("highRiskAction"),
             expectedOutcome: { [String(form.get("expectedOutcomeKey") ?? "status")]: form.get("expectedOutcomeValue") },
+          },
+        },
+        continuousAssurance: {
+          scope: {
+            schemaVersion: "agentcert.assurance_scope.v0.1",
+            agent: {
+              id: form.get("subjectId"), version: form.get("subjectVersion"),
+              ...(optionalFormString(form, "agentArtifactSha256") ? { artifactSha256: optionalFormString(form, "agentArtifactSha256") } : {}),
+            },
+            model: { provider: form.get("modelProvider"), name: form.get("modelName"), version: form.get("modelVersion") },
+            prompt: { sha256: form.get("promptSha256") },
+            tools: { manifestSha256: form.get("toolsManifestSha256") },
+            policy: {
+              id: form.get("policyPackVersion"), version: form.get("policyPackVersion"),
+              ...(optionalFormString(form, "policySha256") ? { sha256: optionalFormString(form, "policySha256") } : {}),
+            },
+            scenarioSuite: { id: form.get("scenarioSuiteId"), version: form.get("scenarioSuiteVersion"), sha256: form.get("scenarioSuiteSha256") },
           },
         },
       });
@@ -123,6 +143,17 @@ export default function HostedAssuranceView({ cases, evidence, project, session,
     finally { setBusy(false); }
   }
 
+  async function startRevalidation() {
+    if (!selected?.continuousAssurance) return;
+    setBusy(true); setError(undefined);
+    try {
+      const result = await transitionHostedAssuranceCase(session, project.id, selected.id, "revalidate", {});
+      setSelectedId(result.assuranceCase.id);
+      await refresh();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  }
+
   function downloadDeliveryPacket() {
     if (!selected?.deliveryPacket) return;
     const url = URL.createObjectURL(new Blob([JSON.stringify(selected.deliveryPacket, null, 2)], { type: "application/json" }));
@@ -144,17 +175,24 @@ export default function HostedAssuranceView({ cases, evidence, project, session,
         <label>Workflow name<input name="workflowName" required /></label><label>High-risk action<select name="highRiskAction" defaultValue="SUBMIT"><option>SUBMIT</option><option>PAY</option><option>SEND</option><option>UPDATE</option></select></label>
         <label className="wide">Workflow description<textarea name="workflowDescription" required /></label>
         <label>Expected outcome field<input name="expectedOutcomeKey" required defaultValue="status" /></label><label>Expected value<input name="expectedOutcomeValue" required /></label>
+        <div className="wide assurance-scope-heading"><strong>Continuous validity scope</strong><span>These exact inputs become the signed baseline. CI compares later runs against them.</span></div>
+        <label>Model provider<input name="modelProvider" required placeholder="openai" /></label><label>Model name<input name="modelName" required placeholder="gpt-4.1-mini" /></label>
+        <label>Model version<input name="modelVersion" required placeholder="Pinned version or deployment ID" /></label><label>Agent artifact SHA-256 (optional)<input name="agentArtifactSha256" pattern="[0-9a-f]{64}" placeholder="64 lowercase hex characters" /></label>
+        <label>Prompt SHA-256<input name="promptSha256" required pattern="[0-9a-f]{64}" placeholder="64 lowercase hex characters" /></label><label>Tools manifest SHA-256<input name="toolsManifestSha256" required pattern="[0-9a-f]{64}" placeholder="64 lowercase hex characters" /></label>
+        <label>Policy SHA-256 (optional)<input name="policySha256" pattern="[0-9a-f]{64}" placeholder="64 lowercase hex characters" /></label><label>Scenario suite ID<input name="scenarioSuiteId" required defaultValue="agentcert-release-suite" /></label>
+        <label>Scenario suite version<input name="scenarioSuiteVersion" required placeholder="2026.07" /></label><label>Scenario suite SHA-256<input name="scenarioSuiteSha256" required pattern="[0-9a-f]{64}" placeholder="64 lowercase hex characters" /></label>
         <label>Control ID<input name="controlId" required defaultValue="release-evidence" /></label><label>Control title<input name="controlTitle" required defaultValue="Release evidence reviewed" /></label>
         <label>Control mode<select name="controlMode" defaultValue="evidence_required"><option value="automated">Automated</option><option value="evidence_required">Evidence required</option><option value="manual">Manual</option></select></label>
         <label>Evidence kinds<input name="evidenceKinds" defaultValue="evidence_bundle" /></label>
         <label className="wide">Limitations<textarea name="limitations" required defaultValue="Assessment applies only to the declared subject version and evidence plan." /></label>
         <button className="primary-action compact" disabled={busy}>Lock engagement plan</button>
       </form> : null}
-      <div className="entity-list">{cases.map((item) => <button className={`assurance-case-row ${selectedId === item.id ? "active" : ""}`} key={item.id} onClick={() => setSelectedId(item.id)}><span><strong>{item.name}</strong><small>{item.subject.name} {item.subject.version ?? ""}</small></span><span><b>{item.status.replaceAll("_", " ")}</b><small>{item.policyPackVersion}</small></span></button>)}{cases.length === 0 ? <p>No assurance cases yet. Create one only when the claim and required evidence are known.</p> : null}</div>
+      <div className="entity-list">{cases.map((item) => <button className={`assurance-case-row ${selectedId === item.id ? "active" : ""}`} key={item.id} onClick={() => setSelectedId(item.id)}><span><strong>{item.name}</strong><small>{item.subject.name} {item.subject.version ?? ""}</small></span><span><b>{item.status.replaceAll("_", " ")}</b>{item.continuousAssurance ? <Freshness value={item.continuousAssurance.freshness.status} /> : <small>{item.policyPackVersion}</small>}</span></button>)}{cases.length === 0 ? <p>No assurance cases yet. Create one only when the claim and required evidence are known.</p> : null}</div>
     </section>
     {selected ? <section className="data-section assurance-detail">
       <div className="section-actions"><div><span className="eyebrow">{selected.subject.kind}</span><h2>{selected.name}</h2></div><strong>{selected.status.replaceAll("_", " ")}</strong></div>
       <dl><div><dt>Plan SHA-256</dt><dd className="hash">{selected.evaluationPlanSha256}</dd></div><div><dt>Evidence</dt><dd>{selected.evidenceIds.length} attached / {selected.evaluationPlan.requiredEvidenceKinds.join(", ")}</dd></div><div><dt>Signed report</dt><dd>{selected.report?.attestation?.keyId ?? "Not issued"}</dd></div><div><dt>Expires</dt><dd>{selected.expiresAt ?? "Not issued"}</dd></div></dl>
+      {selected.continuousAssurance ? <ContinuousAssurancePanel assuranceCase={selected} busy={busy} revalidate={() => void startRevalidation()} /> : null}
       {selected.engagement ? <div className="engagement-summary">
         <div><span>Customer</span><strong>{selected.engagement.customer.name}</strong></div><div><span>Workflow</span><strong>{selected.engagement.workflow.name}</strong></div>
         <div><span>Due</span><strong>{new Date(selected.engagement.dueAt).toLocaleString()}</strong></div><div><span>Scope</span><strong>$5,000 · 1 workflow · 1 retest</strong></div>
@@ -175,6 +213,43 @@ export default function HostedAssuranceView({ cases, evidence, project, session,
       <h3>Decision ledger</h3><div className="trust-ops-list">{decisions.map((item) => <article key={item.id}><div><strong>{item.toStatus.replaceAll("_", " ")}</strong><span>{item.reason}</span></div><small>{item.actorEmail ?? "recorded actor"}<br />{new Date(item.occurredAt).toLocaleString()}</small></article>)}</div>
     </section> : null}
   </div>;
+}
+
+function ContinuousAssurancePanel({ assuranceCase, busy, revalidate }: { assuranceCase: HostedAssuranceCase; busy: boolean; revalidate: () => void }) {
+  const contract = assuranceCase.continuousAssurance!;
+  const metrics = contract.metrics;
+  const passRate = metrics.totalEvaluations ? `${Math.round((metrics.passedEvaluations / metrics.totalEvaluations) * 100)}%` : "No runs";
+  return <section className="continuous-assurance-panel">
+    <div className="continuous-assurance-heading"><div><span className="eyebrow">Continuous assurance contract</span><h3>Current validity</h3></div><Freshness value={contract.freshness.status} /></div>
+    <p className="continuous-assurance-reason">{contract.freshness.reason}</p>
+    {contract.freshness.changedComponents.length ? <p><strong>Changed:</strong> {contract.freshness.changedComponents.map((item) => item.component).join(", ")}</p> : null}
+    {contract.prospective?.outcome === "would_require_revalidation" ? <div className="prospective-warning"><strong>PR drift detected</strong><span>{contract.prospective.changes.map((item) => item.component).join(", ")} would require revalidation if released. Production status is unchanged.</span></div> : null}
+    <div className="assurance-metrics">
+      <div><span>Evaluations</span><strong>{metrics.totalEvaluations}</strong></div><div><span>Pass rate</span><strong>{passRate}</strong></div>
+      <div><span>PR / release / nightly</span><strong>{metrics.triggerCounts.pull_request} / {metrics.triggerCounts.release} / {metrics.triggerCounts.nightly}</strong></div>
+      <div><span>Last checked</span><strong>{metrics.lastEvaluationAt ? new Date(metrics.lastEvaluationAt).toLocaleString() : "At issuance"}</strong></div>
+    </div>
+    <dl className="assurance-scope-grid">
+      <div><dt>Agent</dt><dd>{contract.scope.agent.id} @ {contract.scope.agent.version}</dd></div>
+      <div><dt>Model</dt><dd>{contract.scope.model.provider} / {contract.scope.model.name} / {contract.scope.model.version}</dd></div>
+      <div><dt>Prompt</dt><dd className="hash">{contract.scope.prompt.sha256}</dd></div>
+      <div><dt>Tools</dt><dd className="hash">{contract.scope.tools.manifestSha256}</dd></div>
+      <div><dt>Policy</dt><dd>{contract.scope.policy.id} @ {contract.scope.policy.version}</dd></div>
+      <div><dt>Scenario suite</dt><dd>{contract.scope.scenarioSuite.id} @ {contract.scope.scenarioSuite.version}</dd></div>
+      <div className="wide"><dt>Scope fingerprint</dt><dd className="hash">{contract.scopeFingerprintSha256}</dd></div>
+    </dl>
+    <div className="trigger-policy"><strong>Trigger policy</strong><span>Pull requests are prospective. Releases and nightly runs are authoritative.</span></div>
+    {contract.freshness.status !== "CURRENT" ? <button className="primary-action compact" disabled={busy} onClick={revalidate}>Start revalidation</button> : null}
+  </section>;
+}
+
+function Freshness({ value }: { value: "CURRENT" | "REVALIDATION_REQUIRED" | "SUSPENDED" | "EXPIRED" }) {
+  return <span className={`assurance-freshness ${value.toLowerCase()}`}>{value.replaceAll("_", " ")}</span>;
+}
+
+function optionalFormString(form: FormData, key: string): string | undefined {
+  const value = String(form.get(key) ?? "").trim();
+  return value || undefined;
 }
 
 function requiredPrompt(label: string, fallback = ""): string {

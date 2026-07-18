@@ -30,6 +30,9 @@ Options:
   --project <id>         Hosted project ID
   --api-key <key>        Project API key (prefer AGENTCERT_API_KEY in CI)
   --external-id <id>     Idempotent hosted run ID
+  --assurance-case <id>  Issued assurance case to reconcile
+  --assurance-scope <p>  Declared agent/model/prompt/tools/policy/suite scope JSON
+  --assurance-trigger <t> auto, pull_request, release, or nightly (default: auto)
   --artifact-root <dir>  Allowed root for companion artifacts (default: current directory)
   --no-artifacts         Upload only the evidence bundle
   --help, -h             Show this help

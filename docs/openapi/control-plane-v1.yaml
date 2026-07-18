@@ -187,7 +187,7 @@ paths:
       parameters:
         - {$ref: "#/components/parameters/ProjectId"}
         - {in: path, name: caseId, required: true, schema: {type: string, format: uuid}}
-        - {in: path, name: transition, required: true, schema: {enum: [start, baseline, remediation, retest, submit, return, issue, suspend, revoke, expire, resume]}}
+        - {in: path, name: transition, required: true, schema: {enum: [start, baseline, remediation, retest, submit, return, issue, suspend, revoke, expire, resume, revalidate]}}
       requestBody:
         required: true
         content: {application/json: {schema: {$ref: "#/components/schemas/AssuranceTransitionInput"}}}
@@ -635,6 +635,12 @@ components:
                 description: {type: string}
                 highRiskAction: {enum: [SUBMIT, PAY, SEND, UPDATE]}
                 expectedOutcome: {type: object, minProperties: 1}
+        continuousAssurance:
+          type: object
+          description: Optional declared validity boundary. Issuance makes this scope CURRENT; authoritative release and nightly runs can invalidate it.
+          required: [scope]
+          properties:
+            scope: {$ref: "../../schemas/agentcert-assurance-scope.schema.json"}
     AssuranceTransitionInput:
       type: object
       required: [reason]
@@ -689,6 +695,14 @@ components:
         traceId: {type: string, pattern: "^(?!0{32}$)[0-9a-f]{32}$"}
         rootSpanId: {type: string, pattern: "^(?!0{16}$)[0-9a-f]{16}$"}
         metadata: {type: object, additionalProperties: true}
+        assurance:
+          type: object
+          description: Bind this run to an issued continuous assurance contract. The server stores the canonical scope fingerprint and reserves its run metadata.
+          required: [caseId, trigger, scope]
+          properties:
+            caseId: {type: string, format: uuid}
+            trigger: {enum: [pull_request, release, nightly]}
+            scope: {$ref: "../../schemas/agentcert-assurance-scope.schema.json"}
     EventBatch:
       type: object
       required: [events]

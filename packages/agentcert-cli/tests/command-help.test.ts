@@ -7,6 +7,8 @@ describe("CLI command help", () => {
     expect(help).toContain("agentcert push --evidence");
     expect(help).toContain("--artifact-root");
     expect(help).toContain("--no-artifacts");
+    expect(help).toContain("--assurance-case");
+    expect(help).toContain("--assurance-trigger");
   });
 
   it("leaves existing command handlers responsible for other help", () => {

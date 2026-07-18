@@ -57,6 +57,29 @@ npx agentcert connect --server https://agentcert.app --project your-project-id
 npx agentcert push --evidence .agentcert/latest/agentcert-evidence.json
 ```
 
+Bind a release, pull-request, or nightly run to an issued continuous assurance
+case by declaring the exact reviewed scope:
+
+```bash
+npx agentcert run --config agentcert.config.json --push \
+  --assurance-case "$AGENTCERT_ASSURANCE_CASE_ID" \
+  --assurance-scope agentcert.assurance-scope.json \
+  --assurance-trigger auto
+```
+
+Validate the scope before CI uses it:
+
+```bash
+npx agentcert schema validate \
+  --schema assurance-scope \
+  --file agentcert.assurance-scope.json
+```
+
+`auto` treats pull requests as prospective, scheduled workflows as nightly,
+and other GitHub runs as release checks. Authoritative failure or scope drift
+sets the Hosted contract to `REVALIDATION_REQUIRED`; only an independently
+issued successor case establishes a new `CURRENT` baseline.
+
 Add `--push` to `agentcert run` to run locally and upload the resulting bundle
 in one command. By default, both commands also upload local files referenced by
 the bundle. Reads are confined to `--artifact-root` (the current directory by

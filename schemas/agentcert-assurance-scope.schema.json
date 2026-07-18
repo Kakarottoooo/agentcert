@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.app/schemas/agentcert-assurance-scope-v0.1.json",
+  "title": "AgentCert Continuous Assurance Scope v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "agent", "model", "prompt", "tools", "policy", "scenarioSuite"],
+  "properties": {
+    "schemaVersion": { "const": "agentcert.assurance_scope.v0.1" },
+    "agent": {
+      "type": "object", "additionalProperties": false, "required": ["id", "version"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "version": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "artifactSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "model": {
+      "type": "object", "additionalProperties": false, "required": ["provider", "name", "version"],
+      "properties": {
+        "provider": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "version": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
+    "prompt": { "type": "object", "additionalProperties": false, "required": ["sha256"], "properties": { "sha256": { "$ref": "#/$defs/sha256" } } },
+    "tools": { "type": "object", "additionalProperties": false, "required": ["manifestSha256"], "properties": { "manifestSha256": { "$ref": "#/$defs/sha256" } } },
+    "policy": {
+      "type": "object", "additionalProperties": false, "required": ["id", "version"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "version": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "scenarioSuite": {
+      "type": "object", "additionalProperties": false, "required": ["id", "version", "sha256"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "version": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  },
+  "$defs": { "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+}

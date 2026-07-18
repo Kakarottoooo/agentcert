@@ -25,11 +25,19 @@ one sandbox workflow, and one included retest. The engagement is private by
 default and ends in a signed `RELEASE`, `RELEASE_WITH_CONTROLS`, or `BLOCK`
 delivery packet. See the [fixed scope and delivery contract](docs/7-day-assurance-review.md).
 
+**Continuous Assurance Contract v0.1** binds that reviewed decision to a
+canonical fingerprint of the agent, model, prompt, tools, policy, and scenario
+suite. PR runs warn prospectively; release and nightly runs can move the Hosted
+status from `CURRENT` to `REVALIDATION_REQUIRED`. Suspension and expiry stay
+visible, webhook/email alerts are durable, and revalidation creates a successor
+case instead of rewriting signed history. See the
+[continuous assurance contract](docs/continuous-assurance.md).
+
 **Use AgentCert:** [Product site](https://agentcert.app/) |
 [Public evidence](https://agentcert.app/evidence) |
 [Private workspace](https://agentcert.app/app) |
 [GitHub source](https://github.com/Kakarottoooo/agentcert) |
-[v0.5.4 release](https://github.com/Kakarottoooo/agentcert/releases/tag/v0.5.4)
+[v0.6.0 release](https://github.com/Kakarottoooo/agentcert/releases/tag/v0.6.0)
 
 ```bash
 npx agentcert release-gate --config agentcert.config.json --strict
@@ -161,6 +169,7 @@ API contract: [docs/openapi/control-plane-v1.yaml](docs/openapi/control-plane-v1
 Envelope contract and adapters: [docs/universal-envelope.md](docs/universal-envelope.md).
 Evidence verification chain: [docs/evidence-trust-chain.md](docs/evidence-trust-chain.md).
 Assurance lifecycle: [docs/assurance-lifecycle.md](docs/assurance-lifecycle.md).
+Continuous assurance: [docs/continuous-assurance.md](docs/continuous-assurance.md).
 Production Acceptance Lab: [docs/production-acceptance-lab.md](docs/production-acceptance-lab.md).
 Corpus governance: [docs/corpus-governance.md](docs/corpus-governance.md).
 Adapter compatibility: [docs/adapter-compatibility.md](docs/adapter-compatibility.md).
