@@ -4,6 +4,15 @@ inputs:
   config:
     description: Tripwire config path in the caller repository.
     default: tripwire.yml
+  pull-request-config:
+    description: Optional quicker Tripwire config for pull-request checks. Falls back to config.
+    required: false
+  release-config:
+    description: Optional authoritative Tripwire config for release checks. Falls back to config.
+    required: false
+  nightly-config:
+    description: Optional expanded Tripwire config for scheduled checks. Falls back to config.
+    required: false
   out:
     description: Tripwire output directory in the caller repository.
     default: .tripwire/latest
@@ -40,6 +49,18 @@ inputs:
   max-score-drop:
     description: Maximum allowed score drop from the baseline.
     default: "0"
+  push-hosted:
+    description: Upload the run and evidence to AgentCert Hosted. Uses AGENTCERT_API_KEY, AGENTCERT_PROJECT_ID, and optionally AGENTCERT_BASE_URL from the caller environment.
+    default: "false"
+  assurance-case:
+    description: Optional issued assurance case ID to reconcile after the hosted run completes.
+    required: false
+  assurance-scope:
+    description: Continuous assurance scope JSON path in the caller repository.
+    default: agentcert.assurance-scope.json
+  assurance-trigger:
+    description: Continuous assurance trigger (auto, pull_request, release, or nightly).
+    default: auto
   publish-pages:
     description: >-
       Publish the evidence reports and badge to a GitHub Pages branch and emit
@@ -119,7 +140,35 @@ runs:
       shell: bash
       run: |
         set +e
-        args=(run -c "${{ inputs.config }}" --out "${{ inputs.out }}")
+        assurance_trigger="${{ inputs.assurance-trigger }}"
+        if [ "$assurance_trigger" = "auto" ]; then
+          case "${GITHUB_EVENT_NAME:-}" in
+            pull_request|pull_request_target) assurance_trigger="pull_request" ;;
+            schedule) assurance_trigger="nightly" ;;
+            *) assurance_trigger="release" ;;
+          esac
+        fi
+        case "$assurance_trigger" in
+          pull_request)
+            tripwire_config="${{ inputs.pull-request-config }}"
+            ;;
+          release)
+            tripwire_config="${{ inputs.release-config }}"
+            ;;
+          nightly)
+            tripwire_config="${{ inputs.nightly-config }}"
+            ;;
+          *)
+            echo "::error::assurance-trigger must be auto, pull_request, release, or nightly"
+            exit 2
+            ;;
+        esac
+        if [ -z "$tripwire_config" ]; then
+          tripwire_config="${{ inputs.config }}"
+        fi
+        echo "AGENTCERT_ASSURANCE_TRIGGER_RESOLVED=$assurance_trigger" >> "$GITHUB_ENV"
+        echo "AGENTCERT_TRIPWIRE_CONFIG=$tripwire_config" >> "$GITHUB_ENV"
+        args=(run -c "$tripwire_config" --out "${{ inputs.out }}")
         if [ -n "${{ inputs.fail-under }}" ]; then
           args+=(--fail-under "${{ inputs.fail-under }}")
         fi
@@ -149,6 +198,16 @@ runs:
         )
         if [ "${{ inputs.fail-on-verdict }}" = "true" ]; then
           args+=(--fail-on-verdict)
+        fi
+        if [ "${{ inputs.push-hosted }}" = "true" ]; then
+          args+=(--push)
+          if [ -n "${{ inputs.assurance-case }}" ]; then
+            args+=(
+              --assurance-case "${{ inputs.assurance-case }}"
+              --assurance-scope "${{ inputs.assurance-scope }}"
+              --assurance-trigger "${AGENTCERT_ASSURANCE_TRIGGER_RESOLVED:-${{ inputs.assurance-trigger }}}"
+            )
+          fi
         fi
         node "$AGENTCERT_ACTION_ROOT/packages/agentcert-cli/dist/cli.js" "${args[@]}"
         agentcert_exit=$?
@@ -247,6 +306,9 @@ runs:
           echo "- Reviewed dataset: \`${{ inputs.agentcert-out }}/reviewed-failure-dataset.jsonl\`"
           echo "- Release gate: \`${{ inputs.agentcert-out }}/agentcert-release-gate.html\`"
           echo "- Release gate JUnit: \`${{ inputs.agentcert-out }}/agentcert-release-gate-junit.xml\`"
+          echo "- Hosted continuous assurance: \`${{ inputs.push-hosted }}\`"
+          echo "- Assurance trigger: \`${AGENTCERT_ASSURANCE_TRIGGER_RESOLVED:-not-bound}\`"
+          echo "- Tripwire config: \`${AGENTCERT_TRIPWIRE_CONFIG:-${{ inputs.config }}}\`"
         } >> "$GITHUB_STEP_SUMMARY"
         if [ -f "${{ inputs.agentcert-out }}/agentcert-report.md" ]; then
           {

@@ -1,0 +1,29 @@
+name: Continuous Agent Assurance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tripwire:
+    runs-on: ubuntu-latest
+    env:
+      AGENTCERT_BASE_URL: https://agentcert.app
+      AGENTCERT_PROJECT_ID: ${{ vars.AGENTCERT_PROJECT_ID }}
+      AGENTCERT_API_KEY: ${{ secrets.AGENTCERT_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Kakarottoooo/agentcert/actions/tripwire@v0
+        with:
+          config: tripwire.yml
+          push-hosted: "true"
+          assurance-case: ${{ vars.AGENTCERT_ASSURANCE_CASE_ID }}
+          assurance-scope: agentcert.assurance-scope.json
+          assurance-trigger: auto

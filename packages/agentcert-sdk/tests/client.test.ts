@@ -16,6 +16,27 @@ describe("AgentCertClient", () => {
     );
   });
 
+  it("binds a run to one declared continuous assurance scope", async () => {
+    const request = vi.fn(async () => new Response(JSON.stringify({ id: "run-1", status: "running" }), { status: 201 }));
+    const client = new AgentCertClient({ baseUrl: "https://agentcert.example", projectId: "project-1", apiKey: "ac_live_test", fetch: request as typeof fetch });
+    const scope = {
+      schemaVersion: "agentcert.assurance_scope.v0.1" as const,
+      agent: { id: "browser-agent", version: "2.4.0", artifactSha256: "a".repeat(64) },
+      model: { provider: "openai", name: "gpt-4.1-mini", version: "2026-07-01" },
+      prompt: { sha256: "b".repeat(64) },
+      tools: { manifestSha256: "c".repeat(64) },
+      policy: { id: "agentcert.browser", version: "0.1.0", sha256: "d".repeat(64) },
+      scenarioSuite: { id: "tripwire", version: "2026.07", sha256: "e".repeat(64) },
+    };
+    await client.startRun({
+      externalId: "release-2.4.0", kind: "release_gate",
+      assurance: { caseId: "case-1", trigger: "release", scope },
+    });
+    expect(JSON.parse(String(request.mock.calls[0]![1]!.body))).toMatchObject({
+      assurance: { caseId: "case-1", trigger: "release", scope },
+    });
+  });
+
   it("surfaces API errors", async () => {
     const request = vi.fn(async () => new Response(JSON.stringify({ error: "Project access denied." }), { status: 403 }));
     const client = new AgentCertClient({ baseUrl: "https://agentcert.example", projectId: "project-1", apiKey: "bad", fetch: request as typeof fetch });

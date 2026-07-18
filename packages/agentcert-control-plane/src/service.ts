@@ -74,6 +74,17 @@ import { DisabledEmailProvider, type EmailProvider } from "./notifications.js";
 import { EnvelopeValidationError, isSpanId, isTraceId, parseUniversalEnvelope, type UniversalEnvelope } from "./protocol.js";
 import { EvidenceSigner, type EvidenceAttestationPayload } from "./signing.js";
 import { buildAssuranceDeliveryPacket, buildAssuranceReport, canTransitionAssuranceCase, evaluationPlanDigest, missingRequiredEvidence } from "./assurance.js";
+import {
+  applyContinuousAssuranceObservation,
+  assuranceScopeFingerprint,
+  createContinuousAssuranceContract,
+  forceContinuousAssuranceFreshness,
+  markContinuousAssuranceCurrent,
+  normalizeAssuranceScope,
+  reconcileContinuousAssurance,
+  type AssuranceScopeInput,
+  type AssuranceTrigger,
+} from "./continuous-assurance.js";
 import type { CoordinationHealth } from "./coordination.js";
 import { canInviteRole, canManageMember, roleNeedsExplicitProjects, rolesForHumanScope } from "./rbac.js";
 import {
@@ -117,6 +128,14 @@ interface SloBurnEvaluation {
     fastBurn: { shortWindow: "1h"; longWindow: "6h"; shortThreshold: number; longThreshold: number; minimumSamples: number };
     slowBurn: { shortWindow: "6h"; longWindow: "24h"; shortThreshold: number; longThreshold: number; minimumShortSamples: number; minimumLongSamples: number };
   };
+}
+
+interface RunContinuousAssuranceBinding {
+  schemaVersion: "agentcert.run_assurance.v0.1";
+  caseId: string;
+  trigger: AssuranceTrigger;
+  scope: AssuranceScopeInput;
+  scopeFingerprintSha256: string;
 }
 
 export class ControlPlaneError extends Error {
@@ -437,11 +456,21 @@ export class AgentCertControlPlane {
     const subjectVersion = optionalString(subject, "version");
     if (engagementInput && !subjectVersion) throw new ControlPlaneError("subject.version is required for a 7-Day Assurance Review engagement.", 422);
     const engagement = engagementInput ? assuranceEngagement(engagementInput, now) : undefined;
+    const continuousInput = optionalRecord(body.continuousAssurance);
+    let continuousAssurance: AssuranceCaseRecord["continuousAssurance"];
+    if (continuousInput) {
+      try {
+        continuousAssurance = createContinuousAssuranceContract(continuousInput.scope, now);
+      } catch (error) {
+        throw new ControlPlaneError(error instanceof Error ? error.message : "continuousAssurance.scope is invalid.", 422, "assurance_scope_invalid");
+      }
+    }
     const assuranceCase: AssuranceCaseRecord = {
       id: randomUUID(), projectId, name: requiredString(body, "name"),
       subject: { id: requiredString(subject, "id"), name: requiredString(subject, "name"), version: subjectVersion, kind: requiredString(subject, "kind") },
       status: "draft", policyPackVersion: requiredString(body, "policyPackVersion"), evaluationPlan,
-      evaluationPlanSha256: evaluationPlanDigest(evaluationPlan), evidenceIds: [], engagement, createdBy: auth.userId, createdAt: now, updatedAt: now,
+      evaluationPlanSha256: evaluationPlanDigest(evaluationPlan), evidenceIds: [], engagement, continuousAssurance,
+      createdBy: auth.userId, createdAt: now, updatedAt: now,
     };
     const decision = assuranceDecision(assuranceCase, auth, undefined, "draft", "Assurance case created.", now);
     return this.store.insertAssuranceCaseWithDecision(assuranceCase, decision);
@@ -461,6 +490,7 @@ export class AgentCertControlPlane {
   }
 
   async transitionAssuranceCase(auth: AuthContext, projectId: string, caseId: string, action: string, input: unknown) {
+    if (action === "revalidate") return { assuranceCase: await this.createAssuranceRevalidation(auth, projectId, caseId) };
     if (action === "baseline" || action === "remediation" || action === "retest") {
       return this.updateAssuranceEngagement(auth, projectId, caseId, action, input);
     }
@@ -497,16 +527,56 @@ export class AgentCertControlPlane {
       const expiresAt = assuranceExpiry(body.expiresAt, now);
       next.reviewerId = auth.userId;
       next.expiresAt = expiresAt;
+      if (current.continuousAssurance) next.continuousAssurance = markContinuousAssuranceCurrent(current.continuousAssurance, now.toISOString());
       if (current.engagement) next.engagement = { ...current.engagement, decision: assuranceEngagementDecision(body, current.engagement.workflow.expectedOutcome, auth.userId, now.toISOString()) };
       next.report = buildAssuranceReport(next, evidence, auth.userId, now.toISOString(), expiresAt, this.evidenceSigner);
       if (next.engagement) next.deliveryPacket = buildAssuranceDeliveryPacket(next, evidence, auth.userId, now.toISOString(), this.evidenceSigner);
       if (body.publish === true) next.publicVerificationId = randomBytes(24).toString("base64url");
+    } else if (current.continuousAssurance && target === "suspended") {
+      next.continuousAssurance = forceContinuousAssuranceFreshness(current.continuousAssurance, "SUSPENDED", "manually_suspended", "A project administrator suspended this assurance case.", now.toISOString());
+    } else if (current.continuousAssurance && target === "expired") {
+      next.continuousAssurance = forceContinuousAssuranceFreshness(current.continuousAssurance, "EXPIRED", "expired", "The assurance report was marked expired.", now.toISOString());
+    } else if (current.continuousAssurance && target === "revoked") {
+      next.continuousAssurance = forceContinuousAssuranceFreshness(current.continuousAssurance, "SUSPENDED", "case_revoked", "The underlying assurance case was revoked.", now.toISOString());
+    } else if (current.continuousAssurance && target === "evaluating") {
+      next.continuousAssurance = forceContinuousAssuranceFreshness(current.continuousAssurance, "REVALIDATION_REQUIRED", "initial_review_pending", "The assurance scope is being re-evaluated.", now.toISOString());
     }
     const reason = requiredString(body, "reason");
     const decision = assuranceDecision(next, auth, current.status, target, reason, now.toISOString());
     const updated = await this.store.transitionAssuranceCase(next, decision, current.status);
     if (!updated) throw new ControlPlaneError("Assurance case changed concurrently. Reload and retry.", 409, "assurance_transition_conflict");
+    await this.notifyContinuousAssuranceChange(current, updated);
     return { assuranceCase: updated, decision };
+  }
+
+  private async createAssuranceRevalidation(auth: AuthContext, projectId: string, caseId: string): Promise<AssuranceCaseRecord> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    requireUser(auth);
+    const current = await this.store.getAssuranceCase(projectId, caseId);
+    if (!current?.continuousAssurance) throw new ControlPlaneError("This assurance case does not have a continuous assurance contract.", 409, "continuous_assurance_required");
+    if (current.continuousAssurance.freshness.status === "CURRENT") throw new ControlPlaneError("The assurance scope is already current.", 409, "continuous_assurance_already_current");
+    const existing = (await this.store.listAssuranceCases(projectId, 500)).find(
+      (item) => item.continuousAssurance?.supersedesCaseId === current.id,
+    );
+    if (existing) return existing;
+    const now = new Date().toISOString();
+    const scope = current.continuousAssurance.lastObservedScope ?? current.continuousAssurance.scope;
+    const next: AssuranceCaseRecord = {
+      id: randomUUID(),
+      projectId,
+      name: `${current.name} revalidation`,
+      subject: { ...current.subject, version: scope.agent.version },
+      status: "draft",
+      policyPackVersion: scope.policy.version,
+      evaluationPlan: structuredClone(current.evaluationPlan),
+      evaluationPlanSha256: current.evaluationPlanSha256,
+      evidenceIds: [],
+      createdBy: auth.userId,
+      continuousAssurance: createContinuousAssuranceContract(scope, now, current.id),
+      createdAt: now,
+      updatedAt: now,
+    };
+    return this.store.insertAssuranceCaseWithDecision(next, assuranceDecision(next, auth, undefined, "draft", `Revalidation created for ${current.id}.`, now));
   }
 
   private async updateAssuranceEngagement(
@@ -605,12 +675,21 @@ export class AgentCertControlPlane {
   private async expireAssuranceCaseIfNeeded(assuranceCase: AssuranceCaseRecord): Promise<AssuranceCaseRecord> {
     if (assuranceCase.status !== "issued" || !assuranceCase.expiresAt || Date.parse(assuranceCase.expiresAt) > Date.now()) return assuranceCase;
     const occurredAt = new Date().toISOString();
-    const next = { ...assuranceCase, status: "expired" as const, updatedAt: occurredAt };
+    const next = {
+      ...assuranceCase,
+      status: "expired" as const,
+      continuousAssurance: assuranceCase.continuousAssurance
+        ? forceContinuousAssuranceFreshness(assuranceCase.continuousAssurance, "EXPIRED", "expired", "The assurance report reached its declared expiry.", occurredAt)
+        : undefined,
+      updatedAt: occurredAt,
+    };
     const decision: AssuranceCaseDecisionRecord = {
       id: randomUUID(), projectId: next.projectId, assuranceCaseId: next.id, fromStatus: "issued", toStatus: "expired",
       actorId: "agentcert-system", reason: "Assurance report reached its declared expiry.", evidenceIds: next.evidenceIds, occurredAt,
     };
-    return await this.store.transitionAssuranceCase(next, decision, "issued") ?? await this.store.getAssuranceCase(next.projectId, next.id) ?? next;
+    const updated = await this.store.transitionAssuranceCase(next, decision, "issued") ?? await this.store.getAssuranceCase(next.projectId, next.id) ?? next;
+    await this.notifyContinuousAssuranceChange(assuranceCase, updated);
+    return updated;
   }
 
   private async authorizeOrganization(auth: AuthContext, organizationId: string, roles?: readonly MemberRole[]) {
@@ -706,13 +785,28 @@ export class AgentCertControlPlane {
     await this.authorizeProject(auth, projectId, undefined, "runs:write");
     const body = record(input);
     const externalId = requiredString(body, "externalId");
+    const continuousAssurance = await this.prepareContinuousAssuranceRun(projectId, body.assurance);
     const existing = await this.store.getRunByExternalId(projectId, externalId);
-    if (existing) return existing;
+    if (existing) {
+      if (continuousAssurance) {
+        const stored = runContinuousAssuranceBinding(existing.metadata.continuousAssurance);
+        if (!stored || stored.caseId !== continuousAssurance.caseId || stored.trigger !== continuousAssurance.trigger || stored.scopeFingerprintSha256 !== continuousAssurance.scopeFingerprintSha256) {
+          throw new ControlPlaneError(
+            "externalId is already bound to a different continuous assurance run.", 409, "run_external_id_conflict",
+            "Use a unique externalId for each evaluated scope and trigger.",
+          );
+        }
+      }
+      return existing;
+    }
     const agentId = optionalString(body, "agentId");
     if (agentId && !(await this.store.getAgent(projectId, agentId))) throw new ControlPlaneError("Agent was not found.", 404);
     const traceId = optionalString(body, "traceId")?.toLowerCase();
     const rootSpanId = optionalString(body, "rootSpanId")?.toLowerCase();
     validateTraceIds(traceId, rootSpanId);
+    const metadata = { ...record(body.metadata) };
+    delete metadata.continuousAssurance;
+    if (continuousAssurance) metadata.continuousAssurance = continuousAssurance;
     const run: RunRecord = {
       id: randomUUID(),
       projectId,
@@ -722,7 +816,7 @@ export class AgentCertControlPlane {
       status: "running",
       schemaVersion: optionalString(body, "schemaVersion") ?? "agentcert.run.v1",
       startedAt: optionalString(body, "startedAt") ?? new Date().toISOString(),
-      metadata: record(body.metadata),
+      metadata,
       traceId,
       rootSpanId,
     };
@@ -820,16 +914,19 @@ export class AgentCertControlPlane {
     const body = record(input);
     const status = runStatus(body.status);
     if (current.completedAt) {
-      if (current.status === status) return current;
+      if (current.status === status) return this.reconcileContinuousAssuranceRun(current);
       throw new ControlPlaneError(`Completed run status cannot change from ${current.status} to ${status}.`, 409);
     }
-    const next = await this.store.upsertRun({
+    const completionMetadata = { ...record(body.metadata) };
+    delete completionMetadata.continuousAssurance;
+    let next = await this.store.upsertRun({
       ...current,
       status,
       score: optionalNumber(body, "score"),
       completedAt: optionalString(body, "completedAt") ?? new Date().toISOString(),
-      metadata: { ...current.metadata, ...record(body.metadata) },
+      metadata: { ...current.metadata, ...completionMetadata },
     });
+    next = await this.reconcileContinuousAssuranceRun(next);
     if (status === "failed") {
       const incidentAt = new Date().toISOString();
       await this.store.insertIncident({
@@ -840,6 +937,116 @@ export class AgentCertControlPlane {
     }
     await this.emitWebhook(projectId, "run.completed", next.id, next);
     return next;
+  }
+
+  private async prepareContinuousAssuranceRun(projectId: string, input: unknown): Promise<RunContinuousAssuranceBinding | undefined> {
+    const body = optionalRecord(input);
+    if (!body) return undefined;
+    const caseId = requiredString(body, "caseId");
+    const trigger = assuranceTrigger(body.trigger);
+    let scope: AssuranceScopeInput;
+    try { scope = normalizeAssuranceScope(body.scope); }
+    catch (error) {
+      throw new ControlPlaneError(error instanceof Error ? error.message : "assurance.scope is invalid.", 422, "assurance_scope_invalid");
+    }
+    const storedCase = await this.store.getAssuranceCase(projectId, caseId);
+    const assuranceCase = storedCase ? await this.expireAssuranceCaseIfNeeded(storedCase) : undefined;
+    if (!assuranceCase?.continuousAssurance) throw new ControlPlaneError(
+      "The assurance case does not have a continuous assurance contract.", 409, "continuous_assurance_required",
+      "Create and issue an assurance case with a declared scope before binding runs.",
+    );
+    if (assuranceCase.status !== "issued") throw new ControlPlaneError(
+      "Continuous assurance runs can only bind to an issued assurance case.", 409, "continuous_assurance_not_issued",
+      "Complete independent review and issue the assurance case first.",
+    );
+    return {
+      schemaVersion: "agentcert.run_assurance.v0.1",
+      caseId,
+      trigger,
+      scope,
+      scopeFingerprintSha256: assuranceScopeFingerprint(scope),
+    };
+  }
+
+  private async reconcileContinuousAssuranceRun(run: RunRecord): Promise<RunRecord> {
+    const binding = runContinuousAssuranceBinding(run.metadata.continuousAssurance);
+    if (!binding || run.status === "running") return run;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const storedCase = await this.store.getAssuranceCase(run.projectId, binding.caseId);
+      const current = storedCase ? await this.expireAssuranceCaseIfNeeded(storedCase) : undefined;
+      if (!current?.continuousAssurance) throw new ControlPlaneError(
+        "The bound continuous assurance contract is no longer available.", 409, "continuous_assurance_missing",
+        "Restore the assurance case or start a new run against an issued case.",
+      );
+      if (current.continuousAssurance.lastRunId === run.id) {
+        const latestRun = await this.store.getRun(run.projectId, run.id) ?? run;
+        const latestMetadata = optionalRecord(latestRun.metadata.continuousAssurance);
+        if (optionalRecord(latestMetadata?.reconciliation)) return latestRun;
+        const recovered = reconcileContinuousAssurance({
+          baseline: current.continuousAssurance.scope,
+          observed: binding.scope,
+          trigger: binding.trigger,
+          runStatus: run.status,
+        });
+        return this.store.upsertRun({
+          ...latestRun,
+          metadata: {
+            ...latestRun.metadata,
+            continuousAssurance: {
+              ...binding,
+              reconciliation: {
+                outcome: recovered.outcome,
+                authoritative: recovered.authoritative,
+                nextStatus: current.continuousAssurance.freshness.status,
+                reasonCode: recovered.reasonCode,
+                changedComponents: recovered.changes.map((item) => item.component),
+                evaluatedAt: latestRun.completedAt ?? current.continuousAssurance.metrics.lastEvaluationAt ?? new Date().toISOString(),
+              },
+            },
+          },
+        });
+      }
+      const observedAt = run.completedAt ?? new Date().toISOString();
+      const applied = applyContinuousAssuranceObservation(current.continuousAssurance, {
+        observed: binding.scope,
+        trigger: binding.trigger,
+        runStatus: run.status,
+        runId: run.id,
+        observedAt,
+      });
+      const protectedFreshness = current.continuousAssurance.freshness.status === "SUSPENDED" || current.continuousAssurance.freshness.status === "EXPIRED";
+      const contract = protectedFreshness
+        ? { ...applied.contract, freshness: current.continuousAssurance.freshness }
+        : applied.contract;
+      const nextCase: AssuranceCaseRecord = {
+        ...current,
+        continuousAssurance: contract,
+        updatedAt: monotonicTimestamp(current.updatedAt),
+      };
+      const updatedCase = await this.store.updateAssuranceCase(nextCase, current.status, current.updatedAt);
+      if (!updatedCase) continue;
+      const reconciliation = {
+        outcome: applied.reconciliation.outcome,
+        authoritative: applied.reconciliation.authoritative,
+        nextStatus: contract.freshness.status,
+        reasonCode: applied.reconciliation.reasonCode,
+        changedComponents: applied.reconciliation.changes.map((item) => item.component),
+        evaluatedAt: observedAt,
+      };
+      const updatedRun = await this.store.upsertRun({
+        ...run,
+        metadata: {
+          ...run.metadata,
+          continuousAssurance: { ...binding, reconciliation },
+        },
+      });
+      await this.notifyContinuousAssuranceChange(current, updatedCase);
+      return updatedRun;
+    }
+    throw new ControlPlaneError(
+      "Continuous assurance state changed repeatedly while the run was completing.", 409, "continuous_assurance_conflict",
+      "Retry the same complete-run request; the run and assurance update are idempotent.",
+    );
   }
 
   async listRuns(auth: AuthContext, projectId: string): Promise<RunRecord[]> {
@@ -2231,6 +2438,63 @@ export class AgentCertControlPlane {
     };
   }
 
+  private async notifyContinuousAssuranceChange(previous: AssuranceCaseRecord, current: AssuranceCaseRecord): Promise<void> {
+    const before = previous.continuousAssurance?.freshness;
+    const after = current.continuousAssurance?.freshness;
+    if (!after) return;
+    const beforeKey = before
+      ? `${before.status}:${before.reasonCode}:${before.changedComponents.map((item) => item.component).sort().join(",")}`
+      : undefined;
+    const afterKey = `${after.status}:${after.reasonCode}:${after.changedComponents.map((item) => item.component).sort().join(",")}`;
+    if (beforeKey === afterKey) return;
+    const eventType = {
+      CURRENT: "assurance.current",
+      REVALIDATION_REQUIRED: "assurance.revalidation_required",
+      SUSPENDED: "assurance.suspended",
+      EXPIRED: "assurance.expired",
+    }[after.status];
+    await Promise.all([
+      this.emitWebhook(current.projectId, eventType, randomUUID(), {
+        assuranceCaseId: current.id,
+        subject: current.subject,
+        scopeFingerprintSha256: current.continuousAssurance!.scopeFingerprintSha256,
+        freshness: after,
+        lastRunId: current.continuousAssurance!.lastRunId,
+        lastTrigger: current.continuousAssurance!.lastTrigger,
+      }),
+      this.sendContinuousAssuranceNotification(current),
+    ]);
+  }
+
+  private async sendContinuousAssuranceNotification(assuranceCase: AssuranceCaseRecord): Promise<void> {
+    const contract = assuranceCase.continuousAssurance;
+    if (!contract || !this.emailProvider.configured) return;
+    const alertType: NotificationAlertType = {
+      CURRENT: "assurance_current",
+      REVALIDATION_REQUIRED: "assurance_revalidation_required",
+      SUSPENDED: "assurance_suspended",
+      EXPIRED: "assurance_expired",
+    }[contract.freshness.status] as NotificationAlertType;
+    const destinations = (await this.store.listNotificationDestinations(assuranceCase.projectId))
+      .filter((destination) => destination.status === "active" && destination.alertTypes.includes(alertType));
+    if (destinations.length === 0) return;
+    const workspaceUrl = `${this.publicUrl.replace(/\/$/, "")}/app?view=assurance&caseId=${encodeURIComponent(assuranceCase.id)}`;
+    const changed = contract.freshness.changedComponents.map((item) => item.component).join(", ") || "none";
+    const subject = `[AgentCert] Assurance ${contract.freshness.status.replaceAll("_", " ").toLowerCase()}: ${assuranceCase.subject.name}`;
+    const details = [
+      `Assurance case: ${assuranceCase.name}`,
+      `Subject: ${assuranceCase.subject.name} ${assuranceCase.subject.version ?? ""}`.trim(),
+      `Status: ${contract.freshness.status}`,
+      `Reason: ${contract.freshness.reason}`,
+      `Changed scope components: ${changed}`,
+      `Scope fingerprint: ${contract.scopeFingerprintSha256}`,
+    ].join("\n");
+    await Promise.all(destinations.map((destination) => this.enqueueEmail(destination, alertType, subject, {
+      text: `${details}\n\nReview or start revalidation: ${workspaceUrl}`,
+      html: `<p><strong>${escapeHtml(assuranceCase.subject.name)}</strong> is <strong>${escapeHtml(contract.freshness.status.replaceAll("_", " "))}</strong>.</p><p>${escapeHtml(contract.freshness.reason)}</p><ul><li>Changed scope components: ${escapeHtml(changed)}</li><li>Scope fingerprint: <code>${escapeHtml(contract.scopeFingerprintSha256)}</code></li></ul><p><a href="${escapeHtml(workspaceUrl)}">Review assurance status</a></p>`,
+    })));
+  }
+
   private async sendIncidentNotification(
     alertType: Exclude<NotificationAlertType, "destination_verification" | "test_alert">,
     incident: IncidentRecord,
@@ -2416,12 +2680,48 @@ function notificationEmail(value: string): string {
 }
 
 function notificationAlertTypes(value: unknown): NotificationAlertType[] {
-  const allowed = new Set<NotificationAlertType>(["incident_opened", "incident_regressed", "incident_recovered", "incident_resolved", "slo_burn_rate"]);
+  const allowed = new Set<NotificationAlertType>([
+    "incident_opened", "incident_regressed", "incident_recovered", "incident_resolved", "slo_burn_rate",
+    "assurance_current", "assurance_revalidation_required", "assurance_suspended", "assurance_expired",
+  ]);
   const selected = stringList(value);
   if (selected.length === 0 || selected.some((item) => !allowed.has(item as NotificationAlertType))) {
-    throw new ControlPlaneError("alertTypes must contain one or more supported incident alert types.");
+    throw new ControlPlaneError("alertTypes must contain one or more supported incident or assurance alert types.");
   }
   return selected as NotificationAlertType[];
+}
+
+function assuranceTrigger(value: unknown): AssuranceTrigger {
+  if (value === "pull_request" || value === "release" || value === "nightly") return value;
+  throw new ControlPlaneError("assurance.trigger must be pull_request, release, or nightly.", 422, "assurance_trigger_invalid");
+}
+
+function runContinuousAssuranceBinding(value: unknown): RunContinuousAssuranceBinding | undefined {
+  const body = optionalRecord(value);
+  if (!body) return undefined;
+  if (body.schemaVersion !== "agentcert.run_assurance.v0.1") throw new ControlPlaneError(
+    "The stored run assurance binding has an unsupported schema version.", 409, "run_assurance_schema_unsupported",
+  );
+  let scope: AssuranceScopeInput;
+  try { scope = normalizeAssuranceScope(body.scope); }
+  catch (error) {
+    throw new ControlPlaneError(error instanceof Error ? error.message : "The stored run assurance scope is invalid.", 409, "run_assurance_scope_invalid");
+  }
+  const fingerprint = assuranceScopeFingerprint(scope);
+  if (requiredString(body, "scopeFingerprintSha256") !== fingerprint) throw new ControlPlaneError(
+    "The stored run assurance scope fingerprint does not match its canonical scope.", 409, "run_assurance_fingerprint_mismatch",
+  );
+  return {
+    schemaVersion: "agentcert.run_assurance.v0.1",
+    caseId: requiredString(body, "caseId"),
+    trigger: assuranceTrigger(body.trigger),
+    scope,
+    scopeFingerprintSha256: fingerprint,
+  };
+}
+
+function monotonicTimestamp(previous: string): string {
+  return new Date(Math.max(Date.now(), (Date.parse(previous) || 0) + 1)).toISOString();
 }
 
 function publicNotificationDestination(destination: NotificationDestinationRecord): PublicNotificationDestinationRecord {

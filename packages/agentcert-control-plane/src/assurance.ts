@@ -57,6 +57,7 @@ export function buildAssuranceReport(
     limitations: caseRecord.evaluationPlan.limitations,
     statement: "This report records the scoped evidence and review decision. It is not a regulatory certification or a guarantee of future agent behavior.",
     evidenceStrength,
+    continuousAssurance: continuityStatement(caseRecord),
   };
   return { ...payload, ...(signer ? { attestation: signer.attestCanonical(payload, issuedAt) } : {}) };
 }
@@ -102,9 +103,28 @@ export function buildAssuranceDeliveryPacket(
       timeToFirstEvidenceSeconds: engagement.timeToFirstEvidenceSeconds,
     },
     evidenceStrength: assuranceEvidenceStrength(caseRecord, evidence, reviewerId),
+    continuousAssurance: continuityStatement(caseRecord),
     statement: "This fixed-scope review covers one declared agent version, one sandbox workflow, and one retest. It is not a guarantee of future behavior or regulatory certification.",
   };
   return { ...payload, attestation: signer.attestCanonical(payload, deliveredAt) };
+}
+
+function continuityStatement(caseRecord: AssuranceCaseRecord): AssuranceReportPayload["continuousAssurance"] {
+  const contract = caseRecord.continuousAssurance;
+  if (!contract) return undefined;
+  return {
+    schemaVersion: "agentcert.assurance_continuity.v0.1",
+    scope: contract.scope,
+    scopeFingerprintSha256: contract.scopeFingerprintSha256,
+    freshnessAtIssuance: "CURRENT",
+    revalidationRequiredWhen: [
+      "The declared agent artifact or version changes.",
+      "The model provider, model, or model version changes.",
+      "The system prompt digest changes.",
+      "The tool manifest or policy pack changes.",
+      "The scenario suite changes or an authoritative release/nightly evaluation fails.",
+    ],
+  };
 }
 
 type UnderlyingStrength = AssuranceReportPayload["evidenceStrength"]["underlyingLevel"];

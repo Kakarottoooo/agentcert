@@ -22,6 +22,12 @@ Issuance requires:
 
 Public verification is opt-in. Private cases have no public identifier. A public record contains the signed report and sanitized lifecycle history, not actor emails or private artifact bytes.
 
+When a case includes `agentcert.assurance_scope.v0.1`, issuance also establishes
+a `CURRENT` continuous-assurance contract. Pull requests report prospective
+drift; release and nightly runs can require revalidation. The signed report
+remains the issuance-time statement while the mutable freshness state records
+what happened afterward. See [Continuous Assurance Contract v0.1](continuous-assurance.md).
+
 ## What it proves
 
 - the evaluation plan did not change after case creation;

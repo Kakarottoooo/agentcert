@@ -16,6 +16,11 @@ export interface PushEvidenceOptions {
   externalId?: string;
   companionArtifacts?: PreparedCompanionArtifact[];
   skippedCompanionArtifacts?: SkippedCompanionArtifact[];
+  assurance?: {
+    caseId: string;
+    trigger: "pull_request" | "release" | "nightly";
+    scope: Record<string, unknown>;
+  };
   fetch?: typeof fetch;
 }
 
@@ -116,6 +121,7 @@ export async function pushEvidenceToControlPlane(options: PushEvidenceOptions): 
         subject: bundle.subject,
         products: bundle.summary.products,
       },
+      assurance: options.assurance,
     }),
   });
 

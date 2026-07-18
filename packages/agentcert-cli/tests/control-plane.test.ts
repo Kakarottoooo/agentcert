@@ -114,6 +114,31 @@ describe("hosted evidence push", () => {
     expect(String((calls[0].init?.headers as Record<string, string>).authorization)).toBe("Bearer ac_live_secret");
   });
 
+  it("passes the locked assurance case, trigger, and scope only on run creation", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const request = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input); calls.push({ url, init });
+      if (url.endsWith("/runs")) return jsonResponse(201, { id: "hosted-run-1" });
+      if (url.includes("/evidence?")) return jsonResponse(201, { id: "hosted-evidence-1" });
+      return jsonResponse(200, {});
+    });
+    const scope = {
+      schemaVersion: "agentcert.assurance_scope.v0.1",
+      agent: { id: "browser-agent", version: "2.4.0" },
+      model: { provider: "openai", name: "gpt-4.1-mini", version: "2026-07-01" },
+      prompt: { sha256: "a".repeat(64) }, tools: { manifestSha256: "b".repeat(64) },
+      policy: { id: "agentcert.browser", version: "0.1.0" },
+      scenarioSuite: { id: "tripwire", version: "2026.07", sha256: "c".repeat(64) },
+    };
+    await pushEvidenceToControlPlane({
+      baseUrl: "https://agentcert.example.com", projectId: "project-1", apiKey: "ac_live_secret",
+      bundle, evidenceBytes: new TextEncoder().encode("{}"),
+      assurance: { caseId: "case-1", trigger: "nightly", scope }, fetch: request as typeof fetch,
+    });
+    expect(JSON.parse(String(calls[0]!.init?.body))).toMatchObject({ assurance: { caseId: "case-1", trigger: "nightly", scope } });
+    expect(JSON.parse(String(calls.at(-1)!.init?.body)).metadata).not.toHaveProperty("continuousAssurance");
+  });
+
   it("uploads bounded companion bytes with source paths and records skipped artifacts", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     let evidenceCount = 0;

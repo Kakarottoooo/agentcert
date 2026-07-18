@@ -13,6 +13,7 @@ export type AgentCertSchemaId =
   | "release-gate"
   | "assurance-report"
   | "assurance-delivery"
+  | "assurance-scope"
   | "evidence-signature"
   | "evidence-strength"
   | "action-mandate"
@@ -38,6 +39,7 @@ export function parseSchemaId(input: string | undefined): AgentCertSchemaId {
     value === "release-gate" ||
     value === "assurance-report" ||
     value === "assurance-delivery" ||
+    value === "assurance-scope" ||
     value === "evidence-signature" ||
     value === "evidence-strength" ||
     value === "action-mandate" ||
@@ -47,7 +49,7 @@ export function parseSchemaId(input: string | undefined): AgentCertSchemaId {
     return value;
   }
   throw new Error(
-    `Unsupported schema "${value}". Use evidence-bundle, result, corpus-record, failure-review, classifier-eval, monitor-snapshot, robustness-lab, release-gate, assurance-report, assurance-delivery, evidence-signature, evidence-strength, action-mandate, trusted-action-record, or trusted-run-receipt.`
+    `Unsupported schema "${value}". Use evidence-bundle, result, corpus-record, failure-review, classifier-eval, monitor-snapshot, robustness-lab, release-gate, assurance-report, assurance-delivery, assurance-scope, evidence-signature, evidence-strength, action-mandate, trusted-action-record, or trusted-run-receipt.`
   );
 }
 
@@ -72,6 +74,7 @@ export function validateAgentCertSchema(schema: AgentCertSchemaId, input: unknow
     if (schema === "robustness-lab") validateRobustnessLab(value, errors);
     if (schema === "assurance-report") validateAssuranceReport(value, errors);
     if (schema === "assurance-delivery") validateAssuranceDelivery(value, errors);
+    if (schema === "assurance-scope") validateAssuranceScope(value, errors);
     if (schema === "evidence-strength") validateEvidenceStrength(value, errors);
     if (schema === "action-mandate") validateActionMandate(value, errors);
     if (schema === "trusted-action-record") validateTrustedActionRecord(value, errors);
@@ -296,6 +299,7 @@ function validateAssuranceReport(value: Record<string, unknown>, errors: string[
   if (!/^[0-9a-f]{64}$/.test(String(value.evaluationPlanSha256 ?? ""))) errors.push("evaluationPlanSha256 must be a lowercase SHA-256 digest.");
   validateTimestamp(value.issuedAt, "issuedAt", errors);
   validateTimestamp(value.expiresAt, "expiresAt", errors);
+  validateAssuranceContinuity(value.continuousAssurance, errors);
 }
 
 function validateAssuranceDelivery(value: Record<string, unknown>, errors: string[]): void {
@@ -315,6 +319,62 @@ function validateAssuranceDelivery(value: Record<string, unknown>, errors: strin
   }
   const decision = recordValue(value.decision);
   if (decision) requiredEnum(decision, "verdict", ["RELEASE", "RELEASE_WITH_CONTROLS", "BLOCK"], errors);
+  validateAssuranceContinuity(value.continuousAssurance, errors);
+}
+
+function validateAssuranceContinuity(input: unknown, errors: string[]): void {
+  if (input === undefined) return;
+  const value = recordValue(input);
+  if (!value) { errors.push("continuousAssurance must be an object."); return; }
+  requiredConst(value, "schemaVersion", "agentcert.assurance_continuity.v0.1", errors);
+  requiredObject(value, "scope", errors);
+  requiredSha256At(value, "scopeFingerprintSha256", "continuousAssurance.scopeFingerprintSha256", errors);
+  requiredConst(value, "freshnessAtIssuance", "CURRENT", errors);
+  requiredArray(value, "revalidationRequiredWhen", errors);
+  stringArray(value.revalidationRequiredWhen, "continuousAssurance.revalidationRequiredWhen", errors);
+  const scope = recordValue(value.scope);
+  if (scope) {
+    const nested: string[] = [];
+    validateAssuranceScope(scope, nested);
+    errors.push(...nested.map((error) => `continuousAssurance.scope.${error}`));
+  }
+}
+
+function validateAssuranceScope(value: Record<string, unknown>, errors: string[]): void {
+  requiredConst(value, "schemaVersion", "agentcert.assurance_scope.v0.1", errors);
+  for (const key of ["agent", "model", "prompt", "tools", "policy", "scenarioSuite"]) requiredObject(value, key, errors);
+  const agent = recordValue(value.agent);
+  const model = recordValue(value.model);
+  const prompt = recordValue(value.prompt);
+  const tools = recordValue(value.tools);
+  const policy = recordValue(value.policy);
+  const suite = recordValue(value.scenarioSuite);
+  if (agent) {
+    requiredStringAt(agent, "id", "agent.id", errors);
+    requiredStringAt(agent, "version", "agent.version", errors);
+    optionalSha256At(agent, "artifactSha256", "agent.artifactSha256", errors);
+  }
+  if (model) for (const key of ["provider", "name", "version"]) requiredStringAt(model, key, `model.${key}`, errors);
+  if (prompt) requiredSha256At(prompt, "sha256", "prompt.sha256", errors);
+  if (tools) requiredSha256At(tools, "manifestSha256", "tools.manifestSha256", errors);
+  if (policy) {
+    requiredStringAt(policy, "id", "policy.id", errors);
+    requiredStringAt(policy, "version", "policy.version", errors);
+    optionalSha256At(policy, "sha256", "policy.sha256", errors);
+  }
+  if (suite) {
+    requiredStringAt(suite, "id", "scenarioSuite.id", errors);
+    requiredStringAt(suite, "version", "scenarioSuite.version", errors);
+    requiredSha256At(suite, "sha256", "scenarioSuite.sha256", errors);
+  }
+}
+
+function requiredSha256At(value: Record<string, unknown>, key: string, path: string, errors: string[]): void {
+  if (typeof value[key] !== "string" || !/^[0-9a-f]{64}$/.test(value[key] as string)) errors.push(`${path} must be a lowercase SHA-256 digest.`);
+}
+
+function optionalSha256At(value: Record<string, unknown>, key: string, path: string, errors: string[]): void {
+  if (value[key] !== undefined && (typeof value[key] !== "string" || !/^[0-9a-f]{64}$/.test(value[key] as string))) errors.push(`${path} must be a lowercase SHA-256 digest.`);
 }
 
 function validateFailureReview(value: Record<string, unknown>, errors: string[]): void {

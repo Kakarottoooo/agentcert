@@ -70,6 +70,25 @@ export interface RunInput {
   schemaVersion?: string;
   startedAt?: string;
   metadata?: Record<string, unknown>;
+  assurance?: RunAssuranceInput;
+}
+
+export type AssuranceTrigger = "pull_request" | "release" | "nightly";
+
+export interface AssuranceScopeInput {
+  schemaVersion: "agentcert.assurance_scope.v0.1";
+  agent: { id: string; version: string; artifactSha256?: string };
+  model: { provider: string; name: string; version: string };
+  prompt: { sha256: string };
+  tools: { manifestSha256: string };
+  policy: { id: string; version: string; sha256?: string };
+  scenarioSuite: { id: string; version: string; sha256: string };
+}
+
+export interface RunAssuranceInput {
+  caseId: string;
+  trigger: AssuranceTrigger;
+  scope: AssuranceScopeInput;
 }
 
 export interface AgentEvent {

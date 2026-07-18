@@ -616,6 +616,7 @@ async function pushHostedEvidence(bundle: AgentCertBundle, bytes: Uint8Array, fi
     externalId: readFlag("--external-id"),
     companionArtifacts: companions?.artifacts,
     skippedCompanionArtifacts: companions?.skipped,
+    assurance: await readContinuousAssuranceBinding(),
   });
   process.stdout.write(`Hosted run: ${result.runId}\nHosted evidence: ${result.evidenceId}\n`);
   if (companions) {
@@ -631,6 +632,30 @@ async function pushHostedEvidence(bundle: AgentCertBundle, bytes: Uint8Array, fi
       process.stderr.write(`${companions.skipped.length - MAX_REPORTED_COMPANION_ARTIFACT_SKIPS} additional skipped artifacts omitted.\n`);
     }
   }
+}
+
+async function readContinuousAssuranceBinding(): Promise<{
+  caseId: string;
+  trigger: "pull_request" | "release" | "nightly";
+  scope: Record<string, unknown>;
+} | undefined> {
+  const caseId = readFlag("--assurance-case");
+  const scopePath = readFlag("--assurance-scope");
+  if (!caseId && !scopePath) return undefined;
+  if (!caseId || !scopePath) throw new Error("--assurance-case and --assurance-scope must be provided together.");
+  const scope = await readJson(scopePath);
+  const validation = validateAgentCertSchema("assurance-scope", scope);
+  if (!validation.valid) throw new Error(`Assurance scope is invalid:\n${validation.errors.map((error) => `- ${error}`).join("\n")}`);
+  return { caseId, trigger: assuranceTriggerFromEnvironment(readFlag("--assurance-trigger") ?? "auto"), scope: scope as Record<string, unknown> };
+}
+
+function assuranceTriggerFromEnvironment(value: string): "pull_request" | "release" | "nightly" {
+  if (value === "pull_request" || value === "release" || value === "nightly") return value;
+  if (value !== "auto") throw new Error("--assurance-trigger must be auto, pull_request, release, or nightly.");
+  const event = process.env.GITHUB_EVENT_NAME;
+  if (event === "pull_request" || event === "pull_request_target") return "pull_request";
+  if (event === "schedule") return "nightly";
+  return "release";
 }
 
 async function promptValue(label: string): Promise<string> {

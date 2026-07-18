@@ -35,6 +35,48 @@ jobs:
           strict-release-gate: "false"
 ```
 
+## Continuous assurance
+
+Create and issue an assurance case in the Hosted workspace, check in the scope
+file generated from that reviewed baseline, then bind CI runs to it. Keep the
+project key in GitHub Secrets; do not place it in Action inputs.
+
+```yaml
+env:
+  AGENTCERT_BASE_URL: https://agentcert.app
+  AGENTCERT_PROJECT_ID: ${{ vars.AGENTCERT_PROJECT_ID }}
+  AGENTCERT_API_KEY: ${{ secrets.AGENTCERT_API_KEY }}
+
+steps:
+  - uses: actions/checkout@v4
+  - uses: Kakarottoooo/agentcert/actions/tripwire@v0
+    with:
+      config: tripwire.yml
+      push-hosted: "true"
+      assurance-case: ${{ vars.AGENTCERT_ASSURANCE_CASE_ID }}
+      assurance-scope: agentcert.assurance-scope.json
+      assurance-trigger: auto
+```
+
+`auto` maps pull requests to a prospective check, scheduled workflows to a
+nightly authoritative check, and pushes/releases/manual dispatches to an
+authoritative release check. A PR can warn about scope drift without changing
+production status. Release and nightly drift changes the Hosted state to
+`REVALIDATION_REQUIRED` and emits configured webhook/email alerts.
+
+The three trigger-specific config inputs are optional. Each falls back to
+`config`, so existing callers keep the same behavior. Teams can use a fast,
+stable subset on pull requests, the reviewed release suite on main/release,
+and an expanded suite with newly added scenarios on the nightly schedule.
+
+```yaml
+with:
+  config: tripwire.yml
+  pull-request-config: tripwire.pr.yml
+  release-config: tripwire.release.yml
+  nightly-config: tripwire.nightly.yml
+```
+
 Outputs:
 
 - `.tripwire/latest/tripwire-result.json`

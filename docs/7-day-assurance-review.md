@@ -14,8 +14,11 @@ certification and not a guarantee that the agent cannot fail.
 - Delivery: seven calendar days after the engagement plan is locked, subject to
   timely sandbox access and a reproducible workflow.
 
-Additional workflows, versions, environments, or recurring regressions require
-a separate written scope. AgentCert does not request production write
+Additional workflows or environments require a separate written scope. The
+reviewed agent/model/prompt/tools/policy/scenario fingerprint becomes the first
+continuous-assurance baseline; future releases and nightly regressions can be
+checked against it without pretending that the original report covers changed
+software. AgentCert does not request production write
 credentials and does not begin with live payment, email, or irreversible
 systems.
 
@@ -42,6 +45,9 @@ workflow is a new review, not a retroactive update.
 5. A reviewer other than the case creator issues one formal decision:
    `RELEASE`, `RELEASE_WITH_CONTROLS`, or `BLOCK`.
 6. AgentCert signs the delivery packet with the active server attestation key.
+7. The issued scope becomes `CURRENT`; CI can then move it to
+   `REVALIDATION_REQUIRED`, `SUSPENDED`, or `EXPIRED` without altering the
+   historical signed decision.
 
 `RELEASE` requires an independently verified outcome and no remaining required
 controls. `RELEASE_WITH_CONTROLS` requires explicit controls. `BLOCK` states why
@@ -60,7 +66,14 @@ The machine-readable `agentcert.assurance_delivery.v0.1` packet includes:
 - required controls and explicit limitations;
 - integration start, first valid evidence time, and elapsed seconds;
 - declared evidence-strength level; and
+- the canonical continuous-assurance scope, fingerprint, and invalidation conditions; and
 - AgentCert's Ed25519 server attestation.
+
+The included review establishes one baseline. Ongoing PR, release, and nightly
+checks are the continuous plan described in
+[Continuous Assurance Contract v0.1](continuous-assurance.md). A changed scope
+requires an explicit successor revalidation; a passing run alone does not
+silently renew independent assurance.
 
 Validate a downloaded packet with:
 
