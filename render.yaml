@@ -41,6 +41,10 @@ services:
         value: 5000
       - key: AGENTCERT_NOTIFICATION_WORKER_BATCH
         value: 20
+      - key: AGENTCERT_ASSURANCE_MAINTENANCE_INTERVAL_MS
+        value: 21600000
+      - key: AGENTCERT_ASSURANCE_MAINTENANCE_BATCH
+        value: 200
       - key: REDIS_URL
         fromService:
           type: keyvalue

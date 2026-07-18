@@ -40,6 +40,17 @@ const engagementInput = {
       expectedOutcome: { purchaseOrderStatus: "SUBMITTED" },
     },
   },
+  continuousAssurance: {
+    scope: {
+      schemaVersion: "agentcert.assurance_scope.v0.1",
+      agent: { id: "browser-agent", version: "2.4.0", artifactSha256: "a".repeat(64) },
+      model: { provider: "openai", name: "gpt-4.1-mini", version: "2026-07-01" },
+      prompt: { sha256: "b".repeat(64) },
+      tools: { manifestSha256: "c".repeat(64) },
+      policy: { id: "agentcert.action-assurance.v0.1", version: "agentcert.action-assurance.v0.1", sha256: "d".repeat(64) },
+      scenarioSuite: { id: "tripwire-browser", version: "2026.07", sha256: "e".repeat(64) },
+    },
+  },
 };
 
 async function upload(service: AgentCertControlPlane, projectId: string, name: string) {
@@ -122,9 +133,51 @@ describe("7-Day Assurance Review engagement", () => {
     });
     expect(issued.assuranceCase.engagement?.decision?.verdict).toBe("RELEASE_WITH_CONTROLS");
     const packet = issued.assuranceCase.deliveryPacket!;
-    expect(packet).toMatchObject({ schemaVersion: "agentcert.assurance_delivery.v0.1", decision: { verdict: "RELEASE_WITH_CONTROLS" }, baselineEvidence: [{ id: baseline.id }], retestEvidence: [{ id: retest.id }] });
+    expect(packet).toMatchObject({
+      schemaVersion: "agentcert.assurance_delivery.v0.1", decision: { verdict: "RELEASE_WITH_CONTROLS" },
+      baselineEvidence: [{ id: baseline.id }], retestEvidence: [{ id: retest.id }],
+      continuousAssurance: { freshnessAtIssuance: "CURRENT", ciPolicy: { pullRequest: "prospective", release: "authoritative", nightly: "authoritative" } },
+    });
     const { attestation, ...payload } = packet;
     expect(verifyCanonicalAttestation(payload, attestation, evidenceSigner.publicKeyPem)).toBe(true);
+    const activated = await service.transitionAssuranceCase(owner, projectId, created.id, "activate-continuous", {});
+    expect(activated).toMatchObject({
+      assuranceCase: { continuousAssurance: { adoption: { schemaVersion: "agentcert.continuous_assurance_adoption.v0.1" } } },
+      kit: { schemaVersion: "agentcert.continuous_assurance_kit.v0.1" },
+    });
+    expect(activated.kit.files.map((file) => file.path)).toEqual([
+      "agentcert.assurance-scope.json",
+      ".github/workflows/agentcert-continuous-assurance.yml",
+      "AGENTCERT-CONTINUOUS-ASSURANCE.md",
+    ]);
+    expect(activated.kit.files.every((file) => /^[0-9a-f]{64}$/.test(file.sha256))).toBe(true);
+    const workflow = activated.kit.files.find((file) => file.path.endsWith(".yml"))?.content ?? "";
+    expect(workflow).toContain("secrets.AGENTCERT_API_KEY");
+    expect(workflow).toContain("pull-request-config: tripwire.yml");
+    expect(workflow).toContain("release-config: tripwire.yml");
+    expect(workflow).toContain("nightly-config: tripwire.yml");
+    expect(workflow).toContain("github.event.pull_request.head.repo.full_name == github.repository");
+    expect((await service.transitionAssuranceCase(owner, projectId, created.id, "activate-continuous", {})).kit).toEqual(activated.kit);
+
+    const changedScope = structuredClone(engagementInput.continuousAssurance.scope);
+    changedScope.model.version = "2026-07-18";
+    const releaseRun = await service.startRun(owner, projectId, {
+      externalId: "release-requiring-revalidation", kind: "release_gate",
+      assurance: { caseId: created.id, trigger: "release", scope: changedScope },
+    });
+    await service.completeRun(owner, projectId, releaseRun.id, { status: "passed" });
+    const successor = (await service.transitionAssuranceCase(owner, projectId, created.id, "revalidate", {})).assuranceCase;
+    const successorEvidence = await upload(service, projectId, "successor-revalidation");
+    await service.transitionAssuranceCase(owner, projectId, successor.id, "start", { reason: "Start successor review." });
+    await service.transitionAssuranceCase(owner, projectId, successor.id, "submit", {
+      reason: "Submit successor evidence.", evidenceIds: [successorEvidence.id],
+    });
+    const successorReview = (await store.getAssuranceCase(projectId, successor.id))!;
+    await store.updateAssuranceCase({ ...successorReview, createdBy: "independent-successor-creator" }, successorReview.status);
+    await service.transitionAssuranceCase(owner, projectId, successor.id, "issue", { reason: "Issue successor review." });
+    const successorActivation = await service.transitionAssuranceCase(owner, projectId, successor.id, "activate-continuous", {});
+    expect(successorActivation.kit.assuranceCaseId).toBe(successor.id);
+    expect(successorActivation.kit.files.find((file) => file.path.endsWith(".yml"))?.content).toContain(`assurance-case: ${successor.id}`);
     await expect(service.publicAssuranceReport(issued.assuranceCase.publicVerificationId!)).resolves.toMatchObject({ deliveryPacket: { schemaVersion: "agentcert.assurance_delivery.v0.1" } });
   });
 });

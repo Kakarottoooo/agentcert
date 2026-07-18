@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { canonicalJson } from "./signing.js";
-import type { ContinuousAssuranceContract } from "./types.js";
+import type {
+  ContinuousAssuranceAdoptionKit,
+  ContinuousAssuranceContract,
+  ContinuousAssuranceHistoryEvent,
+  ContinuousAssuranceMetrics,
+} from "./types.js";
 
 export const ASSURANCE_SCOPE_VERSION = "agentcert.assurance_scope.v0.1" as const;
 export const ASSURANCE_CONTRACT_VERSION = "agentcert.continuous_assurance.v0.1" as const;
@@ -34,6 +39,7 @@ export interface AssuranceReconciliation {
 }
 
 const COMPONENTS: AssuranceScopeComponent[] = ["agent", "model", "prompt", "tools", "policy", "scenarioSuite"];
+const HISTORY_LIMIT = 500;
 
 export function normalizeAssuranceScope(input: unknown): AssuranceScopeInput {
   const value = objectValue(input, "scope");
@@ -110,7 +116,7 @@ export function createContinuousAssuranceContract(
   supersedesCaseId?: string,
 ): ContinuousAssuranceContract {
   const scope = normalizeAssuranceScope(input);
-  return {
+  const contract: ContinuousAssuranceContract = {
     schemaVersion: ASSURANCE_CONTRACT_VERSION,
     scope,
     scopeFingerprintSha256: assuranceScopeFingerprint(scope),
@@ -122,12 +128,20 @@ export function createContinuousAssuranceContract(
       evaluatedAt: now,
     },
     supersedesCaseId,
+    reminders: { expiryThresholdDaysSent: [] },
     metrics: emptyContinuousAssuranceMetrics(),
   };
+  return withHistory(contract, {
+    kind: "contract_created", status: "REVALIDATION_REQUIRED", occurredAt: now,
+    reasonCode: "initial_review_pending", reason: contract.freshness.reason, changedComponents: [],
+  });
 }
 
 export function markContinuousAssuranceCurrent(contract: ContinuousAssuranceContract, now: string): ContinuousAssuranceContract {
-  return {
+  const pendingCycle = contract.revalidation && !contract.revalidation.completedAt ? contract.revalidation : undefined;
+  const durationMs = pendingCycle ? Math.max(0, Date.parse(now) - Date.parse(pendingCycle.startedAt)) : undefined;
+  const metrics = normalizedMetrics(contract.metrics);
+  const next: ContinuousAssuranceContract = {
     ...contract,
     freshness: {
       status: "CURRENT",
@@ -137,9 +151,45 @@ export function markContinuousAssuranceCurrent(contract: ContinuousAssuranceCont
       evaluatedAt: now,
     },
     validatedAt: now,
+    firstCurrentAt: contract.firstCurrentAt ?? now,
     currentSince: now,
+    revalidation: pendingCycle ? { ...pendingCycle, completedAt: now, durationMs } : contract.revalidation,
+    metrics: pendingCycle ? {
+      ...metrics,
+      revalidationCompletedCount: metrics.revalidationCompletedCount + 1,
+      totalRevalidationDurationMs: metrics.totalRevalidationDurationMs + durationMs!,
+      lastRevalidationDurationMs: durationMs,
+    } : metrics,
     prospective: undefined,
   };
+  return withHistory(next, {
+    kind: "current", status: "CURRENT", occurredAt: now, reasonCode: "scope_matches",
+    reason: next.freshness.reason, changedComponents: [],
+  });
+}
+
+export function createContinuousAssuranceRevalidation(
+  previous: ContinuousAssuranceContract,
+  scope: AssuranceScopeInput,
+  now: string,
+  sourceCaseId: string,
+): ContinuousAssuranceContract {
+  const base = createContinuousAssuranceContract(scope, now, sourceCaseId);
+  const previousMetrics = normalizedMetrics(previous.metrics);
+  const cycleNumber = previousMetrics.revalidationStartedCount + 1;
+  const next: ContinuousAssuranceContract = {
+    ...base,
+    firstCurrentAt: previous.firstCurrentAt ?? previous.currentSince,
+    history: previous.history,
+    historyTruncated: previous.historyTruncated,
+    metrics: { ...previousMetrics, revalidationStartedCount: cycleNumber },
+    revalidation: { cycleNumber, sourceCaseId, startedAt: now },
+  };
+  return withHistory(next, {
+    kind: "revalidation_started", status: "REVALIDATION_REQUIRED", occurredAt: now,
+    reasonCode: "revalidation_started", reason: `Revalidation cycle ${cycleNumber} started for a changed or stale scope.`,
+    changedComponents: previous.freshness.changedComponents.map((item) => item.component),
+  });
 }
 
 export function applyContinuousAssuranceObservation(
@@ -155,16 +205,17 @@ export function applyContinuousAssuranceObservation(
   const observed = normalizeAssuranceScope(input.observed);
   const reconciliation = reconcileContinuousAssurance({ baseline: contract.scope, observed, trigger: input.trigger, runStatus: input.runStatus });
   const passed = input.runStatus === "passed";
+  const previousMetrics = normalizedMetrics(contract.metrics);
   const metrics = {
-    ...contract.metrics,
-    totalEvaluations: contract.metrics.totalEvaluations + 1,
-    passedEvaluations: contract.metrics.passedEvaluations + (passed ? 1 : 0),
-    failedEvaluations: contract.metrics.failedEvaluations + (passed ? 0 : 1),
-    revalidationRequiredCount: contract.metrics.revalidationRequiredCount + (reconciliation.outcome === "revalidation_required" ? 1 : 0),
-    prospectiveChangeCount: contract.metrics.prospectiveChangeCount + (reconciliation.outcome === "would_require_revalidation" ? 1 : 0),
+    ...previousMetrics,
+    totalEvaluations: previousMetrics.totalEvaluations + 1,
+    passedEvaluations: previousMetrics.passedEvaluations + (passed ? 1 : 0),
+    failedEvaluations: previousMetrics.failedEvaluations + (passed ? 0 : 1),
+    revalidationRequiredCount: previousMetrics.revalidationRequiredCount + (reconciliation.outcome === "revalidation_required" ? 1 : 0),
+    prospectiveChangeCount: previousMetrics.prospectiveChangeCount + (reconciliation.outcome === "would_require_revalidation" ? 1 : 0),
     triggerCounts: {
-      ...contract.metrics.triggerCounts,
-      [input.trigger]: contract.metrics.triggerCounts[input.trigger] + 1,
+      ...previousMetrics.triggerCounts,
+      [input.trigger]: previousMetrics.triggerCounts[input.trigger] + 1,
     },
     lastEvaluationAt: input.observedAt,
   };
@@ -177,17 +228,24 @@ export function applyContinuousAssuranceObservation(
     metrics,
   };
   if (!reconciliation.authoritative) {
+    const prospective: ContinuousAssuranceContract = {
+      ...common,
+      prospective: {
+        runId: input.runId,
+        observedAt: input.observedAt,
+        changes: reconciliation.changes,
+        outcome: reconciliation.outcome === "current" ? "current" : "would_require_revalidation",
+      },
+    };
     return {
       reconciliation,
-      contract: {
-        ...common,
-        prospective: {
-          runId: input.runId,
-          observedAt: input.observedAt,
-          changes: reconciliation.changes,
-          outcome: reconciliation.outcome === "current" ? "current" : "would_require_revalidation",
-        },
-      },
+      contract: reconciliation.outcome === "would_require_revalidation"
+        ? withHistory(prospective, {
+          kind: "prospective_change", status: contract.freshness.status, occurredAt: input.observedAt,
+          reasonCode: reconciliation.reasonCode, reason: "A pull request would invalidate the current assurance scope if released.",
+          runId: input.runId, trigger: input.trigger, changedComponents: reconciliation.changes.map((item) => item.component),
+        })
+        : prospective,
     };
   }
   if (reconciliation.outcome === "revalidation_required") {
@@ -204,7 +262,17 @@ export function applyContinuousAssuranceObservation(
       },
       prospective: undefined,
     };
-    return { contract: next, reconciliation };
+    const meaningfulChange = contract.freshness.status !== "REVALIDATION_REQUIRED"
+      || contract.freshness.reasonCode !== reconciliation.reasonCode
+      || contract.freshness.changedComponents.map((item) => item.component).join(",") !== reconciliation.changes.map((item) => item.component).join(",");
+    return {
+      contract: meaningfulChange ? withHistory(next, {
+        kind: "revalidation_required", status: "REVALIDATION_REQUIRED", occurredAt: input.observedAt,
+        reasonCode: reconciliation.reasonCode, reason: next.freshness.reason, runId: input.runId, trigger: input.trigger,
+        changedComponents: reconciliation.changes.map((item) => item.component),
+      }) : next,
+      reconciliation,
+    };
   }
   if (contract.freshness.status !== "CURRENT") {
     return { contract: { ...common, prospective: undefined }, reconciliation };
@@ -220,7 +288,14 @@ export function applyContinuousAssuranceObservation(
     },
     prospective: undefined,
   };
-  return { contract: next, reconciliation };
+  return {
+    contract: withHistory(next, {
+      kind: "current", status: "CURRENT", occurredAt: input.observedAt,
+      reasonCode: "scope_matches", reason: next.freshness.reason, runId: input.runId, trigger: input.trigger,
+      changedComponents: [],
+    }),
+    reconciliation,
+  };
 }
 
 export function forceContinuousAssuranceFreshness(
@@ -230,10 +305,85 @@ export function forceContinuousAssuranceFreshness(
   reason: string,
   now: string,
 ): ContinuousAssuranceContract {
-  return {
+  const next: ContinuousAssuranceContract = {
     ...contract,
     freshness: { status, reasonCode, reason, changedComponents: contract.freshness.changedComponents, evaluatedAt: now },
   };
+  return withHistory(next, {
+    kind: status === "EXPIRED" ? "expired" : status === "SUSPENDED" ? "suspended" : "revalidation_required",
+    status, occurredAt: now, reasonCode, reason,
+    changedComponents: contract.freshness.changedComponents.map((item) => item.component),
+  });
+}
+
+export function buildContinuousAssuranceAdoptionKit(input: {
+  contract: ContinuousAssuranceContract;
+  projectId: string;
+  assuranceCaseId: string;
+  generatedAt: string;
+}): ContinuousAssuranceAdoptionKit {
+  const scopeContent = `${JSON.stringify(JSON.parse(canonicalJson(normalizeAssuranceScope(input.contract.scope))), null, 2)}\n`;
+  const workflowContent = continuousAssuranceWorkflow(input.projectId, input.assuranceCaseId);
+  const readmeContent = continuousAssuranceReadme(input.assuranceCaseId, input.contract.scopeFingerprintSha256);
+  return {
+    schemaVersion: "agentcert.continuous_assurance_kit.v0.1",
+    projectId: input.projectId,
+    assuranceCaseId: input.assuranceCaseId,
+    scopeFingerprintSha256: input.contract.scopeFingerprintSha256,
+    generatedAt: input.generatedAt,
+    requiredSecret: "AGENTCERT_API_KEY",
+    triggerPolicy: { pullRequest: "prospective", release: "authoritative", nightly: "authoritative" },
+    files: [
+      adoptionFile("agentcert.assurance-scope.json", "application/json", scopeContent),
+      adoptionFile(".github/workflows/agentcert-continuous-assurance.yml", "text/yaml", workflowContent),
+      adoptionFile("AGENTCERT-CONTINUOUS-ASSURANCE.md", "text/markdown", readmeContent),
+    ],
+  };
+}
+
+export function markContinuousAssuranceAdopted(
+  contract: ContinuousAssuranceContract,
+  now: string,
+  actorId: string,
+  workflowSha256: string,
+): ContinuousAssuranceContract {
+  if (contract.adoption) return contract;
+  const next: ContinuousAssuranceContract = {
+    ...contract,
+    adoption: {
+      schemaVersion: "agentcert.continuous_assurance_adoption.v0.1",
+      activatedAt: now,
+      activatedBy: actorId,
+      workflowSha256,
+    },
+  };
+  return withHistory(next, {
+    kind: "ci_activated", status: contract.freshness.status, occurredAt: now,
+    reasonCode: "ci_activated", reason: "The continuous assurance CI kit was generated from the issued review.",
+    changedComponents: [],
+  });
+}
+
+export function markContinuousAssuranceExpiryReminder(
+  contract: ContinuousAssuranceContract,
+  thresholdDays: 30 | 7 | 1,
+  now: string,
+): ContinuousAssuranceContract {
+  const sent = contract.reminders?.expiryThresholdDaysSent ?? [];
+  if (sent.includes(thresholdDays)) return contract;
+  const crossedThresholds = ([30, 7, 1] as const).filter((days) => days >= thresholdDays);
+  const next: ContinuousAssuranceContract = {
+    ...contract,
+    reminders: {
+      expiryThresholdDaysSent: [...new Set([...sent, ...crossedThresholds])].sort((left, right) => right - left),
+      lastExpiryReminderAt: now,
+    },
+  };
+  return withHistory(next, {
+    kind: "expiry_warning", status: contract.freshness.status, occurredAt: now,
+    reasonCode: "expiry_warning", reason: `The current assurance expires within ${thresholdDays} day${thresholdDays === 1 ? "" : "s"}.`,
+    changedComponents: [], remainingDays: thresholdDays,
+  });
 }
 
 function emptyContinuousAssuranceMetrics(): ContinuousAssuranceContract["metrics"] {
@@ -244,7 +394,100 @@ function emptyContinuousAssuranceMetrics(): ContinuousAssuranceContract["metrics
     revalidationRequiredCount: 0,
     prospectiveChangeCount: 0,
     triggerCounts: { pull_request: 0, release: 0, nightly: 0 },
+    revalidationStartedCount: 0,
+    revalidationCompletedCount: 0,
+    totalRevalidationDurationMs: 0,
   };
+}
+
+function normalizedMetrics(metrics: ContinuousAssuranceMetrics): ContinuousAssuranceMetrics {
+  return {
+    ...metrics,
+    triggerCounts: {
+      pull_request: metrics.triggerCounts?.pull_request ?? 0,
+      release: metrics.triggerCounts?.release ?? 0,
+      nightly: metrics.triggerCounts?.nightly ?? 0,
+    },
+    revalidationStartedCount: metrics.revalidationStartedCount ?? 0,
+    revalidationCompletedCount: metrics.revalidationCompletedCount ?? 0,
+    totalRevalidationDurationMs: metrics.totalRevalidationDurationMs ?? 0,
+  };
+}
+
+function withHistory(contract: ContinuousAssuranceContract, event: ContinuousAssuranceHistoryEvent): ContinuousAssuranceContract {
+  const history = [...(contract.history ?? []), event];
+  const overflow = Math.max(0, history.length - HISTORY_LIMIT);
+  const historyTruncated = (contract.historyTruncated ?? 0) + overflow;
+  return {
+    ...contract,
+    history: overflow ? history.slice(overflow) : history,
+    historyTruncated: historyTruncated || undefined,
+  };
+}
+
+function adoptionFile(
+  path: string,
+  contentType: "application/json" | "text/yaml" | "text/markdown",
+  content: string,
+) {
+  return { path, contentType, content, sha256: createHash("sha256").update(content).digest("hex") };
+}
+
+function continuousAssuranceWorkflow(projectId: string, assuranceCaseId: string): string {
+  return [
+    "name: AgentCert continuous assurance",
+    "",
+    "on:",
+    "  pull_request:",
+    "  push:",
+    "    branches: [main]",
+    "  schedule:",
+    "    - cron: \"17 6 * * *\"",
+    "  workflow_dispatch:",
+    "",
+    "permissions:",
+    "  contents: read",
+    "",
+    "jobs:",
+    "  assurance:",
+    "    runs-on: ubuntu-latest",
+    "    timeout-minutes: 20",
+    "    env:",
+    "      AGENTCERT_BASE_URL: https://agentcert.app",
+    `      AGENTCERT_PROJECT_ID: ${projectId}`,
+    "      AGENTCERT_API_KEY: ${{ secrets.AGENTCERT_API_KEY }}",
+    "    steps:",
+    "      - uses: actions/checkout@v7",
+    "      - uses: Kakarottoooo/agentcert/actions/tripwire@v0",
+    "        with:",
+    "          config: tripwire.yml",
+    "          pull-request-config: tripwire.yml",
+    "          release-config: tripwire.yml",
+    "          nightly-config: tripwire.yml",
+    "          push-hosted: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}",
+    `          assurance-case: ${assuranceCaseId}`,
+    "          assurance-scope: agentcert.assurance-scope.json",
+    "          assurance-trigger: auto",
+    "",
+  ].join("\n");
+}
+
+function continuousAssuranceReadme(assuranceCaseId: string, fingerprint: string): string {
+  return [
+    "# AgentCert Continuous Assurance",
+    "",
+    `Assurance case: \`${assuranceCaseId}\``,
+    `Scope fingerprint: \`${fingerprint}\``,
+    "",
+    "1. Add the generated files at their exact repository paths.",
+    "2. Add `AGENTCERT_API_KEY` as a GitHub Actions repository secret.",
+    "3. Keep `tripwire.yml` deterministic and committed. The generated workflow selects PR, release, and nightly modes explicitly; replace each layered config path when the suites diverge.",
+    "   Fork pull requests run the local prospective gate without receiving or using the Hosted API key.",
+    "4. Open a pull request to verify prospective drift, merge to run the authoritative release check, and keep the nightly schedule enabled.",
+    "",
+    "A changed agent, model, prompt, tool manifest, policy, or scenario suite requires a new signed revalidation case.",
+    "",
+  ].join("\n");
 }
 
 function digest(value: unknown): string {

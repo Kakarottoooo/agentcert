@@ -115,6 +115,11 @@ if (process.argv[2] === "cleanup-evidence") {
     integerEnv("AGENTCERT_NOTIFICATION_WORKER_INTERVAL_MS", 5_000),
     integerEnv("AGENTCERT_NOTIFICATION_WORKER_BATCH", 20),
   );
+  scheduleContinuousAssuranceMaintenance(
+    service,
+    integerEnv("AGENTCERT_ASSURANCE_MAINTENANCE_INTERVAL_MS", 6 * 60 * 60 * 1000),
+    integerEnv("AGENTCERT_ASSURANCE_MAINTENANCE_BATCH", 200),
+  );
 }
 
 function localCoordination(limit: number, windowMs: number): CoordinationRuntime {
@@ -177,6 +182,26 @@ function scheduleEvidenceCleanup(service: AgentCertControlPlane, intervalMs: num
     }
   };
   setTimeout(() => void run(), 1_000).unref();
+  setInterval(() => void run(), intervalMs).unref();
+}
+
+function scheduleContinuousAssuranceMaintenance(service: AgentCertControlPlane, intervalMs: number, batchSize: number): void {
+  let running = false;
+  const run = async () => {
+    if (running) return;
+    running = true;
+    try {
+      const result = await service.processContinuousAssuranceMaintenance(new Date(), batchSize);
+      if (result.remindersQueued > 0 || result.expired > 0 || result.failed > 0) {
+        process.stdout.write(`${JSON.stringify({ event: "continuous_assurance_maintenance", ...result })}\n`);
+      }
+    } catch (error) {
+      process.stderr.write(`${JSON.stringify({ event: "continuous_assurance_maintenance_failed", message: error instanceof Error ? error.message : String(error) })}\n`);
+    } finally {
+      running = false;
+    }
+  };
+  setTimeout(() => void run(), 1_500).unref();
   setInterval(() => void run(), intervalMs).unref();
 }
 

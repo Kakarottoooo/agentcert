@@ -116,7 +116,7 @@ describe("hosted signup recovery", () => {
 describe("hosted run analysis", () => {
   it("loads a period-bounded platform pilot report", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      schemaVersion: "agentcert.pilot_funnel.v0.1", periodDays: 30, stages: [], projects: [],
+      schemaVersion: "agentcert.pilot_funnel.v0.2", periodDays: 30, stages: [], projects: [],
     }), { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
 

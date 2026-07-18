@@ -40,6 +40,25 @@ npx agentcert schema validate \
 `Start revalidation` creates a successor draft using the last observed scope.
 The old case, report, decision ledger, and attestation remain immutable.
 
+## One-click adoption from a 7-Day Review
+
+An issued, signed, `CURRENT` 7-Day Review exposes **Generate continuous CI
+kit** in the Hosted workspace. The deterministic kit contains exactly:
+
+- `agentcert.assurance-scope.json`, the canonical reviewed scope;
+- `.github/workflows/agentcert-continuous-assurance.yml`, the three-layer CI
+  workflow; and
+- `AGENTCERT-CONTINUOUS-ASSURANCE.md`, installation and invalidation notes.
+
+The kit contains only project and assurance-case identifiers. It references
+`AGENTCERT_API_KEY` as a GitHub Actions secret and never includes the secret.
+Generating the kit is idempotent and records the workflow SHA-256 in the
+contract history.
+
+After a successor revalidation is independently issued, generate the kit again
+from that successor. The replacement workflow binds future runs to the new
+case while preserving the original report and lineage.
+
 ## Trigger policy
 
 - **Pull request:** quick, prospective. Drift is shown as “would require
@@ -72,13 +91,38 @@ npx agentcert run --config agentcert.config.json --push \
 
 `auto` maps GitHub pull requests to `pull_request`, schedules to `nightly`, and
 push/release/manual workflows to `release`. The Hosted workspace shows current
-status, cause, changed components, last run, pass rate, and trigger counts.
-Verified recipients can subscribe to status changes, and signed webhooks emit:
+status, cause, changed components, expiry, history, trigger counts, and
+completed revalidation-cycle duration. It sends threshold-tracked 30-day,
+7-day, and 1-day expiry warnings through the existing durable email and
+signed-webhook queues. Delivery is at least once: consumers should deduplicate
+signed webhook events by event ID. Verified recipients can subscribe to status changes, and signed
+webhooks emit:
 
 - `assurance.current`
 - `assurance.revalidation_required`
 - `assurance.suspended`
 - `assurance.expired`
+- `assurance.expiry_warning`
+
+History is bounded to the latest 500 state events, with the number of compacted
+older events retained. A revalidation successor inherits the history and
+records start, completion, and elapsed time without rewriting the signed source
+report.
+
+## Adoption metrics
+
+The administrative pilot funnel ends at **First CURRENT**, not first upload.
+"Install" is defined as the first authenticated CLI use of a project API key.
+AgentCert measures install-to-first-CURRENT and project-to-first-CURRENT from
+operational records already stored by the control plane; it does not create a
+separate analytics identity or event stream.
+
+The independent public
+[continuous assurance canary](https://github.com/Kakarottoooo/agentcert-continuous-assurance-canary)
+runs daily and on every change using only the public npm package, hosted health
+endpoint, and `Kakarottoooo/agentcert/actions/tripwire@v0`. It deliberately has
+no hosted API key, so it validates distribution and deterministic regression
+behavior without becoming a customer credential holder.
 
 ## What continuity proves
 

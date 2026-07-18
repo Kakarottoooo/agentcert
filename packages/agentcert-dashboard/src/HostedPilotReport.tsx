@@ -11,6 +11,7 @@ const stageLabels: Record<HostedPilotFunnelReport["stages"][number]["id"], strin
   key_created: "Key created",
   cli_connected: "CLI connected",
   first_evidence: "First evidence",
+  first_current: "First CURRENT",
 };
 
 export default function HostedPilotReport({ session }: { session: HostedSession }) {
@@ -47,7 +48,8 @@ export default function HostedPilotReport({ session }: { session: HostedSession 
         <Metric label="Project to key" value={duration(report.timing.medianProjectToKeyMs)} />
         <Metric label="Key to CLI" value={duration(report.timing.medianKeyToConnectionMs)} />
         <Metric label="CLI to evidence" value={duration(report.timing.medianConnectionToEvidenceMs)} />
-        <Metric label="Total onboarding" value={duration(report.timing.medianProjectToEvidenceMs)} />
+        <Metric label="Install to CURRENT" value={duration(report.timing.medianInstallToCurrentMs)} />
+        <Metric label="Project to CURRENT" value={duration(report.timing.medianProjectToCurrentMs)} />
         <Metric label="Friction reports" value={String(report.feedback.friction)} detail="cohort total" />
       </div>
       <div className="pilot-report-columns">

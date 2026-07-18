@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.app/schemas/agentcert-continuous-assurance-kit-v0.1.json",
+  "title": "AgentCert Continuous Assurance Adoption Kit v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "projectId", "assuranceCaseId", "scopeFingerprintSha256", "generatedAt", "requiredSecret", "triggerPolicy", "files"],
+  "properties": {
+    "schemaVersion": { "const": "agentcert.continuous_assurance_kit.v0.1" },
+    "projectId": { "type": "string", "format": "uuid" },
+    "assuranceCaseId": { "type": "string", "format": "uuid" },
+    "scopeFingerprintSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "requiredSecret": { "const": "AGENTCERT_API_KEY" },
+    "triggerPolicy": {
+      "type": "object", "additionalProperties": false, "required": ["pullRequest", "release", "nightly"],
+      "properties": {
+        "pullRequest": { "const": "prospective" },
+        "release": { "const": "authoritative" },
+        "nightly": { "const": "authoritative" }
+      }
+    },
+    "files": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["path", "contentType", "sha256", "content"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "contentType": { "enum": ["application/json", "text/yaml", "text/markdown"] },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "content": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

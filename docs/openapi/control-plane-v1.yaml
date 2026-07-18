@@ -160,6 +160,11 @@ paths:
       parameters: [{$ref: "#/components/parameters/ProjectId"}]
       responses:
         "200": { description: Pilot feedback records }
+    post:
+      summary: Record a project member's onboarding friction or completion signal
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses:
+        "201": { description: Feedback recorded }
   /v1/projects/{projectId}/assurance-cases:
     get:
       summary: List scoped assurance cases visible to the project
@@ -187,7 +192,7 @@ paths:
       parameters:
         - {$ref: "#/components/parameters/ProjectId"}
         - {in: path, name: caseId, required: true, schema: {type: string, format: uuid}}
-        - {in: path, name: transition, required: true, schema: {enum: [start, baseline, remediation, retest, submit, return, issue, suspend, revoke, expire, resume, revalidate]}}
+        - {in: path, name: transition, required: true, schema: {enum: [start, baseline, remediation, retest, submit, return, issue, suspend, revoke, expire, resume, revalidate, activate-continuous]}}
       requestBody:
         required: true
         content: {application/json: {schema: {$ref: "#/components/schemas/AssuranceTransitionInput"}}}
@@ -196,11 +201,6 @@ paths:
         "403": {description: Human role or independent reviewer separation required}
         "409": {description: Invalid or concurrent lifecycle transition}
         "422": {description: Required project evidence is missing}
-    post:
-      summary: Record a project member's onboarding friction or completion signal
-      parameters: [{$ref: "#/components/parameters/ProjectId"}]
-      responses:
-        "201": { description: Feedback recorded }
   /v1/projects/{projectId}/overview:
     get:
       summary: Read operational counts and recent activity
@@ -549,7 +549,7 @@ paths:
       parameters:
         - {in: query, name: days, required: false, schema: {type: integer, enum: [7, 30, 90], default: 30}}
       responses:
-        "200": {description: AgentCert pilot funnel v0.1 report}
+        "200": {description: AgentCert pilot funnel v0.2 report ending at first CURRENT}
         "403": {description: Platform administrator access required}
         "422": {description: Unsupported reporting period}
   /v1/admin/legal-hold-requests/{requestId}/{decision}:
