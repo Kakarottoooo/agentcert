@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import {
   loadHostedEvidenceBlob,
   loadHostedEvidenceDocument,
@@ -13,7 +13,6 @@ import {
 import {
   FAILURE_TYPES,
   artifactPointers,
-  eventMessage,
   findingsForBundle,
   firstDivergence,
   matchesUploadedArtifact,
@@ -84,7 +83,7 @@ export default function HostedRunsView({ runs, project, session }: { runs: Hoste
         {loading || !analysis || analysis.run.id !== selectedRun?.id ? <div className="analysis-loading">Loading run evidence...</div> : <>
           <RunSummary analysis={analysis} bundle={bundle} divergence={divergence} />
           <div className="analysis-grid">
-            <TimelinePanel analysis={analysis} />
+            <TracePanel analysis={analysis} />
             <BundlePanel bundle={bundle} />
           </div>
           <TaxonomyReviewPanel
@@ -113,6 +112,8 @@ function RunSummary({ analysis, bundle, divergence }: { analysis: HostedRunAnaly
       <div><dt>Score</dt><dd>{score(run.score ?? bundle?.verdict.score)}</dd></div>
       <div><dt>Evidence strength</dt><dd>{label(bundle?.evidenceStrength?.level ?? "reported")}</dd></div>
       <div><dt>Events</dt><dd>{analysis.events.length}</dd></div>
+      <div><dt>Actions</dt><dd>{analysis.observability.risk.totalActions}</dd></div>
+      <div><dt>Trace integrity</dt><dd>{analysis.observability.complete ? "Complete" : "Needs attention"}</dd></div>
       <div><dt>Evidence</dt><dd>{completeness.evidenceCount} · {compactBytes(completeness.bytesUsed)}</dd></div>
       <div><dt>Completeness</dt><dd>{label(completeness.status)}</dd></div>
       <div><dt>Manifest</dt><dd>{completeness.reconciliation.legacy ? "Legacy" : `${completeness.reconciliation.matched}/${completeness.reconciliation.declared} matched`}</dd></div>
@@ -123,11 +124,20 @@ function RunSummary({ analysis, bundle, divergence }: { analysis: HostedRunAnaly
   </section>;
 }
 
-function TimelinePanel({ analysis }: { analysis: HostedRunAnalysis }) {
-  return <section className="data-section evidence-timeline-section"><RunSectionTitle title="Behavior timeline" caption={`${analysis.events.length} ordered events from the agent or runner`} />
-    <div className="hosted-timeline">
-      {analysis.events.map((event) => <div className={timelineClass(event.type)} key={event.id}><i /><div><header><strong>{event.type}</strong><span>#{event.sequence} · {compactTime(event.occurredAt)}</span></header><p>{eventMessage(event)}</p><small>{event.actor}</small></div></div>)}
-      {analysis.events.length === 0 ? <div className="hosted-empty">No step events were uploaded for this run.</div> : null}
+function TracePanel({ analysis }: { analysis: HostedRunAnalysis }) {
+  const trace = analysis.observability;
+  const byId = new Map(trace.spans.map((span) => [span.id, span]));
+  return <section className="data-section evidence-timeline-section"><RunSectionTitle title="Unified trace" caption={`${trace.spans.length} correlated run, event, action, approval, and evidence spans`} />
+    <div className="trace-risk-strip">
+      <span><small>Max risk</small><strong>{trace.risk.maxRiskLevel}</strong></span>
+      <span><small>Policy blocks</small><strong>{trace.risk.deniedActions}</strong></span>
+      <span><small>Approvals</small><strong>{trace.risk.approvedActions}/{trace.risk.approvalRequiredActions}</strong></span>
+      <span><small>Outcome gaps</small><strong>{trace.risk.verificationFailures}</strong></span>
+    </div>
+    {trace.diagnostics.length ? <div className="trace-diagnostics"><strong>Trace integrity needs attention</strong>{trace.diagnostics.map((item) => <p key={item.code}><code>{item.code}</code>{item.message}{item.values?.length ? ` (${item.values.join(", ")})` : ""}</p>)}</div> : null}
+    <div className="hosted-timeline trace-timeline">
+      {trace.spans.map((span) => <div className={`trace-${span.status}`} key={span.id} style={{ "--trace-depth": traceDepth(span.id, byId) } as CSSProperties}><i /><div><header><strong>{span.name}</strong><span>{span.sequence === undefined ? span.entityType : `#${span.sequence}`} | {compactTime(span.startedAt)}</span></header><p>{traceSpanSummary(span)}</p><small>{span.actor}{span.durationMs === undefined ? "" : ` | ${formatDuration(span.durationMs)}`}</small></div></div>)}
+      {trace.spans.length === 0 ? <div className="hosted-empty">No trace spans were recorded for this run.</div> : null}
     </div>
   </section>;
 }
@@ -257,12 +267,28 @@ async function downloadArtifact(evidence: HostedEvidence, project: HostedProject
 
 function RunSectionTitle({ title, caption }: { title: string; caption: string }) { return <div className="section-title"><h2>{title}</h2><p>{caption}</p></div>; }
 function RunStatus({ value }: { value: string }) { return <span className={`hosted-status ${value.toLowerCase().replace(/_/g, "-")}`}>{value.replace(/_/g, " ")}</span>; }
-function timelineClass(type: string): string {
-  if (/fail|error|diverg|inject/i.test(type)) return "failure";
-  if (/network|http|request/i.test(type)) return "network";
-  if (/page|dom|screen/i.test(type)) return "page";
-  return "action";
+type HostedTraceSpan = HostedRunAnalysis["observability"]["spans"][number];
+function traceDepth(id: string, spans: Map<string, HostedTraceSpan>): number {
+  let depth = 0;
+  let current = spans.get(id);
+  const visited = new Set<string>();
+  while (current?.parentId && depth < 5 && !visited.has(current.parentId)) {
+    visited.add(current.parentId);
+    current = spans.get(current.parentId);
+    if (current) depth += 1;
+  }
+  return depth;
 }
+function traceSpanSummary(span: HostedTraceSpan): string {
+  const attributes = span.attributes;
+  if (typeof attributes.message === "string") return attributes.message;
+  if (Array.isArray(attributes.reasons)) return attributes.reasons.filter((item): item is string => typeof item === "string").join(" ") || "Policy decision recorded.";
+  if (typeof attributes.summary === "string") return attributes.summary;
+  if (typeof attributes.fileName === "string") return `${attributes.fileName} | ${attributes.sizeBytes ?? 0} bytes`;
+  if (typeof attributes.decision === "string") return `Decision: ${attributes.decision}${typeof attributes.status === "string" ? ` | ${attributes.status}` : ""}`;
+  return `${span.entityType} observation`;
+}
+function formatDuration(ms: number): string { return ms < 1_000 ? `${ms} ms` : `${(ms / 1_000).toFixed(ms < 10_000 ? 1 : 0)} s`; }
 function splitSignals(value: string): string[] { return value.split(";").map((item) => item.trim()).filter(Boolean); }
 function unique(values: string[]): string[] { return [...new Set(values)].sort(); }
 function label(value: string): string { return value.replace(/_/g, " "); }

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { MemoryArtifactStore } from "../src/artifacts.js";
-import { markContinuousAssuranceCurrent } from "../src/continuous-assurance.js";
+import { applyContinuousAssuranceObservation, markContinuousAssuranceCurrent } from "../src/continuous-assurance.js";
 import type { EvidenceGovernancePolicy } from "../src/evidence-governance.js";
 import { AgentCertControlPlane, ControlPlaneError } from "../src/service.js";
 import { InMemoryControlPlaneStore } from "../src/store.js";
@@ -103,9 +103,21 @@ describe("AgentCertControlPlane", () => {
       },
     });
     const firstCurrentAt = new Date(Date.now() + 1_000).toISOString();
+    const issuedContract = markContinuousAssuranceCurrent(assuranceCase.continuousAssurance!, firstCurrentAt);
+    const activatedContract = {
+      ...issuedContract,
+      adoption: {
+        schemaVersion: "agentcert.continuous_assurance_adoption.v0.1" as const,
+        activatedAt: firstCurrentAt, activatedBy: user.userId, workflowSha256: "f".repeat(64),
+      },
+    };
+    const operationalCurrent = applyContinuousAssuranceObservation(activatedContract, {
+      observed: activatedContract.scope, trigger: "release", runStatus: "passed", runId: "first-hosted-release",
+      observedAt: new Date(Date.parse(firstCurrentAt) + 1_000).toISOString(),
+    }).contract;
     await store.updateAssuranceCase({
       ...assuranceCase,
-      continuousAssurance: markContinuousAssuranceCurrent(assuranceCase.continuousAssurance!, firstCurrentAt),
+      continuousAssurance: operationalCurrent,
       updatedAt: firstCurrentAt,
     }, assuranceCase.status, assuranceCase.updatedAt);
     await service.submitPilotFeedback(user, keyOnly.id, {

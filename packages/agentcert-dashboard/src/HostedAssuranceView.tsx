@@ -262,6 +262,7 @@ function ContinuousAssurancePanel({ assuranceCase, busy, revalidate, activate }:
       <div><span>Last checked</span><strong>{metrics.lastEvaluationAt ? new Date(metrics.lastEvaluationAt).toLocaleString() : "At issuance"}</strong></div>
       <div><span>Revalidation cycles</span><strong>{revalidationCompletedCount} / {revalidationStartedCount}</strong></div>
       <div><span>Average cycle</span><strong>{compactMilliseconds(averageRevalidationMs)}</strong></div>
+      <div><span>Install to first CURRENT</span><strong>{contract.adoption?.firstAuthoritativeCurrentAt ? compactMilliseconds(contract.adoption.timeToFirstCurrentMs) : contract.adoption ? "Awaiting authoritative run" : "Not installed"}</strong></div>
     </div>
     <dl className="assurance-scope-grid">
       <div><dt>Agent</dt><dd>{contract.scope.agent.id} @ {contract.scope.agent.version}</dd></div>

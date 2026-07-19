@@ -319,11 +319,21 @@ paths:
       responses: {"200": {description: Run detail}}
   /v1/projects/{projectId}/runs/{runId}/analysis:
     get:
-      summary: Read the unified run, event, evidence, incident, and human-review workspace
+      summary: Read the unified run, trace, action, approval, evidence, incident, and human-review workspace
       parameters:
         - {$ref: "#/components/parameters/ProjectId"}
         - {$ref: "#/components/parameters/RunId"}
       responses: {"200": {description: Project-scoped run analysis}}
+  /v1/projects/{projectId}/observability:
+    get:
+      summary: Read a bounded assurance observability window
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: query, name: days, required: false, schema: {type: integer, enum: [7, 30, 90], default: 30}}
+      responses:
+        "200": {description: Run, fault, policy, approval, risk, and outcome aggregates with explicit truncation flags}
+        "403": {description: The caller lacks runs:read or actions:read}
+        "422": {description: Unsupported observation period}
   /v1/projects/{projectId}/runs/{runId}/failure-reviews:
     post:
       summary: Human-confirm or correct a generated failure taxonomy label

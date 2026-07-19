@@ -2,6 +2,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { MemoryArtifactStore } from "../src/artifacts.js";
 import {
+  applyContinuousAssuranceObservation,
   assuranceScopeFingerprint,
   buildContinuousAssuranceAdoptionKit,
   compareAssuranceScopes,
@@ -86,6 +87,11 @@ describe("continuous assurance scope", () => {
     expect(workflow).toContain("pull_request:");
     expect(workflow).toContain("schedule:");
     expect(workflow).toContain("assurance-trigger: auto");
+    expect(workflow).toContain("require-current: auto");
+    expect(workflow).toContain("continuous-assurance-health.json");
+    expect(workflow).toContain("agentcert.generated_kit_health.v0.1");
+    expect(workflow).toContain("agentcert-generated-kit-health");
+    expect(workflow).toContain("publicHealth.status !== 'CURRENT'");
     expect(workflow).toContain("${{ secrets.AGENTCERT_API_KEY }}");
     expect(workflow).not.toMatch(/ac_(?:live|test)_/);
 
@@ -103,6 +109,36 @@ describe("continuous assurance scope", () => {
       },
     });
     expect(current.history?.map((event) => event.kind)).toEqual(expect.arrayContaining(["contract_created", "current", "revalidation_started"]));
+  });
+
+  it("measures first CURRENT from kit activation only after an authoritative Hosted run", () => {
+    const issuedAt = "2026-07-18T00:00:00.000Z";
+    const activatedAt = "2026-07-18T00:02:00.000Z";
+    const baseline = markContinuousAssuranceCurrent(createContinuousAssuranceContract(scope, issuedAt), issuedAt);
+    const adopted = {
+      ...baseline,
+      adoption: {
+        schemaVersion: "agentcert.continuous_assurance_adoption.v0.1" as const,
+        activatedAt, activatedBy: owner.userId, workflowSha256: "f".repeat(64),
+      },
+    };
+    const prospective = applyContinuousAssuranceObservation(adopted, {
+      observed: scope, trigger: "pull_request", runStatus: "passed", runId: "pr-1", observedAt: "2026-07-18T00:03:00.000Z",
+    }).contract;
+    expect(prospective.adoption?.firstAuthoritativeCurrentAt).toBeUndefined();
+
+    const release = applyContinuousAssuranceObservation(prospective, {
+      observed: scope, trigger: "release", runStatus: "passed", runId: "release-1", observedAt: "2026-07-18T00:07:00.000Z",
+    }).contract;
+    expect(release.adoption).toMatchObject({
+      firstAuthoritativeCurrentAt: "2026-07-18T00:07:00.000Z",
+      firstAuthoritativeRunId: "release-1",
+      timeToFirstCurrentMs: 300_000,
+    });
+    const nightly = applyContinuousAssuranceObservation(release, {
+      observed: scope, trigger: "nightly", runStatus: "passed", runId: "nightly-1", observedAt: "2026-07-19T00:00:00.000Z",
+    }).contract;
+    expect(nightly.adoption?.firstAuthoritativeRunId).toBe("release-1");
   });
 
   it("queues each expiry threshold once and expires the case through scheduled maintenance", async () => {

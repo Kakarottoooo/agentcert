@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { pushEvidenceToControlPlane, verifyControlPlaneConnection } from "../src/control-plane.js";
+import {
+  loadContinuousAssuranceHealth,
+  pushEvidenceToControlPlane,
+  requireContinuousAssuranceCurrent,
+  verifyControlPlaneConnection,
+} from "../src/control-plane.js";
 import type { AgentCertBundle } from "../src/types.js";
 
 const bundle: AgentCertBundle = {
@@ -98,6 +103,7 @@ describe("hosted evidence push", () => {
       "https://agentcert.example.com/v1/projects/project-1/runs",
       "https://agentcert.example.com/v1/projects/project-1/runs/hosted-run-1/events",
       expect.stringContaining("https://agentcert.example.com/v1/projects/project-1/evidence?"),
+      "https://agentcert.example.com/v1/projects/project-1/runs/hosted-run-1/events",
       "https://agentcert.example.com/v1/projects/project-1/runs/hosted-run-1/complete",
     ]);
     const uploadedBundle = JSON.parse(new TextDecoder().decode(new Uint8Array(calls[2].init?.body as ArrayBuffer)));
@@ -105,7 +111,7 @@ describe("hosted evidence push", () => {
       runId: bundle.runId,
       artifactManifest: { schemaVersion: "agentcert.artifact_manifest.v0.1", entries: [] },
     });
-    expect(JSON.parse(String(calls[3].init?.body))).toMatchObject({
+    expect(JSON.parse(String(calls[4].init?.body))).toMatchObject({
       status: "failed",
       score: 0.6,
       firstDivergence: "Clicked Cancel instead of Submit.",
@@ -178,10 +184,9 @@ describe("hosted evidence push", () => {
       schemaVersion: "agentcert.artifact_manifest.v0.1",
       entries: [{ path: "screenshots/step-1.png", sizeBytes: screenshot.byteLength, kind: "screenshot" }],
     });
-    const artifactEvent = calls.find((call) => String(call.init?.body).includes("agentcert.companion_artifacts.processed"));
+    const artifactEvent = calls.find((call) => String(call.init?.body).includes("agentcert.evidence.uploaded"));
     expect(JSON.parse(String(artifactEvent?.init?.body))).toMatchObject({
       events: [{
-        sequence: 1,
         payload: {
           uploadedCount: 1,
           skippedCount: 1,
@@ -257,6 +262,94 @@ describe("hosted evidence push", () => {
       evidenceBytes: new Uint8Array(),
       fetch: request as typeof fetch,
     })).rejects.toThrow("API key is invalid.");
+  });
+
+  it("asserts the Hosted run, assurance reconciliation, and evidence integrity together", async () => {
+    const request = vi.fn(async () => jsonResponse(200, {
+      run: {
+        id: "hosted-run-1", externalId: "release-42", status: "passed",
+        metadata: { continuousAssurance: {
+          caseId: "case-1", trigger: "release", scopeFingerprintSha256: "a".repeat(64),
+          reconciliation: {
+            outcome: "current", authoritative: true, nextStatus: "CURRENT",
+            firstAuthoritativeCurrentAt: "2026-07-18T00:05:00.000Z", timeToFirstCurrentMs: 300_000,
+          },
+        } },
+      },
+      evidenceCompleteness: {
+        status: "complete", reasons: [], reconciliation: { declared: 2, matched: 2 },
+      },
+    }));
+
+    const health = await loadContinuousAssuranceHealth({
+      baseUrl: "https://agentcert.example.com", projectId: "project-1", apiKey: "ac_live_ci",
+      runId: "hosted-run-1", expectedCaseId: "case-1", expectedScopeFingerprintSha256: "a".repeat(64),
+      fetch: request as typeof fetch,
+    });
+
+    expect(health).toMatchObject({
+      schemaVersion: "agentcert.continuous_assurance_health.v0.1", healthy: true, status: "CURRENT",
+      assurance: { authoritative: true, outcome: "current", timeToFirstCurrentMs: 300_000 },
+      evidence: { status: "complete", declared: 2, matched: 2 }, diagnostics: [],
+    });
+    expect(() => requireContinuousAssuranceCurrent(health)).not.toThrow();
+  });
+
+  it("uploads bounded product semantics with stable trace context", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const request = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input); calls.push({ url, init });
+      if (url.endsWith("/runs")) return jsonResponse(201, { id: "hosted-run-1" });
+      if (url.includes("/evidence?")) return jsonResponse(201, { id: "hosted-evidence-1" });
+      return jsonResponse(200, {});
+    });
+    const observed: AgentCertBundle = {
+      ...bundle,
+      results: [{
+        schemaVersion: "1", product: "tripwire-ci", runId: "tripwire-source-1", timestamp: bundle.generatedAt,
+        phase: "pre-release", score: 50, passed: false, artifacts: {},
+        evidence: [{ id: "fault-1", kind: "prompt_injection", severity: "high", message: "Agent followed page-level instructions.", metadata: { apiKey: "must-not-upload" } }],
+      }],
+    };
+    await pushEvidenceToControlPlane({
+      baseUrl: "https://agentcert.example.com", projectId: "project-1", apiKey: "ac_live_secret",
+      bundle: observed, evidenceBytes: new TextEncoder().encode("{}"), fetch: request as typeof fetch,
+    });
+    const runBody = JSON.parse(String(calls[0]?.init?.body));
+    expect(runBody.traceId).toMatch(/^[a-f0-9]{32}$/);
+    expect(runBody.rootSpanId).toMatch(/^[a-f0-9]{16}$/);
+    const eventBody = JSON.parse(String(calls[1]?.init?.body));
+    expect(eventBody.events.map((event: { type: string }) => event.type)).toEqual([
+      "agentcert.run.started", "agentcert.product.result", "tripwire.fault.assertion", "agentcert.run.evaluated",
+    ]);
+    expect(eventBody.events.every((event: { traceId: string }) => event.traceId === runBody.traceId)).toBe(true);
+    expect(JSON.stringify(eventBody)).not.toContain("must-not-upload");
+    expect(JSON.stringify(eventBody)).toContain("[REDACTED]");
+  });
+
+  it("returns actionable diagnostics instead of treating partial Hosted state as CURRENT", async () => {
+    const request = vi.fn(async () => jsonResponse(200, {
+      run: {
+        id: "hosted-run-2", externalId: "pr-42", status: "failed",
+        metadata: { continuousAssurance: {
+          caseId: "case-1", trigger: "pull_request", scopeFingerprintSha256: "a".repeat(64),
+          reconciliation: { outcome: "would_require_revalidation", authoritative: false, nextStatus: "CURRENT" },
+        } },
+      },
+      evidenceCompleteness: {
+        status: "partial", reasons: ["trace.json is missing"], reconciliation: { declared: 1, matched: 0 },
+      },
+    }));
+    const health = await loadContinuousAssuranceHealth({
+      baseUrl: "https://agentcert.example.com", projectId: "project-1", apiKey: "ac_live_ci", runId: "hosted-run-2",
+      expectedCaseId: "case-1", expectedScopeFingerprintSha256: "a".repeat(64), fetch: request as typeof fetch,
+    });
+
+    expect(health.healthy).toBe(false);
+    expect(health.diagnostics.map((item) => item.code)).toEqual(expect.arrayContaining([
+      "non_authoritative_trigger", "assurance_not_current", "run_not_passed", "evidence_incomplete",
+    ]));
+    expect(() => requireContinuousAssuranceCurrent(health)).toThrow("Hosted continuous assurance did not reach CURRENT");
   });
 });
 

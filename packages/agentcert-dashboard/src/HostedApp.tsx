@@ -28,6 +28,7 @@ import {
   loadRetentionReport,
   loadOverview,
   loadHostedOperations,
+  loadHostedObservability,
   loadAuthProfile,
   readHostedAuthCallbackError,
   readHostedSession,
@@ -59,6 +60,7 @@ import {
   type HostedIncident,
   type HostedOverview,
   type HostedOperations,
+  type HostedObservability,
   type HostedOnboardingStatus,
   type HostedProject,
   type HostedRun,
@@ -95,6 +97,7 @@ interface ConsoleData {
   incidents: HostedIncident[];
   evidence: HostedEvidence[];
   assuranceCases: HostedAssuranceCase[];
+  observability: HostedObservability;
 }
 
 export default function HostedApp({ config }: { config: HostedConfig }) {
@@ -240,12 +243,12 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
     if (!project) return;
     setLoading(true); setError(undefined);
     try {
-      const [overview, operations, agents, runs, actions, incidents, evidence, assuranceCases, nextOnboarding] = await Promise.all([
-        loadOverview(session, project.id), loadHostedOperations(session, project.id), loadHostedAgents(session, project.id), loadHostedRuns(session, project.id),
-        loadHostedActions(session, project.id), loadHostedIncidents(session, project.id), loadHostedEvidence(session, project.id), loadHostedAssuranceCases(session, project.id),
+      const [overview, operations, observability, agents, runs, actions, incidents, evidence, assuranceCases, nextOnboarding] = await Promise.all([
+        loadOverview(session, project.id), loadHostedOperations(session, project.id), loadHostedObservability(session, project.id), loadHostedAgents(session, project.id),
+        loadHostedRuns(session, project.id), loadHostedActions(session, project.id), loadHostedIncidents(session, project.id), loadHostedEvidence(session, project.id), loadHostedAssuranceCases(session, project.id),
         loadHostedOnboarding(session, project.id),
       ]);
-      setData({ overview, operations, agents, runs, actions, incidents, evidence, assuranceCases });
+      setData({ overview, operations, observability, agents, runs, actions, incidents, evidence, assuranceCases });
       setOnboarding(nextOnboarding);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setLoading(false); }
@@ -401,6 +404,7 @@ function HostedOverviewView({ data, project, session, onboarding, refresh, onNav
       <AlertSummary label="Evidence signing" alert={data.operations.alerts.signing} />
     </section>
     <OperationsTrends operations={data.operations} />
+    <AssuranceObservability snapshot={data.observability} onReviewRuns={() => onNavigate("runs")} />
     <section className="control-metrics">
       <ControlMetric label="Registered agents" value={summary.agents} />
       <ControlMetric label="Recent runs" value={summary.runs} detail={`${summary.passingRuns} passing`} />
@@ -418,6 +422,26 @@ function HostedOverviewView({ data, project, session, onboarding, refresh, onNav
     <section className="operations-band"><div><SectionTitle title="Runtime queue" caption="Actions waiting for a human decision" /><ActionRows actions={data.actions.filter((action) => action.status === "PENDING_APPROVAL").slice(0, 5)} /></div><div><SectionTitle title="Active incidents" caption="Open, investigating, and recovered incidents" /><IncidentRows incidents={data.incidents.filter((incident) => incident.status !== "resolved").slice(0, 5)} /></div></section>
     <section className="data-section"><SectionTitle title="Recent runs" caption="Pre-release and runtime assurance activity" /><RunsTable runs={data.runs.slice(0, 8)} /></section>
   </>;
+}
+
+function AssuranceObservability({ snapshot, onReviewRuns }: { snapshot: HostedObservability; onReviewRuns: () => void }) {
+  const maxRuns = Math.max(1, ...snapshot.daily.map((day) => day.runs));
+  return <section className="data-section observability-overview">
+    <div className="section-actions"><SectionTitle title="Assurance observability" caption={`${snapshot.periodDays}-day behavior, policy, approval, and outcome window`} /><button onClick={onReviewRuns}>Inspect traces</button></div>
+    {snapshot.truncated.any ? <div className="console-error">This window reached the {snapshot.truncated.limitPerEntity.toLocaleString()}-record safety bound. Metrics are explicitly partial.</div> : null}
+    <div className="observability-metrics">
+      <ControlMetric label="Run pass rate" value={percent(snapshot.assurance.passRate)} detail={`${snapshot.totals.runs} runs`} />
+      <ControlMetric label="CURRENT rate" value={percent(snapshot.assurance.currentRate)} detail="Authoritative release or nightly" />
+      <ControlMetric label="Fault pass rate" value={snapshot.assurance.faultPassRate === undefined ? "No data" : percent(snapshot.assurance.faultPassRate)} detail="Tripwire and assertion events" />
+      <ControlMetric label="High-risk actions" value={snapshot.risk.highRiskActions} detail={`${percent(snapshot.risk.approvalRate)} approval path`} attention={snapshot.risk.highRiskActions > 0} />
+      <ControlMetric label="Blocked actions" value={percent(snapshot.risk.blockedRate)} detail={`${snapshot.totals.actions} observed actions`} />
+      <ControlMetric label="Verification gaps" value={percent(snapshot.risk.verificationFailureRate)} detail="Expected vs observed outcomes" attention={snapshot.risk.verificationFailureRate > 0} />
+    </div>
+    <div className="observability-details">
+      <div><strong>Run activity</strong><div className="observability-bars" aria-label="Daily run activity">{snapshot.daily.map((day) => <span key={day.date} title={`${day.date}: ${day.runs} runs, ${day.failed} failed`}><i style={{ height: `${Math.max(4, Math.round((day.runs / maxRuns) * 100))}%` }} className={day.failed ? "has-failure" : ""} /></span>)}</div></div>
+      <div><strong>Policy reasons</strong>{snapshot.topPolicyReasons.length ? <ol>{snapshot.topPolicyReasons.slice(0, 5).map((item) => <li key={item.reason}><span>{item.reason}</span><b>{item.count}</b></li>)}</ol> : <p>No policy decisions were recorded in this window.</p>}</div>
+    </div>
+  </section>;
 }
 
 function AgentsView({ agents, project, session, refresh }: { agents: HostedAgent[]; project: HostedProject; session: HostedSession; refresh: () => Promise<void> }) {
@@ -515,7 +539,7 @@ function EvidenceView({ evidence, overview, project, session, refresh }: {
 
 function IntegrationsView({ project, session, operations, refresh }: { project: HostedProject; session: HostedSession; operations: HostedOperations; refresh: () => Promise<void> }) {
   const [secret, setSecret] = useState<string>(); const [copied, setCopied] = useState(false); const [error, setError] = useState<string>(); const [keys, setKeys] = useState<HostedApiKey[]>([]); const [pendingRevoke, setPendingRevoke] = useState<string>();
-  const [keyMode, setKeyMode] = useState<"ingest" | "collector" | "read-only">("ingest");
+  const [keyMode, setKeyMode] = useState<"continuous-ci" | "ingest" | "collector" | "read-only">("continuous-ci");
   const [testReceiverEnabled, setTestReceiverEnabled] = useState(false);
   const [testReceiverBusy, setTestReceiverBusy] = useState(false);
   const [collectorStatus, setCollectorStatus] = useState<HostedCollectorStatus>();
@@ -524,12 +548,14 @@ function IntegrationsView({ project, session, operations, refresh }: { project: 
   useEffect(() => { void loadHostedCollectorStatus(session, project.id).then(setCollectorStatus).catch(() => undefined); }, [project.id, session]);
   async function createKey() {
     try {
-      const scopes = keyMode === "read-only"
+      const scopes = keyMode === "continuous-ci"
+        ? ["runs:read", "runs:write", "events:write", "evidence:write"]
+        : keyMode === "read-only"
         ? ["agents:read", "runs:read", "actions:read", "evidence:read"]
         : keyMode === "collector"
           ? ["runs:read", "events:write", "collector:manage"]
           : ["agents:read", "runs:read", "runs:write", "events:write", "collector:manage", "actions:read", "actions:write", "evidence:read", "evidence:write"];
-      const result = await createHostedApiKey(session, project.id, keyMode === "read-only" ? "Read-only integration" : keyMode === "collector" ? "Customer collector gateway" : "Ingest integration", scopes);
+      const result = await createHostedApiKey(session, project.id, keyMode === "continuous-ci" ? "Continuous assurance CI" : keyMode === "read-only" ? "Read-only integration" : keyMode === "collector" ? "Customer collector gateway" : "Ingest integration", scopes);
       setSecret(result.secret);
       await Promise.all([refreshKeys(), refresh()]);
     } catch (reason) {
@@ -541,7 +567,7 @@ function IntegrationsView({ project, session, operations, refresh }: { project: 
   async function retryNotification(jobId: string) { try { await retryHostedNotificationJob(session, project.id, jobId); await refresh(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } }
   async function enableTestReceiver() { setTestReceiverBusy(true); try { await createHostedTestWebhook(session, project.id); setTestReceiverEnabled(true); await refresh(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } finally { setTestReceiverBusy(false); } }
   const endpoint = window.location.origin;
-  return <div className="integration-layout"><section className="connection-quickstart"><div><span className="eyebrow">Recommended</span><h2>Connect this project once</h2><p>The CLI validates the key before storing it in your user profile. Future push commands reuse the saved connection.</p></div><pre>{`npx agentcert connect --server ${endpoint} --project ${project.id}`}</pre></section><section className="data-section"><div className="section-actions"><SectionTitle title="API access" caption="Project-scoped credentials for agents and CI" /><div className="key-create-controls"><select value={keyMode} onChange={(event) => setKeyMode(event.target.value as "ingest" | "collector" | "read-only")}><option value="ingest">Ingest + read</option><option value="collector">Collector gateway</option><option value="read-only">Read only</option></select><button className="primary-action compact" onClick={() => void createKey()}>Create API key</button></div></div>{secret ? <div className="secret-box"><div><strong>Copy this key now. It will not be shown again.</strong><button onClick={() => { void navigator.clipboard.writeText(secret); setCopied(true); }}>{copied ? "Copied" : "Copy key"}</button></div><code>{secret}</code></div> : null}{error ? <div className="form-error">{error}</div> : null}<div className="entity-list key-list">{keys.map((key) => <article key={key.id}><div><strong>{key.name}</strong><span>{key.prefix}...</span></div><div><b>{key.revokedAt ? "Revoked" : "Active"}</b><span>{key.scopes.join(", ")}</span></div>{key.revokedAt ? null : pendingRevoke === key.id ? <div className="key-revoke-actions"><button onClick={() => setPendingRevoke(undefined)}>Cancel</button><button className="danger-action" onClick={() => void revokeKey(key.id)}>Confirm revoke</button></div> : <button onClick={() => setPendingRevoke(key.id)}>Revoke</button>}</article>)}{keys.length === 0 ? <EmptyHosted text="No API keys created yet. Create one, then run the connection command above." /> : null}</div></section><CollectorStatusPanel status={collectorStatus} /><section className="data-section"><div className="section-actions"><SectionTitle title="Trust operations" caption="Durable webhook and email delivery with historical signing-key state" /><button className="primary-action compact" disabled={testReceiverBusy || testReceiverEnabled} onClick={() => void enableTestReceiver()}>{testReceiverEnabled ? "Self-test receiver ready" : testReceiverBusy ? "Enabling..." : "Enable self-test receiver"}</button></div><div className="trust-ops-list"><article><div><strong>Coordination backend</strong><span>{operations.coordination.backend} / {operations.coordination.state}</span></div><Status value={operations.status} /></article><article><div><strong>Signing key</strong><span>{operations.signing.activeKey?.keyId ?? "Not configured"}</span></div><span>{operations.signing.historicalKeys} retained</span></article>{operations.webhooks.deadLetters.map((job) => <article key={job.id}><div><strong>{job.eventType}</strong><span>{job.lastError ?? "Delivery exhausted"}</span></div><div className="key-revoke-actions"><Status value={job.status} /><button onClick={() => void retryWebhook(job.id)}>Retry webhook</button></div></article>)}{operations.notifications.deadLetters.map((job) => <article key={job.id}><div><strong>{job.subject}</strong><span>{job.recipient}: {job.lastError ?? "Delivery exhausted"}</span></div><div className="key-revoke-actions"><Status value={job.status} /><button onClick={() => void retryNotification(job.id)}>Retry email</button></div></article>)}{operations.webhooks.deadLetters.length + operations.notifications.deadLetters.length === 0 ? <EmptyHosted text="No deliveries are in a dead-letter queue." /> : null}</div></section><NotificationDestinations project={project} session={session} operations={operations} refresh={refresh} /><section className="data-section"><SectionTitle title="First upload" caption="Run locally, then send the validated evidence bundle" /><pre>{`npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --push\n# or: npx agentcert push --evidence .agentcert/latest/agentcert-evidence.json`}</pre></section><section className="data-section"><SectionTitle title="CI environment" caption="Use secret-manager variables for ephemeral runners and SDK integrations" /><pre>{`AGENTCERT_BASE_URL=${endpoint}\nAGENTCERT_PROJECT_ID=${project.id}\nAGENTCERT_API_KEY=ac_live_...`}</pre></section></div>;
+  return <div className="integration-layout"><section className="connection-quickstart"><div><span className="eyebrow">Recommended</span><h2>Connect this project once</h2><p>The CLI validates the key before storing it in your user profile. Future push commands reuse the saved connection.</p></div><pre>{`npx agentcert connect --server ${endpoint} --project ${project.id}`}</pre></section><section className="data-section"><div className="section-actions"><SectionTitle title="API access" caption="Project-scoped credentials for agents and CI" /><div className="key-create-controls"><select value={keyMode} onChange={(event) => setKeyMode(event.target.value as "continuous-ci" | "ingest" | "collector" | "read-only")}><option value="continuous-ci">Continuous assurance CI</option><option value="ingest">Ingest + read</option><option value="collector">Collector gateway</option><option value="read-only">Read only</option></select><button className="primary-action compact" onClick={() => void createKey()}>Create API key</button></div></div>{secret ? <div className="secret-box"><div><strong>Copy this key now. It will not be shown again.</strong><button onClick={() => { void navigator.clipboard.writeText(secret); setCopied(true); }}>{copied ? "Copied" : "Copy key"}</button></div><code>{secret}</code></div> : null}{error ? <div className="form-error">{error}</div> : null}<div className="entity-list key-list">{keys.map((key) => <article key={key.id}><div><strong>{key.name}</strong><span>{key.prefix}...</span></div><div><b>{key.revokedAt ? "Revoked" : "Active"}</b><span>{key.scopes.join(", ")}</span></div>{key.revokedAt ? null : pendingRevoke === key.id ? <div className="key-revoke-actions"><button onClick={() => setPendingRevoke(undefined)}>Cancel</button><button className="danger-action" onClick={() => void revokeKey(key.id)}>Confirm revoke</button></div> : <button onClick={() => setPendingRevoke(key.id)}>Revoke</button>}</article>)}{keys.length === 0 ? <EmptyHosted text="No API keys created yet. Create one, then run the connection command above." /> : null}</div></section><CollectorStatusPanel status={collectorStatus} /><section className="data-section"><div className="section-actions"><SectionTitle title="Trust operations" caption="Durable webhook and email delivery with historical signing-key state" /><button className="primary-action compact" disabled={testReceiverBusy || testReceiverEnabled} onClick={() => void enableTestReceiver()}>{testReceiverEnabled ? "Self-test receiver ready" : testReceiverBusy ? "Enabling..." : "Enable self-test receiver"}</button></div><div className="trust-ops-list"><article><div><strong>Coordination backend</strong><span>{operations.coordination.backend} / {operations.coordination.state}</span></div><Status value={operations.status} /></article><article><div><strong>Signing key</strong><span>{operations.signing.activeKey?.keyId ?? "Not configured"}</span></div><span>{operations.signing.historicalKeys} retained</span></article>{operations.webhooks.deadLetters.map((job) => <article key={job.id}><div><strong>{job.eventType}</strong><span>{job.lastError ?? "Delivery exhausted"}</span></div><div className="key-revoke-actions"><Status value={job.status} /><button onClick={() => void retryWebhook(job.id)}>Retry webhook</button></div></article>)}{operations.notifications.deadLetters.map((job) => <article key={job.id}><div><strong>{job.subject}</strong><span>{job.recipient}: {job.lastError ?? "Delivery exhausted"}</span></div><div className="key-revoke-actions"><Status value={job.status} /><button onClick={() => void retryNotification(job.id)}>Retry email</button></div></article>)}{operations.webhooks.deadLetters.length + operations.notifications.deadLetters.length === 0 ? <EmptyHosted text="No deliveries are in a dead-letter queue." /> : null}</div></section><NotificationDestinations project={project} session={session} operations={operations} refresh={refresh} /><section className="data-section"><SectionTitle title="First upload" caption="Run locally, then send the validated evidence bundle" /><pre>{`npx agentcert run --tripwire .tripwire/latest/tripwire-result.json --push\n# or: npx agentcert push --evidence .agentcert/latest/agentcert-evidence.json`}</pre></section><section className="data-section"><SectionTitle title="CI environment" caption="Use secret-manager variables for ephemeral runners and SDK integrations" /><pre>{`AGENTCERT_BASE_URL=${endpoint}\nAGENTCERT_PROJECT_ID=${project.id}\nAGENTCERT_API_KEY=ac_live_...`}</pre></section></div>;
 }
 
 function CollectorStatusPanel({ status }: { status?: HostedCollectorStatus }) {

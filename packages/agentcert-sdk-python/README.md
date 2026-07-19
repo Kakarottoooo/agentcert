@@ -50,3 +50,25 @@ on_step_start, on_step_end = BrowserUseAdapter(
 
 See [`docs/universal-envelope.md`](../../docs/universal-envelope.md) for the
 field contract and trust boundaries.
+
+## Assurance observability
+
+Use `RunRecorder` when a framework adapter is unnecessary:
+
+```python
+from agentcert_sdk import RunRecorder
+
+recorder = RunRecorder.start(agentcert, {
+    "externalId": "release-42",
+    "kind": "release_gate",
+})
+recorder.record_event(
+    "onegent.outcome.verification",
+    payload={"expected": "SUBMITTED", "observed": "SUBMITTED", "success": True},
+)
+recorder.complete(status="passed")
+```
+
+The recorder allocates an ordered sequence and trace-linked spans, sends
+bounded batches, and keeps a failed batch pending for an explicit retry. It is
+a thin assurance collector, not a general OpenTelemetry backend.

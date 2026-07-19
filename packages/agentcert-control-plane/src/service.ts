@@ -3,6 +3,7 @@ import type { ArtifactStore } from "./artifacts.js";
 import { hashSecret } from "./auth.js";
 import {
   EvidenceQuotaExceededError,
+  EventSequenceConflictError,
   LegalHoldStateConflictError,
   TeamStateConflictError,
   TrustedCollectorConflictError,
@@ -91,6 +92,7 @@ import {
 } from "./continuous-assurance.js";
 import type { CoordinationHealth } from "./coordination.js";
 import { canInviteRole, canManageMember, roleNeedsExplicitProjects, rolesForHumanScope } from "./rbac.js";
+import { buildObservabilitySnapshot, buildRunObservability } from "./observability.js";
 import {
   DEFAULT_API_KEY_SCOPES,
   WebhookSecretVault,
@@ -890,21 +892,35 @@ export class AgentCertControlPlane {
       const spanId = optionalString(event, "spanId")?.toLowerCase();
       const parentSpanId = optionalString(event, "parentSpanId")?.toLowerCase();
       validateTraceIds(traceId, spanId, parentSpanId);
+      const payload = record(event.payload);
+      if (Buffer.byteLength(JSON.stringify(payload), "utf8") > 65_536) throw new ControlPlaneError(`events[${index}].payload exceeds 65536 bytes.`, 413, "event_payload_too_large");
+      const type = requiredString(event, "type");
+      const actor = optionalString(event, "actor") ?? "agent";
+      if (type.length > 200 || actor.length > 200) throw new ControlPlaneError(`events[${index}] type and actor must be at most 200 characters.`, 422, "event_identity_too_long");
       return {
         id: randomUUID(),
         projectId,
         runId,
         sequence: integer(event.sequence, index),
-        type: requiredString(event, "type"),
-        actor: optionalString(event, "actor") ?? "agent",
+        type,
+        actor,
         occurredAt: optionalString(event, "occurredAt") ?? new Date().toISOString(),
-        payload: record(event.payload),
+        payload,
         traceId,
         spanId,
         parentSpanId,
       };
     });
-    return this.store.appendEvents(events);
+    if (new Set(events.map((event) => event.sequence)).size !== events.length) throw new ControlPlaneError("An event batch cannot contain duplicate sequence numbers.", 409, "event_sequence_duplicate");
+    try {
+      return await this.store.appendEvents(events);
+    } catch (error) {
+      if (error instanceof EventSequenceConflictError) throw new ControlPlaneError(
+        `Event sequence ${error.sequence} already exists for this run.`, 409, "event_sequence_conflict",
+        "Retry the original idempotent request or append new events with strictly increasing sequence numbers.",
+      );
+      throw error;
+    }
   }
 
   capabilities(auth: AuthContext) {
@@ -1056,6 +1072,8 @@ export class AgentCertControlPlane {
                 reasonCode: recovered.reasonCode,
                 changedComponents: recovered.changes.map((item) => item.component),
                 evaluatedAt: latestRun.completedAt ?? current.continuousAssurance.metrics.lastEvaluationAt ?? new Date().toISOString(),
+                firstAuthoritativeCurrentAt: current.continuousAssurance.adoption?.firstAuthoritativeCurrentAt,
+                timeToFirstCurrentMs: current.continuousAssurance.adoption?.timeToFirstCurrentMs,
               },
             },
           },
@@ -1087,6 +1105,8 @@ export class AgentCertControlPlane {
         reasonCode: applied.reconciliation.reasonCode,
         changedComponents: applied.reconciliation.changes.map((item) => item.component),
         evaluatedAt: observedAt,
+        firstAuthoritativeCurrentAt: contract.adoption?.firstAuthoritativeCurrentAt,
+        timeToFirstCurrentMs: contract.adoption?.timeToFirstCurrentMs,
       };
       const updatedRun = await this.store.upsertRun({
         ...run,
@@ -1120,21 +1140,61 @@ export class AgentCertControlPlane {
     await this.authorizeProject(auth, projectId, undefined, "runs:read");
     const run = await this.store.getRun(projectId, runId);
     if (!run) throw new ControlPlaneError("Run was not found.", 404);
-    const [events, evidence, incidents, reviews, legalHold] = await Promise.all([
+    const canReadActions = auth.kind === "user" || (auth.scopes ?? DEFAULT_API_KEY_SCOPES).includes("actions:read");
+    const actions = canReadActions && run.traceId ? await this.store.listActionsForTrace(projectId, run.traceId) : [];
+    const [events, runEvidence, incidents, reviews, legalHold, approvals, actionEvidence] = await Promise.all([
       this.store.listEvents(projectId, runId),
       this.store.listEvidenceForRun(projectId, runId),
       this.store.listIncidentsForRun(projectId, runId),
       this.store.listFailureReviews(projectId, runId),
       this.store.getApprovedLegalHold(projectId),
+      canReadActions ? this.store.listApprovalsForActions(projectId, actions.map((action) => action.id)) : Promise.resolve([]),
+      canReadActions ? this.store.listEvidenceForActions(projectId, actions.map((action) => action.id)) : Promise.resolve([]),
     ]);
+    const evidence = uniqueRecords([...runEvidence, ...actionEvidence]);
     return {
       run,
       events,
+      actions,
+      approvals,
       evidence,
       incidents,
       reviews,
-      evidenceCompleteness: calculateEvidenceCompleteness(run, events, evidence, this.evidencePolicy, Boolean(legalHold)),
+      evidenceCompleteness: calculateEvidenceCompleteness(run, events, runEvidence, this.evidencePolicy, Boolean(legalHold)),
+      observability: buildRunObservability(run, events, actions, approvals, evidence),
     };
+  }
+
+  async observability(auth: AuthContext, projectId: string, days: number) {
+    await this.authorizeProject(auth, projectId, undefined, "runs:read");
+    await this.authorizeProject(auth, projectId, undefined, "actions:read");
+    if (days !== 7 && days !== 30 && days !== 90) throw new ControlPlaneError("days must be 7, 30, or 90.", 422, "invalid_observability_period");
+    const generatedAt = new Date();
+    const since = new Date(generatedAt.getTime() - days * 86_400_000).toISOString();
+    const limit = 10_000;
+    const [allRuns, allEvents, allActions, allApprovals] = await Promise.all([
+      this.store.listRuns(projectId, limit + 1),
+      this.store.listEventsForProject(projectId, since, limit + 1),
+      this.store.listActions(projectId, limit + 1),
+      this.store.listApprovals(projectId, limit + 1),
+    ]);
+    const windowRuns = allRuns.filter((run) => run.startedAt >= since);
+    const windowActions = allActions.filter((action) => action.createdAt >= since);
+    const windowApprovals = allApprovals.filter((approval) => approval.createdAt >= since);
+    const runs = windowRuns.slice(0, limit);
+    const events = allEvents.slice(0, limit);
+    const actions = windowActions.slice(0, limit);
+    const approvals = windowApprovals.slice(0, limit);
+    return buildObservabilitySnapshot({
+      runs, events, actions, approvals, since, periodDays: days, generatedAt: generatedAt.toISOString(),
+      truncated: {
+        runs: windowRuns.length > limit,
+        events: allEvents.length > limit,
+        actions: windowActions.length > limit,
+        approvals: windowApprovals.length > limit,
+        limitPerEntity: limit,
+      },
+    });
   }
 
   async reviewFailure(auth: AuthContext, projectId: string, runId: string, input: unknown): Promise<FailureReviewRecord> {
@@ -2993,6 +3053,10 @@ function firstMismatch(expected: Record<string, unknown>, observed: Record<strin
 }
 function requireUser(auth: AuthContext): asserts auth is AuthContext & { userId: string } {
   if (auth.kind !== "user" || !auth.userId) throw new ControlPlaneError("A human account is required.", 403);
+}
+
+function uniqueRecords<T extends { id: string }>(records: T[]): T[] {
+  return [...new Map(records.map((record) => [record.id, record])).values()];
 }
 function record(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function optionalRecord(value: unknown): Record<string, unknown> | undefined { const result = record(value); return Object.keys(result).length ? result : undefined; }

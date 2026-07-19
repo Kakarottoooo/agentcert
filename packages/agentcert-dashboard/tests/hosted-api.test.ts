@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   loadHostedRunAnalysis,
+  loadHostedObservability,
   createHostedProject,
   loadHostedOnboarding,
   loadHostedTeam,
@@ -175,6 +176,22 @@ describe("hosted run analysis", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "/v1/projects/project-1/runs/run-1/analysis",
+      expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer user-token" }) }),
+    );
+  });
+
+  it("loads the bounded assurance observability window", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      schemaVersion: "agentcert.observability_snapshot.v0.1", periodDays: 30,
+      totals: { runs: 0, events: 0, actions: 0, approvals: 0 },
+      truncated: { any: false }, daily: [], topPolicyReasons: [], topEventTypes: [],
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await loadHostedObservability({ accessToken: "user-token" }, "project-1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/v1/projects/project-1/observability?days=30",
       expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer user-token" }) }),
     );
   });
