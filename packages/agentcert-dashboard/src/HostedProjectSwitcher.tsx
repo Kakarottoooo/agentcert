@@ -10,11 +10,12 @@ interface Props {
   session: HostedSession;
   projects: HostedProject[];
   current?: HostedProject;
+  canManage: boolean;
   onSelect: (project: HostedProject) => void;
   onChange: (projects: HostedProject[], selected: HostedProject) => void;
 }
 
-export default function HostedProjectSwitcher({ session, projects, current, onSelect, onChange }: Props) {
+export default function HostedProjectSwitcher({ session, projects, current, canManage, onSelect, onChange }: Props) {
   const [mode, setMode] = useState<"idle" | "create" | "rename">("idle");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -59,13 +60,13 @@ export default function HostedProjectSwitcher({ session, projects, current, onSe
     }}>
       {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
     </select>
-    {mode === "idle" ? <div className="project-actions">
+    {canManage && mode === "idle" ? <div className="project-actions">
       <button type="button" onClick={() => begin("create")}>New</button>
       <button type="button" disabled={!current} onClick={() => begin("rename")}>Rename</button>
-    </div> : <form onSubmit={(event) => void submit(event)}>
+    </div> : canManage ? <form onSubmit={(event) => void submit(event)}>
       <input aria-label="Project name" autoFocus minLength={2} maxLength={80} required value={name} onChange={(event) => setName(event.target.value)} />
       <div className="project-actions"><button type="button" onClick={() => setMode("idle")}>Cancel</button><button type="submit" disabled={busy}>{busy ? "Saving..." : "Save"}</button></div>
-    </form>}
+    </form> : null}
     {error ? <small className="project-error">{error}</small> : null}
   </div>;
 }

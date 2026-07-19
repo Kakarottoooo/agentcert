@@ -51,6 +51,9 @@ describe("Team & Access Management v0.1", () => {
     expect(accepted).toEqual({ organizationId: bootstrap.organization.id, projectId: secondProject.id });
     expect((await service.projects(operator)).map((project) => project.id)).toEqual([secondProject.id]);
     await expect(service.startRun(operator, secondProject.id, { externalId: "operator-run", kind: "custom" })).resolves.toMatchObject({ externalId: "operator-run" });
+    await expect(service.listAssuranceCases(operator, secondProject.id)).resolves.toEqual([]);
+    await expect(service.onboardingStatus(operator, secondProject.id))
+      .rejects.toMatchObject<Partial<ControlPlaneError>>({ status: 403, code: "project_role_insufficient" });
     await expect(service.listRuns(operator, bootstrap.project.id)).rejects.toMatchObject<Partial<ControlPlaneError>>({ status: 403, code: "project_access_denied" });
 
     const snapshot = await service.teamSnapshot(operator, bootstrap.organization.id);
