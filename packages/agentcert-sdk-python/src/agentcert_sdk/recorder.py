@@ -75,11 +75,7 @@ class RunRecorder:
             "payload": payload or {},
             "traceId": context["traceId"],
             "spanId": context["spanId"],
-            **(
-                {"parentSpanId": context["parentSpanId"]}
-                if context.get("parentSpanId")
-                else {}
-            ),
+            **({"parentSpanId": context["parentSpanId"]} if context.get("parentSpanId") else {}),
         }
         self.sequence += 1
         self._pending.append(event)

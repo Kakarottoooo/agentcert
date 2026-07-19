@@ -89,7 +89,9 @@ class RunRecorderTest(unittest.TestCase):
         recorder.record_event("tripwire.fault.assertion", payload={"passed": True})
         recorder.complete(status="passed", score=100)
 
-        self.assertEqual([event["sequence"] for _, batch in client.batches for event in batch], [0, 1, 2])
+        self.assertEqual(
+            [event["sequence"] for _, batch in client.batches for event in batch], [0, 1, 2]
+        )
         self.assertEqual(client.started[0]["traceId"], recorder.trace["traceId"])
         self.assertEqual(client.batches[0][1][1]["parentSpanId"], recorder.trace["spanId"])
         self.assertEqual(client.idempotency_keys, ["events-0-1", "events-2-2"])
