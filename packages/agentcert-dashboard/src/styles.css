@@ -2543,6 +2543,21 @@ button {
 .assurance-detail dd { margin: 0; overflow-wrap: anywhere; }
 .assurance-detail li { margin: 8px 0; }
 .assurance-detail li span { color: #687078; margin-left: 8px; }
+.assurance-issue-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 22px 0 14px; padding: 18px 0; border-top: 2px solid #16775e; border-bottom: 1px solid #cbd7d2; }
+.assurance-issue-form label { display: grid; min-width: 0; gap: 6px; color: #43534e; font-size: 12px; font-weight: 750; }
+.assurance-issue-form input:not([type="checkbox"]),
+.assurance-issue-form select,
+.assurance-issue-form textarea { width: 100%; min-height: 40px; padding: 9px 10px; color: var(--text); background: white; border: 1px solid var(--border); border-radius: 5px; font: inherit; }
+.assurance-issue-form textarea { min-height: 84px; resize: vertical; line-height: 1.45; }
+.assurance-issue-form .code-input { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+.assurance-issue-form .wide { grid-column: 1 / -1; }
+.assurance-issue-heading { display: flex; grid-column: 1 / -1; align-items: start; justify-content: space-between; gap: 16px; }
+.assurance-issue-heading h3 { margin: 4px 0 0; }
+.assurance-issue-heading > span { color: #52646a; font-size: 12px; font-weight: 750; }
+.assurance-issue-form .assurance-check { display: flex; grid-template-columns: none; align-items: start; gap: 10px; padding: 11px 12px; background: #f4f8f6; border-left: 3px solid #8eb9aa; cursor: pointer; }
+.assurance-check input { width: 16px; height: 16px; margin: 2px 0 0; flex: 0 0 auto; }
+.assurance-check span { display: grid; gap: 3px; }
+.assurance-check small { color: #65716d; font-weight: 500; line-height: 1.4; }
 .continuous-assurance-panel { display: grid; gap: 14px; margin: 20px 0; padding: 18px; border: 1px solid #cbd7d2; border-top: 3px solid #16775e; background: #fbfdfc; }
 .continuous-assurance-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .continuous-assurance-heading h3 { margin: 4px 0 0; }
@@ -2608,7 +2623,7 @@ button {
 .engagement-timeline li { padding: 9px; border-top: 3px solid #c7d0cc; background: #fff; }
 .engagement-timeline li.done { border-color: #0a8a68; }
 @media (max-width: 1050px) { .assurance-layout, .assurance-layout.empty { grid-template-columns: 1fr; } }
-@media (max-width: 650px) { .assurance-form, .engagement-summary, .engagement-timeline, .assurance-metrics, .assurance-scope-grid { grid-template-columns: 1fr !important; } .engagement-summary div { border-right: 0 !important; border-bottom: 1px solid #dce5e1 !important; } .engagement-summary div:last-child { border-bottom: 0 !important; } .assurance-offer, .continuous-assurance-heading, .trigger-policy, .continuous-adoption { align-items: flex-start; flex-direction: column; } .assurance-metrics > div { border-right: 0; border-bottom: 1px solid #d9e1de; } .assurance-metrics > div:last-child { border-bottom: 0; } .assurance-scope-grid > div.wide { grid-column: auto; } .trigger-policy span { text-align: left; } .freshness-history article { grid-template-columns: 10px minmax(0, 1fr); } .freshness-history article time { grid-column: 2; } .continuous-kit-files article { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 650px) { .assurance-form, .assurance-issue-form, .engagement-summary, .engagement-timeline, .assurance-metrics, .assurance-scope-grid { grid-template-columns: 1fr !important; } .assurance-issue-form .wide, .assurance-issue-heading { grid-column: auto; } .assurance-issue-heading { align-items: flex-start; flex-direction: column; } .engagement-summary div { border-right: 0 !important; border-bottom: 1px solid #dce5e1 !important; } .engagement-summary div:last-child { border-bottom: 0 !important; } .assurance-offer, .continuous-assurance-heading, .trigger-policy, .continuous-adoption { align-items: flex-start; flex-direction: column; } .assurance-metrics > div { border-right: 0; border-bottom: 1px solid #d9e1de; } .assurance-metrics > div:last-child { border-bottom: 0; } .assurance-scope-grid > div.wide { grid-column: auto; } .trigger-policy span { text-align: left; } .freshness-history article { grid-template-columns: 10px minmax(0, 1fr); } .freshness-history article time { grid-column: 2; } .continuous-kit-files article { align-items: flex-start; flex-direction: column; } }
 
 .section-title h2 {
   margin: 0;
