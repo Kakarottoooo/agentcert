@@ -82,6 +82,7 @@ import { BrandMark, ProductHeader } from "./Brand";
 import { resolveAuthMode } from "./auth-routing";
 import { isSandboxCertificationRun } from "./sandbox-certifications";
 import { buildHostedWorkspaceUrl, resolveHostedRoute, type HostedFocus, type HostedView } from "./hosted-routing";
+import { canManageHostedProjects } from "./hosted-role-permissions";
 
 interface HostedAccountContext {
   organization: { id: string; name: string };
@@ -218,6 +219,7 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
   const [loading, setLoading] = useState(true);
   const [capabilities, setCapabilities] = useState<HostedCapabilities>();
   const [accountContext, setAccountContext] = useState<HostedAccountContext>();
+  const memberRole = accountContext?.membership.role;
 
   const replaceRoute = useCallback((nextView: HostedView, nextProject?: HostedProject, nextFocus?: HostedFocus) => {
     const target = buildHostedWorkspaceUrl(window.location.origin, {
@@ -240,19 +242,19 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
   }, [focus, replaceRoute, view]);
 
   const refresh = useCallback(async () => {
-    if (!project) return;
+    if (!project || !memberRole) return;
     setLoading(true); setError(undefined);
     try {
       const [overview, operations, observability, agents, runs, actions, incidents, evidence, assuranceCases, nextOnboarding] = await Promise.all([
         loadOverview(session, project.id), loadHostedOperations(session, project.id), loadHostedObservability(session, project.id), loadHostedAgents(session, project.id),
         loadHostedRuns(session, project.id), loadHostedActions(session, project.id), loadHostedIncidents(session, project.id), loadHostedEvidence(session, project.id), loadHostedAssuranceCases(session, project.id),
-        loadHostedOnboarding(session, project.id),
+        canManageHostedProjects(memberRole) ? loadHostedOnboarding(session, project.id) : Promise.resolve(undefined),
       ]);
       setData({ overview, operations, observability, agents, runs, actions, incidents, evidence, assuranceCases });
       setOnboarding(nextOnboarding);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setLoading(false); }
-  }, [project, session]);
+  }, [memberRole, project, session]);
 
   useEffect(() => {
     Promise.all([bootstrap(session), loadHostedCapabilities(session), loadProjects(session)])
@@ -264,18 +266,18 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
   }, [session]);
-  useEffect(() => { if (project) { setData(undefined); setOnboarding(undefined); void refresh(); } }, [project, refresh]);
+  useEffect(() => { if (project && memberRole) { setData(undefined); setOnboarding(undefined); void refresh(); } }, [memberRole, project, refresh]);
   useEffect(() => {
     if (!project) return;
     void loadHostedTeam(session, project.organizationId).then((team) => setAccountContext({ organization: team.organization, membership: team.currentMembership })).catch(() => undefined);
   }, [project, session]);
   useEffect(() => {
-    if (!project || onboarding?.complete) return;
+    if (!project || !canManageHostedProjects(memberRole) || onboarding?.complete) return;
     const timer = window.setInterval(() => {
       void loadHostedOnboarding(session, project.id).then(setOnboarding).catch(() => undefined);
     }, 10_000);
     return () => window.clearInterval(timer);
-  }, [onboarding?.complete, project, session]);
+  }, [memberRole, onboarding?.complete, project, session]);
   useEffect(() => {
     if (onboarding?.complete && data && data.overview.summary.evidence === 0) void refresh();
   }, [data, onboarding?.complete, refresh]);
@@ -309,7 +311,7 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
           <span><strong>AgentCert</strong><small>Workspace</small></span>
         </a>
         <div className="workspace-return-links"><a href="/evidence">Public evidence</a><a href="/">Product site</a></div>
-        <HostedProjectSwitcher session={session} projects={projects} current={project} onSelect={selectProject} onChange={(nextProjects, selected) => { setProjects(nextProjects); selectProject(selected); }} />
+        <HostedProjectSwitcher session={session} projects={projects} current={project} canManage={canManageHostedProjects(memberRole)} onSelect={selectProject} onChange={(nextProjects, selected) => { setProjects(nextProjects); selectProject(selected); }} />
         <nav>{navigation.map(([id, label, count]) => <button key={id} className={view === id ? "active" : ""} onClick={() => navigate(id)}><span>{label}</span>{count ? <em>{count}</em> : null}</button>)}</nav>
         <div className="account-block">
           <button className={view === "account" ? "account-link active" : "account-link"} onClick={() => navigate("account")}><span>{session.email ?? config.auth.provider}</span><strong>Account settings</strong></button>
@@ -321,7 +323,7 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
         {error ? <div className="console-error">{error}</div> : null}
         {!data || !project ? <div className="loading">Loading control plane...</div> : view === "account" ? (
           <AccountView config={config} session={session} project={project} context={accountContext} onSignOut={onSignOut} />
-        ) : <HostedViewContent view={view} data={data} project={project} projects={projects} session={session} role={accountContext?.membership.role} onboarding={onboarding} refresh={refresh} onNavigate={navigate} />}
+        ) : <HostedViewContent view={view} data={data} project={project} projects={projects} session={session} role={memberRole} onboarding={onboarding} refresh={refresh} onNavigate={navigate} />}
       </main>
     </div>
   );
