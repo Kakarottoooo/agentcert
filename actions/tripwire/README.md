@@ -18,10 +18,10 @@ jobs:
   tripwire:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
 
       - uses: Kakarottoooo/agentcert/actions/tripwire@v0
         with:
@@ -48,7 +48,7 @@ env:
   AGENTCERT_API_KEY: ${{ secrets.AGENTCERT_API_KEY }}
 
 steps:
-  - uses: actions/checkout@v4
+  - uses: actions/checkout@v7
   - uses: Kakarottoooo/agentcert/actions/tripwire@v0
     with:
       config: tripwire.yml
@@ -56,6 +56,8 @@ steps:
       assurance-case: ${{ vars.AGENTCERT_ASSURANCE_CASE_ID }}
       assurance-scope: agentcert.assurance-scope.json
       assurance-trigger: auto
+      require-current: "auto"
+      continuous-health-out: .agentcert/canary/generated-kit-health.json
 ```
 
 `auto` maps pull requests to a prospective check, scheduled workflows to a
@@ -63,6 +65,10 @@ nightly authoritative check, and pushes/releases/manual dispatches to an
 authoritative release check. A PR can warn about scope drift without changing
 production status. Release and nightly drift changes the Hosted state to
 `REVALIDATION_REQUIRED` and emits configured webhook/email alerts.
+Release and nightly jobs also fail unless the resulting Hosted status is
+`CURRENT`. The redacted `generated-kit-health.json` output records the Hosted
+run/evidence identifiers, completeness, status transition, and
+install-to-CURRENT timing without exposing the API key.
 
 The three trigger-specific config inputs are optional. Each falls back to
 `config`, so existing callers keep the same behavior. Teams can use a fast,
@@ -93,6 +99,7 @@ Outputs:
 - `.agentcert/latest/agentcert-release-gate.html`
 - `.agentcert/latest/agentcert-release-gate-junit.xml`
 - `.agentcert/latest/release-gate-badge.svg`
+- `.agentcert/canary/generated-kit-health.json` when continuous assurance is configured
 
 The action installs and builds AgentCert from this repository at the requested
 ref. The caller repository owns `tripwire.yml` and the agent command under test.
