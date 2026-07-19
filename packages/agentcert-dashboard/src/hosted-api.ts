@@ -827,7 +827,7 @@ export async function signOut(config: HostedConfig, session: HostedSession): Pro
 }
 
 export async function bootstrap(session: HostedSession) {
-  return apiRequest<{ project: HostedProject; organization: { id: string; name: string }; membership: { role: string } }>(session, "/v1/onboarding/bootstrap", { method: "POST" });
+  return apiRequest<{ project: HostedProject; organization: { id: string; name: string }; membership: { role: HostedMemberRole } }>(session, "/v1/onboarding/bootstrap", { method: "POST" });
 }
 
 export async function loadProjects(session: HostedSession): Promise<HostedProject[]> {
