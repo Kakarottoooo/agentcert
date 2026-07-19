@@ -7,11 +7,13 @@ import {
   type HostedContinuousAssuranceAdoptionKit,
   type HostedAssuranceDecision,
   type HostedEvidence,
+  type HostedMemberRole,
   type HostedProject,
   type HostedSession,
 } from "./hosted-api";
+import { canManageAssurance, canUseAssuranceTransition, type AssuranceTransition } from "./assurance-permissions";
 
-const TRANSITIONS: Partial<Record<HostedAssuranceCase["status"], Array<{ id: Parameters<typeof transitionHostedAssuranceCase>[3]; label: string }>>> = {
+const TRANSITIONS: Partial<Record<HostedAssuranceCase["status"], Array<{ id: AssuranceTransition; label: string }>>> = {
   draft: [{ id: "start", label: "Start evaluation" }, { id: "revoke", label: "Revoke" }],
   evaluating: [{ id: "submit", label: "Submit for review" }, { id: "revoke", label: "Revoke" }],
   review_required: [{ id: "return", label: "Return to evaluation" }, { id: "issue", label: "Issue signed report" }, { id: "revoke", label: "Revoke" }],
@@ -20,11 +22,12 @@ const TRANSITIONS: Partial<Record<HostedAssuranceCase["status"], Array<{ id: Par
   expired: [{ id: "resume", label: "Re-evaluate" }, { id: "revoke", label: "Revoke" }],
 };
 
-export default function HostedAssuranceView({ cases, evidence, project, session, refresh }: {
+export default function HostedAssuranceView({ cases, evidence, project, session, role, refresh }: {
   cases: HostedAssuranceCase[];
   evidence: HostedEvidence[];
   project: HostedProject;
   session: HostedSession;
+  role?: HostedMemberRole;
   refresh: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -210,6 +213,7 @@ export default function HostedAssuranceView({ cases, evidence, project, session,
       {selected.continuousAssurance ? <ContinuousAssurancePanel
         assuranceCase={selected}
         busy={busy}
+        canManage={canManageAssurance(role)}
         revalidate={() => void startRevalidation()}
         activate={() => void activateContinuousAssurance()}
       /> : null}
@@ -228,7 +232,7 @@ export default function HostedAssuranceView({ cases, evidence, project, session,
       </div> : null}
       <h3>Controls</h3><ul>{selected.evaluationPlan.controls.map((control) => <li key={control.id}><strong>{control.title}</strong> <span>{control.mode}</span></li>)}</ul>
       <h3>Limitations</h3><ul>{selected.evaluationPlan.limitations.map((item) => <li key={item}>{item}</li>)}</ul>
-      <div className="approval-actions">{(TRANSITIONS[selected.status] ?? []).map((item) => <button key={item.id} disabled={busy} className={item.id === "revoke" ? "danger-action" : ""} onClick={() => void transition(item.id)}>{item.label}</button>)}</div>
+      <div className="approval-actions">{(TRANSITIONS[selected.status] ?? []).filter((item) => canUseAssuranceTransition(role, item.id)).map((item) => <button key={item.id} disabled={busy} className={item.id === "revoke" ? "danger-action" : ""} onClick={() => void transition(item.id)}>{item.label}</button>)}</div>
       {selected.deliveryPacket ? <button className="primary-action compact" onClick={downloadDeliveryPacket}>Download signed delivery packet</button> : null}
       {selected.publicVerificationId ? <p><a href={`/v1/public/assurance-reports/${encodeURIComponent(selected.publicVerificationId)}`} target="_blank" rel="noreferrer">Open public verification record</a></p> : null}
       <h3>Decision ledger</h3><div className="trust-ops-list">{decisions.map((item) => <article key={item.id}><div><strong>{item.toStatus.replaceAll("_", " ")}</strong><span>{item.reason}</span></div><small>{item.actorEmail ?? "recorded actor"}<br />{new Date(item.occurredAt).toLocaleString()}</small></article>)}</div>
@@ -236,8 +240,8 @@ export default function HostedAssuranceView({ cases, evidence, project, session,
   </div>;
 }
 
-function ContinuousAssurancePanel({ assuranceCase, busy, revalidate, activate }: {
-  assuranceCase: HostedAssuranceCase; busy: boolean; revalidate: () => void; activate: () => void;
+function ContinuousAssurancePanel({ assuranceCase, busy, canManage, revalidate, activate }: {
+  assuranceCase: HostedAssuranceCase; busy: boolean; canManage: boolean; revalidate: () => void; activate: () => void;
 }) {
   const contract = assuranceCase.continuousAssurance!;
   const metrics = contract.metrics;
@@ -249,6 +253,7 @@ function ContinuousAssurancePanel({ assuranceCase, busy, revalidate, activate }:
   const averageRevalidationMs = revalidationCompletedCount ? totalRevalidationDurationMs / revalidationCompletedCount : undefined;
   const canActivate = assuranceCase.status === "issued" && contract.freshness.status === "CURRENT"
     && Boolean(assuranceCase.engagement || contract.supersedesCaseId);
+  const canRevalidate = assuranceCase.status === "issued" && contract.freshness.status !== "CURRENT";
   const history = [...(contract.history ?? [])].reverse().slice(0, 8);
   return <section className="continuous-assurance-panel">
     <div className="continuous-assurance-heading"><div><span className="eyebrow">Continuous assurance contract</span><h3>Current validity</h3></div><Freshness value={contract.freshness.status} /></div>
@@ -274,8 +279,9 @@ function ContinuousAssurancePanel({ assuranceCase, busy, revalidate, activate }:
       <div className="wide"><dt>Scope fingerprint</dt><dd className="hash">{contract.scopeFingerprintSha256}</dd></div>
     </dl>
     <div className="trigger-policy"><strong>Trigger policy</strong><span>Pull requests are prospective. Releases and nightly runs are authoritative.</span></div>
-    <div className="continuous-adoption"><div><strong>{contract.adoption ? "CI contract activated" : "Continuous CI not installed"}</strong><span>{contract.adoption ? `Workflow generated ${new Date(contract.adoption.activatedAt).toLocaleString()}` : "Generate the exact scope file and PR / release / nightly workflow from this signed review."}</span></div>{canActivate ? <button className="primary-action compact" disabled={busy} onClick={activate}>{contract.adoption ? "Download CI kit again" : "Generate continuous CI kit"}</button> : null}</div>
-    {contract.freshness.status !== "CURRENT" ? <button className="primary-action compact" disabled={busy} onClick={revalidate}>Start revalidation</button> : null}
+    <div className="continuous-adoption"><div><strong>{contract.adoption ? "CI contract activated" : "Continuous CI not installed"}</strong><span>{contract.adoption ? `Workflow generated ${new Date(contract.adoption.activatedAt).toLocaleString()}` : "Generate the exact scope file and PR / release / nightly workflow from this signed review."}</span></div>{canManage && canActivate ? <button className="primary-action compact" disabled={busy} onClick={activate}>{contract.adoption ? "Download CI kit again" : "Generate continuous CI kit"}</button> : null}</div>
+    {!canManage && (canActivate || canRevalidate) ? <p className="team-access-note">An organization owner or admin manages continuous assurance installation and revalidation after the independent review.</p> : null}
+    {canManage && canRevalidate ? <button className="primary-action compact" disabled={busy} onClick={revalidate}>Start revalidation</button> : null}
     <div className="freshness-history"><div className="history-heading"><strong>Freshness history</strong><span>{contract.historyTruncated ? `${contract.historyTruncated} older events compacted` : "Recorded contract state changes"}</span></div>{history.map((event, index) => <article key={`${event.occurredAt}:${event.kind}:${index}`}><i className={event.status.toLowerCase()} /><div><strong>{historyLabel(event.kind)}</strong><span>{event.reason}{event.changedComponents.length ? ` Changed: ${event.changedComponents.join(", ")}.` : ""}</span></div><time>{new Date(event.occurredAt).toLocaleString()}</time></article>)}{history.length === 0 ? <p>No contract history has been recorded.</p> : null}</div>
   </section>;
 }

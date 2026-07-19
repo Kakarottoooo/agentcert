@@ -85,7 +85,7 @@ import { buildHostedWorkspaceUrl, resolveHostedRoute, type HostedFocus, type Hos
 
 interface HostedAccountContext {
   organization: { id: string; name: string };
-  membership: { role: string };
+  membership: { role: HostedMemberRole };
 }
 
 interface ConsoleData {
@@ -321,7 +321,7 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
         {error ? <div className="console-error">{error}</div> : null}
         {!data || !project ? <div className="loading">Loading control plane...</div> : view === "account" ? (
           <AccountView config={config} session={session} project={project} context={accountContext} onSignOut={onSignOut} />
-        ) : <HostedViewContent view={view} data={data} project={project} projects={projects} session={session} onboarding={onboarding} refresh={refresh} onNavigate={navigate} />}
+        ) : <HostedViewContent view={view} data={data} project={project} projects={projects} session={session} role={accountContext?.membership.role} onboarding={onboarding} refresh={refresh} onNavigate={navigate} />}
       </main>
     </div>
   );
@@ -376,11 +376,11 @@ function AccountView({ config, session, project, context, onSignOut }: { config:
   </div>;
 }
 
-function HostedViewContent({ view, data, project, projects, session, onboarding, refresh, onNavigate }: { view: HostedView; data: ConsoleData; project: HostedProject; projects: HostedProject[]; session: HostedSession; onboarding?: HostedOnboardingStatus; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
+function HostedViewContent({ view, data, project, projects, session, role, onboarding, refresh, onNavigate }: { view: HostedView; data: ConsoleData; project: HostedProject; projects: HostedProject[]; session: HostedSession; role?: HostedMemberRole; onboarding?: HostedOnboardingStatus; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
   if (view === "overview") return <HostedOverviewView data={data} project={project} session={session} onboarding={onboarding} refresh={refresh} onNavigate={onNavigate} />;
   if (view === "agents") return <AgentsView agents={data.agents} project={project} session={session} refresh={refresh} />;
   if (view === "runs") return <HostedRunsView runs={data.runs} project={project} session={session} />;
-  if (view === "assurance") return <HostedAssuranceView cases={data.assuranceCases} evidence={data.evidence} project={project} session={session} refresh={refresh} />;
+  if (view === "assurance") return <HostedAssuranceView cases={data.assuranceCases} evidence={data.evidence} project={project} session={session} role={role} refresh={refresh} />;
   if (view === "sandbox") return <HostedSandboxView runs={data.runs.filter(isSandboxCertificationRun)} project={project} session={session} />;
   if (view === "gates") return <RunsTable runs={data.runs.filter((run) => run.kind === "release_gate")} empty="No release-gate runs have been ingested." />;
   if (view === "actions") return <ActionsView actions={data.actions} project={project} session={session} refresh={refresh} />;
