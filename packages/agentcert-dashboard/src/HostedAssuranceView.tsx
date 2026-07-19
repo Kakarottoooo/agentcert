@@ -12,6 +12,7 @@ import {
   type HostedSession,
 } from "./hosted-api";
 import { canManageAssurance, canUseAssuranceTransition, type AssuranceTransition } from "./assurance-permissions";
+import { buildAssuranceIssueInput } from "./assurance-issue";
 
 const TRANSITIONS: Partial<Record<HostedAssuranceCase["status"], Array<{ id: AssuranceTransition; label: string }>>> = {
   draft: [{ id: "start", label: "Start evaluation" }, { id: "revoke", label: "Revoke" }],
@@ -40,11 +41,13 @@ export default function HostedAssuranceView({ cases, evidence, project, session,
   const [error, setError] = useState<string>();
   const [selectedEvidenceIds, setSelectedEvidenceIds] = useState<string[]>([]);
   const [adoptionKit, setAdoptionKit] = useState<HostedContinuousAssuranceAdoptionKit>();
+  const [issueOpen, setIssueOpen] = useState(false);
   const selected = cases.find((item) => item.id === selectedId);
 
   useEffect(() => {
     setSelectedEvidenceIds([]);
     setAdoptionKit(undefined);
+    setIssueOpen(false);
     if (!selectedId) { setDecisions([]); return; }
     void loadHostedAssuranceCase(session, project.id, selectedId)
       .then((detail) => setDecisions(detail.decisions))
@@ -104,25 +107,37 @@ export default function HostedAssuranceView({ cases, evidence, project, session,
     try {
       const input: Record<string, unknown> = { reason: reason.trim() };
       if (id === "submit" && !selected.engagement) input.evidenceIds = evidence.map((item) => item.id);
-      if (id === "issue") {
-        input.publish = window.confirm("Publish the scoped report and delivery packet? This exposes the customer, subject version, sandbox description, workflow, decision, and limitations. Reviews are private by default.");
-        if (selected.engagement) {
-          const verdict = window.prompt("Verdict: RELEASE, RELEASE_WITH_CONTROLS, or BLOCK", "RELEASE_WITH_CONTROLS");
-          if (verdict !== "RELEASE" && verdict !== "RELEASE_WITH_CONTROLS" && verdict !== "BLOCK") throw new Error("Choose RELEASE, RELEASE_WITH_CONTROLS, or BLOCK.");
-          const observedText = window.prompt("Observed outcome as JSON", JSON.stringify(selected.engagement.workflow.expectedOutcome));
-          if (!observedText) return;
-          input.verdict = verdict;
-          input.rationale = requiredPrompt("Decision rationale");
-          input.firstDivergence = requiredPrompt("First behavior divergence, or explicitly state that none was observed", "No behavior divergence observed.");
-          input.authorizationGaps = linesPrompt("Authorization gaps, one per line");
-          input.controlsRequired = verdict === "RELEASE_WITH_CONTROLS" ? linesPrompt("Required controls, one per line", "Keep the action gateway mandatory.") : [];
-          input.limitations = linesPrompt("Review limitations, one per line", selected.evaluationPlan.limitations.join("\n"));
-          input.outcome = { observed: JSON.parse(observedText), verified: window.confirm("Was this outcome independently verified against the sandbox state?") };
-        }
-      }
       await transitionHostedAssuranceCase(session, project.id, selected.id, id, input);
       const detail = await loadHostedAssuranceCase(session, project.id, selected.id);
       setDecisions(detail.decisions); await refresh();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  }
+
+  async function issueReport(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selected) return;
+    const form = new FormData(event.currentTarget);
+    setBusy(true); setError(undefined);
+    try {
+      const input = buildAssuranceIssueInput({
+        reason: String(form.get("reviewReason") ?? ""),
+        publish: form.has("publish"),
+        engagement: Boolean(selected.engagement),
+        verdict: String(form.get("verdict") ?? ""),
+        observedOutcomeJson: String(form.get("observedOutcome") ?? ""),
+        outcomeVerified: form.has("outcomeVerified"),
+        rationale: String(form.get("rationale") ?? ""),
+        firstDivergence: String(form.get("firstDivergence") ?? ""),
+        authorizationGaps: String(form.get("authorizationGaps") ?? ""),
+        controlsRequired: String(form.get("controlsRequired") ?? ""),
+        limitations: String(form.get("limitations") ?? ""),
+      });
+      await transitionHostedAssuranceCase(session, project.id, selected.id, "issue", input);
+      const detail = await loadHostedAssuranceCase(session, project.id, selected.id);
+      setDecisions(detail.decisions);
+      setIssueOpen(false);
+      await refresh();
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
   }
@@ -232,7 +247,23 @@ export default function HostedAssuranceView({ cases, evidence, project, session,
       </div> : null}
       <h3>Controls</h3><ul>{selected.evaluationPlan.controls.map((control) => <li key={control.id}><strong>{control.title}</strong> <span>{control.mode}</span></li>)}</ul>
       <h3>Limitations</h3><ul>{selected.evaluationPlan.limitations.map((item) => <li key={item}>{item}</li>)}</ul>
-      <div className="approval-actions">{(TRANSITIONS[selected.status] ?? []).filter((item) => canUseAssuranceTransition(role, item.id)).map((item) => <button key={item.id} disabled={busy} className={item.id === "revoke" ? "danger-action" : ""} onClick={() => void transition(item.id)}>{item.label}</button>)}</div>
+      {issueOpen ? <form className="assurance-issue-form" onSubmit={issueReport}>
+        <div className="assurance-issue-heading"><div><span className="eyebrow">Independent decision</span><h3>Issue signed assurance report</h3></div><span>Private by default</span></div>
+        <label>Review reason<input name="reviewReason" required defaultValue="Independent review completed; baseline and retest evidence reconciled." /></label>
+        {selected.engagement ? <>
+          <label>Decision<select name="verdict" defaultValue="RELEASE_WITH_CONTROLS"><option value="RELEASE">Release</option><option value="RELEASE_WITH_CONTROLS">Release with controls</option><option value="BLOCK">Block</option></select></label>
+          <label className="wide">Decision rationale<textarea name="rationale" required placeholder="Explain why the evidence supports this decision." /></label>
+          <label className="wide">First behavior divergence<textarea name="firstDivergence" required defaultValue="No behavior divergence observed." /></label>
+          <label className="wide">Observed outcome (JSON)<textarea className="code-input" name="observedOutcome" required defaultValue={JSON.stringify(selected.engagement.workflow.expectedOutcome, null, 2)} /></label>
+          <label>Authorization gaps<textarea name="authorizationGaps" placeholder="One gap per line" /></label>
+          <label>Required controls<textarea name="controlsRequired" defaultValue="Keep the action gateway mandatory." /></label>
+          <label className="wide">Review limitations<textarea name="limitations" required defaultValue={selected.evaluationPlan.limitations.join("\n")} /></label>
+          <label className="assurance-check wide"><input name="outcomeVerified" type="checkbox" defaultChecked /><span><strong>Outcome independently verified</strong><small>The observed state was checked against the sandbox, not only the agent report.</small></span></label>
+        </> : null}
+        <label className="assurance-check wide"><input name="publish" type="checkbox" /><span><strong>Publish scoped verification record</strong><small>Leave unchecked to keep customer, workflow, decision, and limitations private.</small></span></label>
+        <div className="approval-actions wide"><button type="submit" className="primary-action compact" disabled={busy}>{busy ? "Issuing..." : "Issue signed report"}</button><button type="button" disabled={busy} onClick={() => setIssueOpen(false)}>Cancel</button></div>
+      </form> : null}
+      <div className="approval-actions">{(TRANSITIONS[selected.status] ?? []).filter((item) => canUseAssuranceTransition(role, item.id) && (item.id !== "issue" || !issueOpen)).map((item) => <button key={item.id} disabled={busy} className={item.id === "revoke" ? "danger-action" : ""} onClick={() => item.id === "issue" ? setIssueOpen(true) : void transition(item.id)}>{item.label}</button>)}</div>
       {selected.deliveryPacket ? <button className="primary-action compact" onClick={downloadDeliveryPacket}>Download signed delivery packet</button> : null}
       {selected.publicVerificationId ? <p><a href={`/v1/public/assurance-reports/${encodeURIComponent(selected.publicVerificationId)}`} target="_blank" rel="noreferrer">Open public verification record</a></p> : null}
       <h3>Decision ledger</h3><div className="trust-ops-list">{decisions.map((item) => <article key={item.id}><div><strong>{item.toStatus.replaceAll("_", " ")}</strong><span>{item.reason}</span></div><small>{item.actorEmail ?? "recorded actor"}<br />{new Date(item.occurredAt).toLocaleString()}</small></article>)}</div>
