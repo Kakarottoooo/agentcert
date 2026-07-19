@@ -597,6 +597,9 @@ export interface ContinuousAssuranceContract {
     activatedAt: string;
     activatedBy: string;
     workflowSha256: string;
+    firstAuthoritativeCurrentAt?: string;
+    firstAuthoritativeRunId?: string;
+    timeToFirstCurrentMs?: number;
   };
   reminders?: {
     expiryThresholdDaysSent: Array<30 | 7 | 1>;

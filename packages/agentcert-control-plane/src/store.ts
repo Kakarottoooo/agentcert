@@ -68,6 +68,7 @@ export const CONTROL_PLANE_MIGRATIONS = [
   "017_assurance_engagements.sql",
   "018_continuous_assurance.sql",
   "019_continuous_assurance_adoption.sql",
+  "020_observability_indexes.sql",
 ] as const;
 
 const DEFAULT_PROJECT_NAME = "Agent assurance project";
@@ -88,6 +89,13 @@ export class EvidenceQuotaExceededError extends Error {
   ) {
     super(`${scope} evidence storage quota of ${limitBytes} bytes would be exceeded.`);
     this.name = "EvidenceQuotaExceededError";
+  }
+}
+
+export class EventSequenceConflictError extends Error {
+  constructor(readonly sequence: number) {
+    super(`Event sequence ${sequence} already exists.`);
+    this.name = "EventSequenceConflictError";
   }
 }
 
@@ -140,17 +148,22 @@ export interface ControlPlaneStore {
   listRuns(projectId: string, limit?: number): Promise<RunRecord[]>;
   appendEvents(events: EventRecord[]): Promise<EventRecord[]>;
   listEvents(projectId: string, runId: string): Promise<EventRecord[]>;
+  listEventsForProject(projectId: string, since: string, limit?: number): Promise<EventRecord[]>;
   insertAction(action: ActionRecord): Promise<ActionRecord>;
   updateAction(action: ActionRecord): Promise<ActionRecord>;
   getAction(projectId: string, actionId: string): Promise<ActionRecord | undefined>;
   listActions(projectId: string, limit?: number): Promise<ActionRecord[]>;
+  listActionsForTrace(projectId: string, traceId: string): Promise<ActionRecord[]>;
   insertApproval(approval: ApprovalRecord): Promise<ApprovalRecord>;
+  listApprovals(projectId: string, limit?: number): Promise<ApprovalRecord[]>;
+  listApprovalsForActions(projectId: string, actionIds: string[]): Promise<ApprovalRecord[]>;
   insertEvidence(evidence: EvidenceRecord): Promise<EvidenceRecord>;
   insertEvidenceWithinQuota(evidence: EvidenceRecord, projectLimitBytes: number, runLimitBytes: number): Promise<EvidenceRecord>;
   findEvidenceByDigest(projectId: string, runId: string | undefined, actionId: string | undefined, kind: string, sha256: string, sourcePath?: string): Promise<EvidenceRecord | undefined>;
   getEvidence(projectId: string, evidenceId: string): Promise<EvidenceRecord | undefined>;
   listEvidence(projectId: string, limit?: number): Promise<EvidenceRecord[]>;
   listEvidenceForRun(projectId: string, runId: string): Promise<EvidenceRecord[]>;
+  listEvidenceForActions(projectId: string, actionIds: string[]): Promise<EvidenceRecord[]>;
   evidenceUsage(projectId: string, runId?: string): Promise<EvidenceStorageUsage>;
   listEvidenceCreatedBefore(before: string, limit?: number): Promise<EvidenceRecord[]>;
   deleteEvidence(projectId: string, evidenceId: string): Promise<boolean>;
@@ -440,8 +453,8 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
             .map((item) => item.createdAt).sort()[0]
           : undefined;
         const firstCurrentAt = [...this.assuranceCases.values()]
-          .filter((item) => item.projectId === project.id && item.continuousAssurance?.firstCurrentAt)
-          .map((item) => item.continuousAssurance!.firstCurrentAt!).sort()[0];
+          .filter((item) => item.projectId === project.id && item.continuousAssurance?.adoption?.firstAuthoritativeCurrentAt)
+          .map((item) => item.continuousAssurance!.adoption!.firstAuthoritativeCurrentAt!).sort()[0];
         return { project, firstKeyAt, firstConnectionAt, firstEvidenceAt, firstCurrentAt };
       }),
       feedback: [...this.pilotFeedback.values()].filter((item) => projectIds.has(item.projectId)),
@@ -555,7 +568,8 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
       const existing = [...this.events.values()].find(
         (item) => item.runId === event.runId && item.sequence === event.sequence,
       );
-      this.events.set(existing?.id ?? event.id, existing ? { ...event, id: existing.id } : event);
+      if (existing) throw new EventSequenceConflictError(event.sequence);
+      this.events.set(event.id, event);
     }
     return events;
   }
@@ -564,6 +578,13 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
     return [...this.events.values()]
       .filter((item) => item.projectId === projectId && item.runId === runId)
       .sort((left, right) => left.sequence - right.sequence);
+  }
+
+  async listEventsForProject(projectId: string, since: string, limit = 1_000): Promise<EventRecord[]> {
+    return newest(
+      [...this.events.values()].filter((item) => item.projectId === projectId && item.occurredAt >= since),
+      "occurredAt",
+    ).slice(0, limit);
   }
 
   async insertAction(action: ActionRecord): Promise<ActionRecord> {
@@ -589,9 +610,22 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
     return newest([...this.actions.values()].filter((item) => item.projectId === projectId), "createdAt").slice(0, limit);
   }
 
+  async listActionsForTrace(projectId: string, traceId: string): Promise<ActionRecord[]> {
+    return newest([...this.actions.values()].filter((item) => item.projectId === projectId && item.traceId === traceId), "createdAt");
+  }
+
   async insertApproval(approval: ApprovalRecord): Promise<ApprovalRecord> {
     this.approvals.set(approval.id, approval);
     return approval;
+  }
+
+  async listApprovals(projectId: string, limit = 100): Promise<ApprovalRecord[]> {
+    return newest([...this.approvals.values()].filter((item) => item.projectId === projectId), "createdAt").slice(0, limit);
+  }
+
+  async listApprovalsForActions(projectId: string, actionIds: string[]): Promise<ApprovalRecord[]> {
+    const allowed = new Set(actionIds);
+    return newest([...this.approvals.values()].filter((item) => item.projectId === projectId && allowed.has(item.actionId)), "createdAt");
   }
 
   async insertEvidence(evidence: EvidenceRecord): Promise<EvidenceRecord> {
@@ -642,6 +676,11 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
       [...this.evidence.values()].filter((item) => item.projectId === projectId && item.runId === runId),
       "createdAt",
     );
+  }
+
+  async listEvidenceForActions(projectId: string, actionIds: string[]): Promise<EvidenceRecord[]> {
+    const allowed = new Set(actionIds);
+    return newest([...this.evidence.values()].filter((item) => item.projectId === projectId && Boolean(item.actionId) && allowed.has(item.actionId!)), "createdAt");
   }
 
   async evidenceUsage(projectId: string, runId?: string): Promise<EvidenceStorageUsage> {
@@ -1478,11 +1517,7 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
            AND created_at >= connection_milestone.first_connection_at
        ) evidence_milestone ON true
        LEFT JOIN LATERAL (
-         SELECT MIN(NULLIF(COALESCE(
-           continuous_assurance->>'firstCurrentAt',
-           continuous_assurance->>'currentSince',
-           continuous_assurance->>'validatedAt'
-         ), '')::timestamptz) AS first_current_at
+         SELECT MIN(NULLIF(continuous_assurance->'adoption'->>'firstAuthoritativeCurrentAt', '')::timestamptz) AS first_current_at
          FROM agentcert_assurance_cases
          WHERE project_id=p.id AND continuous_assurance IS NOT NULL
        ) current_milestone ON true
@@ -1679,13 +1714,13 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     try {
       await client.query("BEGIN");
       for (const event of events) {
-        await client.query(
+        const inserted = await client.query(
           `INSERT INTO agentcert_events (id,project_id,run_id,sequence,type,actor,occurred_at,payload,trace_id,span_id,parent_span_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (run_id,sequence) DO UPDATE SET
-           type=excluded.type,actor=excluded.actor,occurred_at=excluded.occurred_at,payload=excluded.payload,
-           trace_id=excluded.trace_id,span_id=excluded.span_id,parent_span_id=excluded.parent_span_id`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+           ON CONFLICT (run_id,sequence) DO NOTHING RETURNING id`,
           [event.id, event.projectId, event.runId, event.sequence, event.type, event.actor, event.occurredAt, JSON.stringify(event.payload), event.traceId ?? null, event.spanId ?? null, event.parentSpanId ?? null],
         );
+        if (inserted.rowCount !== 1) throw new EventSequenceConflictError(event.sequence);
       }
       await client.query("COMMIT");
       return events;
@@ -1699,6 +1734,10 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
 
   async listEvents(projectId: string, runId: string): Promise<EventRecord[]> {
     return many(this.pool.query("SELECT * FROM agentcert_events WHERE project_id=$1 AND run_id=$2 ORDER BY sequence", [projectId, runId]), eventFromRow);
+  }
+
+  async listEventsForProject(projectId: string, since: string, limit = 1_000): Promise<EventRecord[]> {
+    return many(this.pool.query("SELECT * FROM agentcert_events WHERE project_id=$1 AND occurred_at >= $2 ORDER BY occurred_at DESC LIMIT $3", [projectId, since, limit]), eventFromRow);
   }
 
   async insertAction(action: ActionRecord): Promise<ActionRecord> {
@@ -1742,12 +1781,25 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     return many(this.pool.query("SELECT * FROM agentcert_actions WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2", [projectId, limit]), actionFromRow);
   }
 
+  async listActionsForTrace(projectId: string, traceId: string): Promise<ActionRecord[]> {
+    return many(this.pool.query("SELECT * FROM agentcert_actions WHERE project_id=$1 AND trace_id=$2 ORDER BY created_at", [projectId, traceId]), actionFromRow);
+  }
+
   async insertApproval(approval: ApprovalRecord): Promise<ApprovalRecord> {
     await this.pool.query(
       "INSERT INTO agentcert_approvals (id,project_id,action_id,reviewer_id,decision,comment,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)",
       [approval.id, approval.projectId, approval.actionId, approval.reviewerId, approval.decision, approval.comment ?? null, approval.createdAt],
     );
     return approval;
+  }
+
+  async listApprovals(projectId: string, limit = 100): Promise<ApprovalRecord[]> {
+    return many(this.pool.query("SELECT * FROM agentcert_approvals WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2", [projectId, limit]), approvalFromRow);
+  }
+
+  async listApprovalsForActions(projectId: string, actionIds: string[]): Promise<ApprovalRecord[]> {
+    if (actionIds.length === 0) return [];
+    return many(this.pool.query("SELECT * FROM agentcert_approvals WHERE project_id=$1 AND action_id = ANY($2::uuid[]) ORDER BY created_at", [projectId, actionIds]), approvalFromRow);
   }
 
   async insertEvidence(evidence: EvidenceRecord): Promise<EvidenceRecord> {
@@ -1843,6 +1895,11 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
       this.pool.query("SELECT * FROM agentcert_evidence WHERE project_id=$1 AND run_id=$2 ORDER BY created_at DESC", [projectId, runId]),
       evidenceFromRow,
     );
+  }
+
+  async listEvidenceForActions(projectId: string, actionIds: string[]): Promise<EvidenceRecord[]> {
+    if (actionIds.length === 0) return [];
+    return many(this.pool.query("SELECT * FROM agentcert_evidence WHERE project_id=$1 AND action_id = ANY($2::uuid[]) ORDER BY created_at", [projectId, actionIds]), evidenceFromRow);
   }
 
   async evidenceUsage(projectId: string, runId?: string): Promise<EvidenceStorageUsage> {
@@ -2807,6 +2864,10 @@ function actionFromRow(row: Record<string, unknown>): ActionRecord {
     verificationSuccess: optionalBoolean(row.verification_success), createdAt: iso(row.created_at), updatedAt: iso(row.updated_at),
     traceId: optionalText(row.trace_id), spanId: optionalText(row.span_id), parentSpanId: optionalText(row.parent_span_id),
     assuranceContext: optionalObject(row.assurance_context) as ActionRecord["assuranceContext"] };
+}
+function approvalFromRow(row: Record<string, unknown>): ApprovalRecord {
+  return { id: text(row.id), projectId: text(row.project_id), actionId: text(row.action_id), reviewerId: text(row.reviewer_id),
+    decision: text(row.decision) as ApprovalRecord["decision"], comment: optionalText(row.comment), createdAt: iso(row.created_at) };
 }
 function evidenceFromRow(row: Record<string, unknown>): EvidenceRecord {
   return { id: text(row.id), projectId: text(row.project_id), runId: optionalText(row.run_id), actionId: optionalText(row.action_id), kind: text(row.kind),

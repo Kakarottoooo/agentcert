@@ -270,6 +270,10 @@ async function handleRequest(
     sendJson(response, 200, await options.service.overview(auth, projectId));
     return;
   }
+  if (collection === "observability" && request.method === "GET" && !entityId) {
+    sendJson(response, 200, await options.service.observability(auth, projectId, Number(url.searchParams.get("days") ?? "30")));
+    return;
+  }
   if (collection === "operations" && entityId === "smoke-runs" && request.method === "POST") {
     sendJson(response, 201, await options.service.recordTrustHealthSample(auth, projectId, await readJson(request)));
     return;

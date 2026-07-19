@@ -61,6 +61,12 @@ inputs:
   assurance-trigger:
     description: Continuous assurance trigger (auto, pull_request, release, or nightly).
     default: auto
+  require-current:
+    description: Fail unless Hosted confirms authoritative CURRENT with complete evidence (true, false, or auto).
+    default: "false"
+  continuous-health-out:
+    description: Redacted Hosted continuous assurance health output path.
+    default: .agentcert/latest/continuous-assurance-health.json
   publish-pages:
     description: >-
       Publish the evidence reports and badge to a GitHub Pages branch and emit
@@ -107,6 +113,9 @@ outputs:
   release-gate-junit:
     description: Path to release gate JUnit XML.
     value: ${{ inputs.agentcert-out }}/agentcert-release-gate-junit.xml
+  continuous-health:
+    description: Path to the Hosted continuous assurance health contract.
+    value: ${{ inputs.continuous-health-out }}
   pages-url:
     description: Base URL of the published evidence page (when publish-pages is true).
     value: ${{ steps.publish-pages.outputs.pages-url }}
@@ -207,6 +216,22 @@ runs:
               --assurance-scope "${{ inputs.assurance-scope }}"
               --assurance-trigger "${AGENTCERT_ASSURANCE_TRIGGER_RESOLVED:-${{ inputs.assurance-trigger }}}"
             )
+            if [ -n "${{ inputs.continuous-health-out }}" ]; then
+              args+=(--continuous-health-out "${{ inputs.continuous-health-out }}")
+            fi
+            require_current="${{ inputs.require-current }}"
+            if [ "$require_current" = "auto" ]; then
+              case "${AGENTCERT_ASSURANCE_TRIGGER_RESOLVED:-}" in
+                release|nightly) require_current="true" ;;
+                *) require_current="false" ;;
+              esac
+            fi
+            if [ "$require_current" = "true" ]; then
+              args+=(--require-current)
+            elif [ "$require_current" != "false" ]; then
+              echo "::error::require-current must be true, false, or auto"
+              exit 2
+            fi
           fi
         fi
         node "$AGENTCERT_ACTION_ROOT/packages/agentcert-cli/dist/cli.js" "${args[@]}"
@@ -308,6 +333,9 @@ runs:
           echo "- Release gate JUnit: \`${{ inputs.agentcert-out }}/agentcert-release-gate-junit.xml\`"
           echo "- Hosted continuous assurance: \`${{ inputs.push-hosted }}\`"
           echo "- Assurance trigger: \`${AGENTCERT_ASSURANCE_TRIGGER_RESOLVED:-not-bound}\`"
+          if [ -f "${{ inputs.continuous-health-out }}" ]; then
+            node -e 'const h=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); console.log(`- Hosted status: \`${h.status}\``); console.log(`- Evidence integrity: \`${h.evidence.status}\``); if (h.assurance.timeToFirstCurrentMs !== undefined) console.log(`- Install to first CURRENT: \`${h.assurance.timeToFirstCurrentMs} ms\``);' "${{ inputs.continuous-health-out }}"
+          fi
           echo "- Tripwire config: \`${AGENTCERT_TRIPWIRE_CONFIG:-${{ inputs.config }}}\`"
         } >> "$GITHUB_STEP_SUMMARY"
         if [ -f "${{ inputs.agentcert-out }}/agentcert-report.md" ]; then

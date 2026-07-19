@@ -4,6 +4,7 @@ export { canonicalJson } from "./canonical.js";
 export * from "./remote-collector.js";
 export * from "./collector-gateway.js";
 export * from "./gateway-conformance.js";
+export * from "./run-recorder.js";
 
 export interface AgentCertClientOptions {
   baseUrl: string;
@@ -70,6 +71,8 @@ export interface RunInput {
   schemaVersion?: string;
   startedAt?: string;
   metadata?: Record<string, unknown>;
+  traceId?: string;
+  rootSpanId?: string;
   assurance?: RunAssuranceInput;
 }
 
@@ -97,6 +100,9 @@ export interface AgentEvent {
   actor?: string;
   occurredAt?: string;
   payload?: Record<string, unknown>;
+  traceId?: string;
+  spanId?: string;
+  parentSpanId?: string;
 }
 
 export interface ActionInput {
@@ -150,8 +156,12 @@ export class AgentCertClient {
     return this.json("runs", { method: "POST", body: JSON.stringify(input) });
   }
 
-  appendEvents(runId: string, events: AgentEvent[]): Promise<{ events: AgentEvent[] }> {
-    return this.json(`runs/${encodeURIComponent(runId)}/events`, { method: "POST", body: JSON.stringify({ events }) });
+  appendEvents(runId: string, events: AgentEvent[], idempotencyKey?: string): Promise<{ events: AgentEvent[] }> {
+    return this.json(`runs/${encodeURIComponent(runId)}/events`, {
+      method: "POST",
+      headers: idempotencyKey ? { "idempotency-key": idempotencyKey } : undefined,
+      body: JSON.stringify({ events }),
+    });
   }
 
   completeRun(runId: string, input: { status: "passed" | "failed" | "needs_evidence" | "manual_review"; score?: number; summary?: string; firstDivergence?: string; metadata?: Record<string, unknown> }): Promise<Record<string, unknown>> {

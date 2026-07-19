@@ -219,6 +219,18 @@ export function applyContinuousAssuranceObservation(
     },
     lastEvaluationAt: input.observedAt,
   };
+  const firstAuthoritativeCurrent = contract.adoption
+    && contract.freshness.status === "CURRENT"
+    && reconciliation.authoritative
+    && reconciliation.outcome === "current"
+    && !contract.adoption.firstAuthoritativeCurrentAt
+      ? {
+          ...contract.adoption,
+          firstAuthoritativeCurrentAt: input.observedAt,
+          firstAuthoritativeRunId: input.runId,
+          timeToFirstCurrentMs: Math.max(0, Date.parse(input.observedAt) - Date.parse(contract.adoption.activatedAt)),
+        }
+      : contract.adoption;
   const common: ContinuousAssuranceContract = {
     ...contract,
     lastObservedScope: observed,
@@ -226,6 +238,7 @@ export function applyContinuousAssuranceObservation(
     lastRunId: input.runId,
     lastTrigger: input.trigger,
     metrics,
+    adoption: firstAuthoritativeCurrent,
   };
   if (!reconciliation.authoritative) {
     const prospective: ContinuousAssuranceContract = {
@@ -468,6 +481,43 @@ function continuousAssuranceWorkflow(projectId: string, assuranceCaseId: string)
     `          assurance-case: ${assuranceCaseId}`,
     "          assurance-scope: agentcert.assurance-scope.json",
     "          assurance-trigger: auto",
+    "          require-current: auto",
+    "          continuous-health-out: .agentcert/latest/continuous-assurance-health.json",
+    "      - name: Assert and publish redacted Hosted health",
+    "        if: ${{ always() && github.event_name != 'pull_request' }}",
+    "        shell: bash",
+    "        run: |",
+    "          node - <<'NODE'",
+    "          const fs = require('node:fs');",
+    "          const source = '.agentcert/latest/continuous-assurance-health.json';",
+    "          if (!fs.existsSync(source)) throw new Error('Generated kit did not produce Hosted continuous assurance health.');",
+    "          const health = JSON.parse(fs.readFileSync(source, 'utf8'));",
+    "          const publicHealth = {",
+    "            schemaVersion: 'agentcert.generated_kit_health.v0.1',",
+    "            healthy: health.healthy === true,",
+    "            status: health.status,",
+    "            checkedAt: health.checkedAt,",
+    "            runStatus: health.run?.status,",
+    "            trigger: health.assurance?.trigger,",
+    "            authoritative: health.assurance?.authoritative === true,",
+    "            timeToFirstCurrentMs: health.assurance?.timeToFirstCurrentMs,",
+    "            evidence: { status: health.evidence?.status, declared: health.evidence?.declared, matched: health.evidence?.matched },",
+    "            diagnostics: Array.isArray(health.diagnostics) ? health.diagnostics.map(({ code }) => ({ code })) : [],",
+    "          };",
+    "          fs.mkdirSync('.agentcert/canary', { recursive: true });",
+    "          fs.writeFileSync('.agentcert/canary/generated-kit-health.json', `${JSON.stringify(publicHealth, null, 2)}\\n`);",
+    "          if (!publicHealth.healthy || publicHealth.status !== 'CURRENT' || !publicHealth.authoritative || publicHealth.evidence.status !== 'complete') {",
+    "            throw new Error(`Generated kit Hosted E2E failed: status=${publicHealth.status}, evidence=${publicHealth.evidence.status}, diagnostics=${publicHealth.diagnostics.map((item) => item.code).join(',')}`);",
+    "          }",
+    "          NODE",
+    "      - name: Upload generated-kit public health",
+    "        if: ${{ always() && github.event_name != 'pull_request' }}",
+    "        uses: actions/upload-artifact@v7",
+    "        with:",
+    "          name: agentcert-generated-kit-health",
+    "          path: .agentcert/canary/generated-kit-health.json",
+    "          if-no-files-found: error",
+    "          retention-days: 30",
     "",
   ].join("\n");
 }
@@ -484,6 +534,8 @@ function continuousAssuranceReadme(assuranceCaseId: string, fingerprint: string)
     "3. Keep `tripwire.yml` deterministic and committed. The generated workflow selects PR, release, and nightly modes explicitly; replace each layered config path when the suites diverge.",
     "   Fork pull requests run the local prospective gate without receiving or using the Hosted API key.",
     "4. Open a pull request to verify prospective drift, merge to run the authoritative release check, and keep the nightly schedule enabled.",
+    "5. Release and nightly jobs fail unless Hosted AgentCert confirms the run is CURRENT with complete evidence. The health artifact records time from kit activation to the first authoritative CURRENT run.",
+    "6. `agentcert-generated-kit-health` is a redacted CI artifact. It contains no API key, project ID, case ID, run ID, or scope fingerprint and is safe to expose as canary health.",
     "",
     "A changed agent, model, prompt, tool manifest, policy, or scenario suite requires a new signed revalidation case.",
     "",

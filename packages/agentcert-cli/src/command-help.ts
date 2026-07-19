@@ -33,6 +33,8 @@ Options:
   --assurance-case <id>  Issued assurance case to reconcile
   --assurance-scope <p>  Declared agent/model/prompt/tools/policy/suite scope JSON
   --assurance-trigger <t> auto, pull_request, release, or nightly (default: auto)
+  --require-current       Fail unless Hosted confirms authoritative CURRENT and complete evidence
+  --continuous-health-out <path>  Write the redacted Hosted health contract
   --artifact-root <dir>  Allowed root for companion artifacts (default: current directory)
   --no-artifacts         Upload only the evidence bundle
   --help, -h             Show this help

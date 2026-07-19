@@ -174,6 +174,7 @@ Envelope contract and adapters: [docs/universal-envelope.md](docs/universal-enve
 Evidence verification chain: [docs/evidence-trust-chain.md](docs/evidence-trust-chain.md).
 Assurance lifecycle: [docs/assurance-lifecycle.md](docs/assurance-lifecycle.md).
 Continuous assurance: [docs/continuous-assurance.md](docs/continuous-assurance.md).
+Assurance observability: [docs/observability.md](docs/observability.md).
 Independent continuous canary: [Kakarottoooo/agentcert-continuous-assurance-canary](https://github.com/Kakarottoooo/agentcert-continuous-assurance-canary).
 Production Acceptance Lab: [docs/production-acceptance-lab.md](docs/production-acceptance-lab.md).
 Corpus governance: [docs/corpus-governance.md](docs/corpus-governance.md).

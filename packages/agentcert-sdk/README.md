@@ -109,6 +109,30 @@ framework-neutral event ingestion. `verifyServerAttestation()` verifies the
 canonical Ed25519 metadata chain returned on hosted evidence records against
 the public key from `GET /v1/signing-keys/current`.
 
+## Assurance observability
+
+`AgentCertRunRecorder` is the thin framework-neutral path for ordered,
+OpenTelemetry-compatible run events. It owns sequence allocation, trace/span
+IDs, bounded batches, retry-safe pending records, and flush-before-complete:
+
+```ts
+import { AgentCertClient, AgentCertRunRecorder } from "agentcert-sdk";
+
+const recorder = await AgentCertRunRecorder.start(agentcert, {
+  externalId: process.env.GITHUB_SHA ?? "local-run",
+  kind: "release_gate",
+});
+await recorder.recordEvent({
+  type: "tripwire.fault.assertion",
+  payload: { fault: "button-text-drift", passed: true },
+});
+await recorder.complete({ status: "passed" });
+```
+
+The recorder does not execute actions or become a general-purpose APM agent.
+See [`docs/observability.md`](../../docs/observability.md) for event limits,
+query semantics, trust boundaries, and non-claims.
+
 ## Customer-owned collector gateway
 
 `agentcert-sdk` includes a customer-owned process that holds the source

@@ -22,9 +22,18 @@ class AgentCertClient:
     def start_run(self, **input: Any) -> dict[str, Any]:
         return self._json("runs", method="POST", body=input)
 
-    def append_events(self, run_id: str, events: list[dict[str, Any]]) -> dict[str, Any]:
+    def append_events(
+        self,
+        run_id: str,
+        events: list[dict[str, Any]],
+        *,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
         return self._json(
-            f"runs/{urllib.parse.quote(run_id)}/events", method="POST", body={"events": events}
+            f"runs/{urllib.parse.quote(run_id)}/events",
+            method="POST",
+            body={"events": events},
+            headers={"Idempotency-Key": idempotency_key} if idempotency_key else None,
         )
 
     def complete_run(self, run_id: str, **input: Any) -> dict[str, Any]:

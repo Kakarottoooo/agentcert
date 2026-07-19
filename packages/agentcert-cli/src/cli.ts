@@ -15,7 +15,7 @@ import {
 } from "./corpus.js";
 import { openCorpusStore, parseCorpusStoreKind, type CorpusStoreOptions } from "./corpus-store.js";
 import { deleteCorpusRecords, exportGovernedCorpus, governCorpusRecords, parseCorpusConsent } from "./corpus-governance.js";
-import { pushEvidenceToControlPlane, verifyControlPlaneConnection } from "./control-plane.js";
+import { pushEvidenceToControlPlane, requireContinuousAssuranceCurrent, verifyControlPlaneConnection } from "./control-plane.js";
 import { runEvidenceConformance } from "./conformance.js";
 import { DEFAULT_AGENTCERT_SERVER, resolveConnection, saveConnection } from "./credentials.js";
 import {
@@ -606,6 +606,10 @@ async function pushHostedEvidence(bundle: AgentCertBundle, bytes: Uint8Array, fi
   const companions = readBoolFlag("--no-artifacts")
     ? undefined
     : await collectCompanionArtifacts(bundle, resolve(readFlag("--artifact-root") ?? process.cwd()));
+  const assurance = await readContinuousAssuranceBinding();
+  const healthOut = readFlag("--continuous-health-out");
+  const requireCurrent = readBoolFlag("--require-current");
+  if (requireCurrent && !assurance) throw new Error("--require-current needs --assurance-case and --assurance-scope.");
   const result = await pushEvidenceToControlPlane({
     baseUrl: connection.server,
     projectId: connection.projectId,
@@ -616,7 +620,8 @@ async function pushHostedEvidence(bundle: AgentCertBundle, bytes: Uint8Array, fi
     externalId: readFlag("--external-id"),
     companionArtifacts: companions?.artifacts,
     skippedCompanionArtifacts: companions?.skipped,
-    assurance: await readContinuousAssuranceBinding(),
+    assurance,
+    verifyContinuousAssurance: Boolean(assurance && (healthOut || requireCurrent)),
   });
   process.stdout.write(`Hosted run: ${result.runId}\nHosted evidence: ${result.evidenceId}\n`);
   if (companions) {
@@ -631,6 +636,16 @@ async function pushHostedEvidence(bundle: AgentCertBundle, bytes: Uint8Array, fi
     if (companions.skipped.length > MAX_REPORTED_COMPANION_ARTIFACT_SKIPS) {
       process.stderr.write(`${companions.skipped.length - MAX_REPORTED_COMPANION_ARTIFACT_SKIPS} additional skipped artifacts omitted.\n`);
     }
+  }
+  if (result.continuousAssuranceHealth) {
+    process.stdout.write(`Hosted assurance: ${result.continuousAssuranceHealth.status} (${result.continuousAssuranceHealth.healthy ? "healthy" : "attention required"})\n`);
+    if (healthOut) {
+      const outputPath = resolve(healthOut);
+      await mkdir(dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, `${JSON.stringify(result.continuousAssuranceHealth, null, 2)}\n`, "utf8");
+      process.stdout.write(`Continuous assurance health: ${outputPath}\n`);
+    }
+    if (requireCurrent) requireContinuousAssuranceCurrent(result.continuousAssuranceHealth);
   }
 }
 

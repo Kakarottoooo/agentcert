@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from agentcert_sdk import AgentCertClient
+from agentcert_sdk import AgentCertClient, RunRecorder
 
 
 class FakeResponse:
@@ -57,6 +57,44 @@ class ClientTest(unittest.TestCase):
         )
         request = urlopen.call_args.args[0]
         self.assertEqual(request.headers["Idempotency-key"], "envelope-1")
+
+
+class RecordingRunClient:
+    def __init__(self):
+        self.started = []
+        self.batches = []
+        self.idempotency_keys = []
+        self.completed = []
+
+    def start_run(self, **input):
+        self.started.append(input)
+        return {"id": "run-observe-1", "status": "running"}
+
+    def append_events(self, run_id, events, *, idempotency_key=None):
+        self.batches.append((run_id, events))
+        self.idempotency_keys.append(idempotency_key)
+        return {"events": events}
+
+    def complete_run(self, run_id, **input):
+        self.completed.append((run_id, input))
+        return {"id": run_id, **input}
+
+
+class RunRecorderTest(unittest.TestCase):
+    def test_records_ordered_trace_linked_events(self):
+        client = RecordingRunClient()
+        recorder = RunRecorder.start(  # type: ignore[arg-type]
+            client, {"externalId": "release-1", "kind": "release_gate"}, batch_size=2
+        )
+        recorder.record_event("tripwire.fault.assertion", payload={"passed": True})
+        recorder.complete(status="passed", score=100)
+
+        self.assertEqual(
+            [event["sequence"] for _, batch in client.batches for event in batch], [0, 1, 2]
+        )
+        self.assertEqual(client.started[0]["traceId"], recorder.trace["traceId"])
+        self.assertEqual(client.batches[0][1][1]["parentSpanId"], recorder.trace["spanId"])
+        self.assertEqual(client.idempotency_keys, ["events-0-1", "events-2-2"])
 
 
 if __name__ == "__main__":

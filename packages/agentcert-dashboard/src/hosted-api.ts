@@ -155,6 +155,8 @@ export interface HostedRun {
   startedAt: string;
   completedAt?: string;
   metadata: Record<string, unknown>;
+  traceId?: string;
+  rootSpanId?: string;
 }
 
 export interface HostedEvent {
@@ -166,6 +168,9 @@ export interface HostedEvent {
   actor: string;
   occurredAt: string;
   payload: Record<string, unknown>;
+  traceId?: string;
+  spanId?: string;
+  parentSpanId?: string;
 }
 
 export interface HostedAction {
@@ -181,6 +186,19 @@ export interface HostedAction {
   expectedState?: Record<string, unknown>;
   observedState?: Record<string, unknown>;
   verificationSuccess?: boolean;
+  createdAt: string;
+  traceId?: string;
+  spanId?: string;
+  parentSpanId?: string;
+}
+
+export interface HostedApproval {
+  id: string;
+  projectId: string;
+  actionId: string;
+  reviewerId: string;
+  decision: "APPROVED" | "REJECTED";
+  comment?: string;
   createdAt: string;
 }
 
@@ -285,7 +303,15 @@ export interface HostedContinuousAssurance {
   prospective?: { runId: string; observedAt: string; changes: Array<{ component: string }>; outcome: "current" | "would_require_revalidation" };
   supersedesCaseId?: string;
   revalidation?: { cycleNumber: number; sourceCaseId: string; startedAt: string; completedAt?: string; durationMs?: number };
-  adoption?: { schemaVersion: "agentcert.continuous_assurance_adoption.v0.1"; activatedAt: string; activatedBy: string; workflowSha256: string };
+  adoption?: {
+    schemaVersion: "agentcert.continuous_assurance_adoption.v0.1";
+    activatedAt: string;
+    activatedBy: string;
+    workflowSha256: string;
+    firstAuthoritativeCurrentAt?: string;
+    firstAuthoritativeRunId?: string;
+    timeToFirstCurrentMs?: number;
+  };
   reminders?: { expiryThresholdDaysSent: Array<30 | 7 | 1>; lastExpiryReminderAt?: string };
   history?: Array<{
     kind: "contract_created" | "current" | "prospective_change" | "revalidation_required" | "revalidation_started" | "suspended" | "expired" | "expiry_warning" | "ci_activated";
@@ -395,6 +421,8 @@ export interface HostedFailureReview {
 export interface HostedRunAnalysis {
   run: HostedRun;
   events: HostedEvent[];
+  actions: HostedAction[];
+  approvals: HostedApproval[];
   evidence: HostedEvidence[];
   incidents: HostedIncident[];
   reviews: HostedFailureReview[];
@@ -418,6 +446,41 @@ export interface HostedRunAnalysis {
       legacy: boolean;
     };
   };
+  observability: {
+    schemaVersion: "agentcert.run_observability.v0.1";
+    traceId?: string;
+    rootSpanId?: string;
+    complete: boolean;
+    diagnostics: Array<{ code: string; message: string; values?: Array<string | number> }>;
+    spans: Array<{
+      id: string; parentId?: string; sourceSpanId?: string; entityType: "run" | "event" | "action" | "approval" | "evidence";
+      entityId: string; name: string; actor: string; status: "ok" | "error" | "pending" | "unknown";
+      startedAt: string; completedAt?: string; durationMs?: number; sequence?: number; attributes: Record<string, unknown>;
+    }>;
+    risk: {
+      maxRiskLevel: "NONE" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+      totalActions: number; highRiskActions: number; deniedActions: number; approvalRequiredActions: number;
+      approvedActions: number; rejectedActions: number; verifiedActions: number; verificationFailures: number;
+      policyViolations: number; decisions: Record<"ALLOW" | "DENY" | "REQUIRE_APPROVAL", number>;
+    };
+  };
+}
+
+export interface HostedObservability {
+  schemaVersion: "agentcert.observability_snapshot.v0.1";
+  generatedAt: string;
+  since: string;
+  periodDays: number;
+  truncated: { any: boolean; runs: boolean; events: boolean; actions: boolean; approvals: boolean; limitPerEntity: number };
+  totals: { runs: number; events: number; actions: number; approvals: number };
+  assurance: { passRate: number; currentRate: number; faultPassRate?: number };
+  risk: {
+    highRiskActions: number; blockedRate: number; approvalRate: number; verificationFailureRate: number; policyViolationRate: number;
+    averageApprovalLatencyMs?: number; distribution: Record<"LOW" | "MEDIUM" | "HIGH" | "CRITICAL", number>;
+  };
+  daily: Array<{ date: string; runs: number; passed: number; failed: number; highRiskActions: number; blockedActions: number; policyViolations: number; verificationFailures: number }>;
+  topPolicyReasons: Array<{ reason: string; count: number }>;
+  topEventTypes: Array<{ type: string; count: number }>;
 }
 
 export interface HostedLegalHoldRequest {
@@ -845,6 +908,10 @@ export async function loadHostedRuns(session: HostedSession, projectId: string):
 
 export async function loadHostedRunAnalysis(session: HostedSession, projectId: string, runId: string): Promise<HostedRunAnalysis> {
   return apiRequest(session, path(projectId, `runs/${encodeURIComponent(runId)}/analysis`));
+}
+
+export async function loadHostedObservability(session: HostedSession, projectId: string, days: 7 | 30 | 90 = 30): Promise<HostedObservability> {
+  return apiRequest(session, `${path(projectId, "observability")}?days=${days}`);
 }
 
 export async function reviewHostedFailure(
