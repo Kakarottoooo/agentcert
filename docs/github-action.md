@@ -56,7 +56,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
 
       - id: agentcert
         uses: Kakarottoooo/agentcert/actions/tripwire@v0
@@ -97,6 +97,40 @@ blocks, while unconfigured manual controls remain visible. Set
 required control attestations through `agentcert.config.json` or a separate
 full release-gate job.
 
+## Hosted Continuous Assurance
+
+The recommended path is to issue an assurance case in the Hosted workspace and
+download its generated CI kit. The kit binds the reviewed scope to pull-request,
+release, and nightly runs. Store the project key in GitHub Secrets; keep project
+and assurance-case identifiers in repository variables.
+
+```yaml
+env:
+  AGENTCERT_BASE_URL: https://agentcert.app
+  AGENTCERT_PROJECT_ID: ${{ vars.AGENTCERT_PROJECT_ID }}
+  AGENTCERT_API_KEY: ${{ secrets.AGENTCERT_API_KEY }}
+
+steps:
+  - uses: actions/checkout@v7
+  - id: agentcert
+    uses: Kakarottoooo/agentcert/actions/tripwire@v0
+    with:
+      config: tripwire.yml
+      push-hosted: "true"
+      assurance-case: ${{ vars.AGENTCERT_ASSURANCE_CASE_ID }}
+      assurance-scope: agentcert.assurance-scope.json
+      assurance-trigger: auto
+      require-current: "auto"
+      continuous-health-out: .agentcert/canary/generated-kit-health.json
+```
+
+`auto` keeps pull requests prospective and makes release/nightly checks
+authoritative. Scope drift on an authoritative run changes the Hosted contract
+to `REVALIDATION_REQUIRED`; those jobs fail until an independently issued
+successor case restores `CURRENT`. The redacted health artifact makes the full
+external path observable: generated kit, CI run, Hosted evidence completeness,
+freshness state, and install-to-CURRENT duration.
+
 ## Hosted Evidence Page + Clickable README Badge
 
 Set `publish-pages: "true"` and the action pushes the Tripwire report, the
@@ -114,7 +148,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
 
       - id: agentcert
         uses: Kakarottoooo/agentcert/actions/tripwire@v0

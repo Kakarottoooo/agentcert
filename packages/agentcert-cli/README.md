@@ -64,7 +64,9 @@ case by declaring the exact reviewed scope:
 npx agentcert run --config agentcert.config.json --push \
   --assurance-case "$AGENTCERT_ASSURANCE_CASE_ID" \
   --assurance-scope agentcert.assurance-scope.json \
-  --assurance-trigger auto
+  --assurance-trigger auto \
+  --require-current auto \
+  --continuous-health-out .agentcert/canary/generated-kit-health.json
 ```
 
 Validate the scope before CI uses it:
@@ -79,6 +81,10 @@ npx agentcert schema validate \
 and other GitHub runs as release checks. Authoritative failure or scope drift
 sets the Hosted contract to `REVALIDATION_REQUIRED`; only an independently
 issued successor case establishes a new `CURRENT` baseline.
+Release and nightly checks fail unless Hosted returns `CURRENT`. The optional
+health output is redacted and captures the Hosted run/evidence identifiers,
+evidence completeness, freshness transition, and install-to-CURRENT timing for
+external canaries and operational dashboards.
 
 Add `--push` to `agentcert run` to run locally and upload the resulting bundle
 in one command. By default, both commands also upload local files referenced by
