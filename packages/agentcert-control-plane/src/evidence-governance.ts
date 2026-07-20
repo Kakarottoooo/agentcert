@@ -379,7 +379,10 @@ function countArtifactReferences(value: unknown): number {
 
 function addRecordValues(paths: Set<string>, value: unknown): void {
   if (!value || typeof value !== "object" || Array.isArray(value)) return;
-  for (const item of Object.values(value)) if (typeof item === "string" && item) paths.add(item);
+  for (const [name, item] of Object.entries(value)) {
+    if (name === "outDir") continue;
+    if (typeof item === "string" && item) paths.add(item);
+  }
 }
 
 function addEvidenceValues(paths: Set<string>, value: unknown): void {

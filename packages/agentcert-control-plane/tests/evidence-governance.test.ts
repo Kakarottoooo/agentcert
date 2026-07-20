@@ -59,6 +59,30 @@ describe("evidence governance", () => {
     })), { fileName: "evidence.json", contentType: "application/json", kind: "evidence_bundle" })).toThrow("parent segments");
   });
 
+  it("does not count artifact output directories as manifest-reconciled files", () => {
+    const bytes = Buffer.from(JSON.stringify({
+      results: [{
+        artifacts: {
+          outDir: ".tripwire/latest",
+          result: ".tripwire/latest/tripwire-result.json",
+        },
+      }],
+      artifactManifest: {
+        schemaVersion: "agentcert.artifact_manifest.v0.1",
+        entries: [{
+          path: ".tripwire/latest/tripwire-result.json",
+          sha256: "a".repeat(64),
+          sizeBytes: 2,
+          kind: "json",
+        }],
+      },
+    }));
+
+    expect(validateEvidenceUpload(bytes, {
+      fileName: "evidence.json", contentType: "application/json", kind: "evidence_bundle",
+    })).toMatchObject({ artifactReferenceCount: 1 });
+  });
+
   it("extracts declared source evidence strength for hosted assurance reports", () => {
     const result = validateEvidenceUpload(Buffer.from(JSON.stringify({
       evidenceStrength: {
