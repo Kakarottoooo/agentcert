@@ -37,7 +37,7 @@ case instead of rewriting signed history. See the
 [Public evidence](https://agentcert.app/evidence) |
 [Private workspace](https://agentcert.app/app) |
 [GitHub source](https://github.com/Kakarottoooo/agentcert) |
-[v0.6.2 release](https://github.com/Kakarottoooo/agentcert/releases/tag/v0.6.2)
+[v0.6.3 release](https://github.com/Kakarottoooo/agentcert/releases/tag/v0.6.3)
 
 ```bash
 npx agentcert release-gate --config agentcert.config.json --strict

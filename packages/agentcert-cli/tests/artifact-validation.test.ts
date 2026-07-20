@@ -26,6 +26,7 @@ describe("evidence artifact validation", () => {
       {
         artifacts: {
           htmlReport: ".agentcert/latest/report.html",
+          "tripwire-ci.outDir": ".tripwire/latest",
           external: "https://example.com/report",
         },
         results: [
