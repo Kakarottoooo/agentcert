@@ -657,6 +657,8 @@ export interface HostedRetentionReport {
 
 export interface HostedOverview {
   projectId: string;
+  currentAssurance: { status: "CURRENT" | "REVALIDATION_REQUIRED" | "SUSPENDED" | "EXPIRED" | "NOT_CONFIGURED"; title: string; reason: string; assuranceCaseId?: string; assuranceCaseName?: string; expiresAt?: string };
+  nextAction: { schemaVersion: "agentcert.next_action.v0.2"; kind: "ACKNOWLEDGE_INCIDENT" | "INVESTIGATE_INCIDENT" | "RESOLVE_INCIDENT" | "REVIEW_PENDING_ACTION" | "REVALIDATE_ASSURANCE" | "ESTABLISH_BASELINE" | "COMPLETE_EVIDENCE" | "MONITOR_ASSURANCE"; priority: "critical" | "high" | "medium" | "normal"; title: string; reason: string; actionLabel: string; destination: { view: "assurance" | "actions" | "incidents" | "runs" | "evidence" }; permission: { canPerform: boolean; actor: HostedMemberRole | "api_key"; requiredRoles: HostedMemberRole[]; note?: string }; context: { assuranceCaseId?: string; actionId?: string; incidentId?: string; runId?: string; evidenceStatus?: "complete" | "partial" | "rejected" } };
   storage: {
     usedBytes: number;
     limitBytes: number;

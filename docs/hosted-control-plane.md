@@ -26,6 +26,13 @@ certification and platform governance live under **Advanced**. Existing API
 resources and deep links remain available; this is a presentation-layer
 consolidation, not a second implementation of the assurance workflows.
 
+### Role-aware next action
+
+`GET /v1/projects/{projectId}/overview` returns `currentAssurance` and exactly
+one `nextAction`. The server resolves active incidents, pending high-risk
+approvals, assurance freshness, and evidence completeness in that order. The
+result includes the actor's permission, destination, rationale, and stable v0.2 schema version.
+
 ## Recommended Production Profile
 
 - **Render Web Service:** one Docker deployment serves the React console and

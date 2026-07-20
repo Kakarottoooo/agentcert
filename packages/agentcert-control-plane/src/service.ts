@@ -93,6 +93,7 @@ import {
 import type { CoordinationHealth } from "./coordination.js";
 import { canInviteRole, canManageMember, roleNeedsExplicitProjects, rolesForHumanScope } from "./rbac.js";
 import { buildObservabilitySnapshot, buildRunObservability } from "./observability.js";
+import { preferredEvidenceRunId, resolveCurrentAssurance, resolveProjectNextAction } from "./next-action.js";
 import {
   DEFAULT_API_KEY_SCOPES,
   WebhookSecretVault,
@@ -1832,7 +1833,7 @@ export class AgentCertControlPlane {
 
   async overview(auth: AuthContext, projectId: string) {
     await this.authorizeProject(auth, projectId, undefined, "runs:read");
-    const [agents, runs, actions, incidents, evidence, storageUsage, legalHolds, reviews, deletions, qualityRuns, qualityEvidence] = await Promise.all([
+    const [agents, runs, actions, incidents, evidence, storageUsage, legalHolds, reviews, deletions, qualityRuns, qualityEvidence, rawAssuranceCases, actorRole, approvedLegalHold] = await Promise.all([
       this.store.listAgents(projectId), this.store.listRuns(projectId, 20), this.store.listActions(projectId, 20),
       this.store.listIncidents(projectId, 20), this.store.listEvidence(projectId, 20), this.store.evidenceUsage(projectId),
       this.store.listLegalHoldRequests(projectId, 1),
@@ -1840,10 +1841,39 @@ export class AgentCertControlPlane {
       this.store.listEvidenceDeletions(projectId, 100),
       this.store.listRuns(projectId, 10_000),
       this.store.listEvidence(projectId, 10_000),
+      this.store.listAssuranceCases(projectId, 500),
+      auth.kind === "user" ? this.store.roleForProject(auth.userId!, projectId) : Promise.resolve(undefined),
+      this.store.getApprovedLegalHold(projectId),
     ]);
+    if (auth.kind === "user" && !actorRole) throw new ControlPlaneError("Project access denied.", 403, "project_access_denied");
+    const assuranceCases = await Promise.all(rawAssuranceCases.map((item) => this.expireAssuranceCaseIfNeeded(item)));
+    const assurance = resolveCurrentAssurance(assuranceCases);
+    const evidenceRunId = preferredEvidenceRunId(assuranceCases, runs.find((item) => item.status !== "running")?.id);
+    const evidenceRun = evidenceRunId ? runs.find((item) => item.id === evidenceRunId) ?? await this.store.getRun(projectId, evidenceRunId) : undefined;
+    const evidenceAssessment = evidenceRun && evidenceRun.status !== "running"
+      ? await Promise.all([
+        this.store.listEvents(projectId, evidenceRun.id),
+        this.store.listEvidenceForRun(projectId, evidenceRun.id),
+      ]).then(([events, runEvidence]) => ({
+        runId: evidenceRun.id,
+        runExternalId: evidenceRun.externalId,
+        completeness: calculateEvidenceCompleteness(evidenceRun, events, runEvidence, this.evidencePolicy, Boolean(approvedLegalHold)),
+      }))
+      : undefined;
+    const nextAction = resolveProjectNextAction({
+      actor: auth.kind === "user"
+        ? { kind: "user", role: actorRole! }
+        : { kind: "api_key", scopes: auth.scopes ?? DEFAULT_API_KEY_SCOPES },
+      assuranceCases,
+      actions,
+      incidents,
+      evidence: evidenceAssessment,
+    });
     const quality = failureQualityMetrics(qualityRuns, reviews, qualityEvidence);
     return {
       projectId,
+      currentAssurance: assurance,
+      nextAction,
       storage: {
         usedBytes: storageUsage.bytes,
         limitBytes: this.evidencePolicy.projectLimitBytes,

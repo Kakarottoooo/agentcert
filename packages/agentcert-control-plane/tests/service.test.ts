@@ -27,6 +27,23 @@ describe("AgentCertControlPlane", () => {
     expect(result.project).toMatchObject({ name: "Agent assurance project", slug: "agent-assurance" });
   });
 
+  it("returns the role-aware next action from the aggregated project state", async () => {
+    const { service, projectId } = await setup();
+    const baselineOverview = await service.overview(user, projectId);
+    expect(baselineOverview).toMatchObject({
+      currentAssurance: { status: "NOT_CONFIGURED" },
+      nextAction: { kind: "ESTABLISH_BASELINE", permission: { canPerform: true, actor: "owner" } },
+    });
+
+    const action = await service.proposeAction(user, projectId, {
+      externalId: "approval-next-action", actionType: "SUBMIT", targetSystem: "sandbox-erp", amount: 2_000,
+    });
+    const actionOverview = await service.overview(user, projectId);
+    expect(actionOverview.nextAction).toMatchObject({
+      kind: "REVIEW_PENDING_ACTION", context: { actionId: action.id }, permission: { canPerform: true },
+    });
+  });
+
   it("creates, renames, and isolates projects without changing stable slugs", async () => {
     const { service, projectId } = await setup();
     const created = await service.createProject(user, { name: "Browser agents" });

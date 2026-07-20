@@ -27,6 +27,51 @@ export type ApiKeyScope =
   | "evidence:read"
   | "evidence:write";
 
+export type CurrentAssuranceStatus = AssuranceFreshnessStatus | "NOT_CONFIGURED";
+export type ProjectNextActionKind =
+  | "ACKNOWLEDGE_INCIDENT"
+  | "INVESTIGATE_INCIDENT"
+  | "RESOLVE_INCIDENT"
+  | "REVIEW_PENDING_ACTION"
+  | "REVALIDATE_ASSURANCE"
+  | "ESTABLISH_BASELINE"
+  | "COMPLETE_EVIDENCE"
+  | "MONITOR_ASSURANCE";
+export type ProjectNextActionPriority = "critical" | "high" | "medium" | "normal";
+export type ProjectNextActionView = "assurance" | "actions" | "incidents" | "runs" | "evidence";
+
+export interface CurrentAssuranceSummary {
+  status: CurrentAssuranceStatus;
+  title: string;
+  reason: string;
+  assuranceCaseId?: string;
+  assuranceCaseName?: string;
+  expiresAt?: string;
+}
+
+export interface ProjectNextAction {
+  schemaVersion: "agentcert.next_action.v0.2";
+  kind: ProjectNextActionKind;
+  priority: ProjectNextActionPriority;
+  title: string;
+  reason: string;
+  actionLabel: string;
+  destination: { view: ProjectNextActionView };
+  permission: {
+    canPerform: boolean;
+    actor: MemberRole | "api_key";
+    requiredRoles: MemberRole[];
+    note?: string;
+  };
+  context: {
+    assuranceCaseId?: string;
+    actionId?: string;
+    incidentId?: string;
+    runId?: string;
+    evidenceStatus?: EvidenceCompletenessStatus;
+  };
+}
+
 export type CollectorSourceKeyStatus = "active" | "retired" | "revoked";
 export type TrustedCollectorRunStatus = "open" | "completed" | "degraded" | "reconciled";
 export type TrustedCollectorAlertKind = "events_dropped" | "undeclared_gap" | "chain_conflict" | "heartbeat_stale";
