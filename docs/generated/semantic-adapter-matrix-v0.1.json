@@ -1,0 +1,638 @@
+{
+  "schemaVersion": "agentcert.semantic_adapter_matrix.v0.1",
+  "generatedAt": "2026-07-20T19:46:59.986Z",
+  "dataset": {
+    "schemaVersion": "agentcert.semantic_golden_dataset.v0.1",
+    "version": "0.1.0",
+    "createdAt": "2026-07-20T00:00:00.000Z"
+  },
+  "status": "passed",
+  "metrics": {
+    "total": 33,
+    "expectedKnown": 28,
+    "expectedUnknown": 5,
+    "exact": 33,
+    "falseUnknown": 0,
+    "misclassified": 0,
+    "falseKnown": 0,
+    "exactMatchRate": 100,
+    "falseUnknownRate": 0
+  },
+  "adapters": [
+    {
+      "id": "browser-use",
+      "category": "browser",
+      "project": "Browser Use",
+      "repository": "https://github.com/browser-use/browser-use",
+      "sourceRef": "2be09b6c5eb702a9287684b42b27e7042a1aba29",
+      "sourceUrl": "https://github.com/browser-use/browser-use/blob/2be09b6c5eb702a9287684b42b27e7042a1aba29/browser_use/agent/views.py",
+      "framework": "browser-use",
+      "calibrationMode": "recorded_run_and_source_contract",
+      "cases": [
+        {
+          "id": "browser-use-navigate",
+          "observedName": "navigate",
+          "eventType": "browser_use.step.completed",
+          "expectedCapabilityId": "browser.navigate",
+          "rationale": "Browser Use records navigation as a named browser step."
+        },
+        {
+          "id": "browser-use-search",
+          "observedName": "search",
+          "eventType": "browser_use.step.completed",
+          "expectedCapabilityId": "browser.navigate",
+          "rationale": "Search changes the page context while remaining a read-oriented navigation operation."
+        },
+        {
+          "id": "browser-use-click",
+          "observedName": "click",
+          "eventType": "browser_use.step.completed",
+          "expectedCapabilityId": "browser.interact",
+          "rationale": "Click interacts with a page element and may mutate page-local state."
+        },
+        {
+          "id": "browser-use-input",
+          "observedName": "input",
+          "eventType": "browser_use.step.completed",
+          "expectedCapabilityId": "browser.interact",
+          "rationale": "Input writes into a page element but does not itself prove an external submission."
+        },
+        {
+          "id": "browser-use-scroll",
+          "observedName": "scroll",
+          "eventType": "browser_use.step.completed",
+          "expectedCapabilityId": "browser.interact",
+          "rationale": "Scroll is a page interaction rather than a navigation or submission."
+        }
+      ],
+      "status": "passed",
+      "metrics": {
+        "total": 5,
+        "expectedKnown": 5,
+        "expectedUnknown": 0,
+        "exact": 5,
+        "falseUnknown": 0,
+        "misclassified": 0,
+        "falseKnown": 0,
+        "exactMatchRate": 100,
+        "falseUnknownRate": 0
+      }
+    },
+    {
+      "id": "openhands",
+      "category": "coding",
+      "project": "OpenHands",
+      "repository": "https://github.com/OpenHands/OpenHands",
+      "sourceRef": "fad3228f0cfe2422ed4f061d2606e58e74b3e2b5",
+      "sourceUrl": "https://github.com/OpenHands/OpenHands/tree/fad3228f0cfe2422ed4f061d2606e58e74b3e2b5",
+      "framework": "OpenHands",
+      "calibrationMode": "source_pinned_contract",
+      "cases": [
+        {
+          "id": "openhands-bash",
+          "observedName": "execute_bash",
+          "eventType": "tool.completed",
+          "expectedCapabilityId": "coding.execute",
+          "rationale": "The OpenHands Bash tool executes a process in the workspace."
+        },
+        {
+          "id": "openhands-ipython",
+          "observedName": "execute_ipython_cell",
+          "eventType": "tool.completed",
+          "expectedCapabilityId": "coding.execute",
+          "rationale": "The OpenHands IPython tool executes code."
+        },
+        {
+          "id": "openhands-editor-view",
+          "observedName": "str_replace_editor",
+          "eventType": "tool.completed",
+          "payload": {
+            "tool_input": {
+              "command": "view",
+              "path": "/workspace/app.ts"
+            }
+          },
+          "expectedCapabilityId": "coding.read",
+          "rationale": "The view command reads a source file without modifying it."
+        },
+        {
+          "id": "openhands-editor-create",
+          "observedName": "str_replace_editor",
+          "eventType": "tool.completed",
+          "payload": {
+            "tool_input": {
+              "command": "create",
+              "path": "/workspace/app.ts"
+            }
+          },
+          "expectedCapabilityId": "coding.write",
+          "rationale": "The create command writes a source file."
+        },
+        {
+          "id": "openhands-editor-replace",
+          "observedName": "str_replace_editor",
+          "eventType": "tool.completed",
+          "payload": {
+            "tool_input": {
+              "command": "str_replace",
+              "path": "/workspace/app.ts"
+            }
+          },
+          "expectedCapabilityId": "coding.write",
+          "rationale": "The str_replace command mutates an existing source file."
+        }
+      ],
+      "status": "passed",
+      "metrics": {
+        "total": 5,
+        "expectedKnown": 5,
+        "expectedUnknown": 0,
+        "exact": 5,
+        "falseUnknown": 0,
+        "misclassified": 0,
+        "falseKnown": 0,
+        "exactMatchRate": 100,
+        "falseUnknownRate": 0
+      }
+    },
+    {
+      "id": "langchain-sql-toolkit",
+      "category": "data",
+      "project": "LangChain Community SQLDatabaseToolkit",
+      "repository": "https://github.com/langchain-ai/langchain-community",
+      "sourceRef": "f425a3ed1933173fb3694b81359d1519c4f82d36",
+      "sourceUrl": "https://github.com/langchain-ai/langchain-community/blob/f425a3ed1933173fb3694b81359d1519c4f82d36/libs/community/langchain_community/tools/sql_database/tool.py",
+      "framework": "langchain-sql-agent",
+      "calibrationMode": "source_pinned_contract",
+      "cases": [
+        {
+          "id": "langchain-sql-query",
+          "observedName": "sql_db_query",
+          "eventType": "tool.completed",
+          "expectedCapabilityId": "data.query",
+          "rationale": "The SQL query tool reads structured database results in the documented toolkit contract."
+        },
+        {
+          "id": "langchain-sql-schema",
+          "observedName": "sql_db_schema",
+          "eventType": "tool.completed",
+          "expectedCapabilityId": "data.query",
+          "rationale": "Schema inspection is a read-only database operation."
+        },
+        {
+          "id": "langchain-sql-tables",
+          "observedName": "sql_db_list_tables",
+          "eventType": "tool.completed",
+          "expectedCapabilityId": "data.query",
+          "rationale": "Listing tables reads database metadata."
+        },
+        {
+          "id": "langchain-sql-checker",
+          "observedName": "sql_db_query_checker",
+          "eventType": "tool.completed",
+          "expectedCapabilityId": "data.query",
+          "rationale": "The query checker analyzes a query without establishing a write outcome."
+        }
+      ],
+      "status": "passed",
+      "metrics": {
+        "total": 4,
+        "expectedKnown": 4,
+        "expectedUnknown": 0,
+        "exact": 4,
+        "falseUnknown": 0,
+        "misclassified": 0,
+        "falseKnown": 0,
+        "exactMatchRate": 100,
+        "falseUnknownRate": 0
+      }
+    },
+    {
+      "id": "cloudflare-agents-email",
+      "category": "messaging",
+      "project": "Cloudflare Agents Email",
+      "repository": "https://github.com/cloudflare/agents",
+      "sourceRef": "365ced36bab5f713f1669f3b79f6810ba1535729",
+      "sourceUrl": "https://github.com/cloudflare/agents/blob/365ced36bab5f713f1669f3b79f6810ba1535729/docs/email.md",
+      "framework": "cloudflare-agents",
+      "calibrationMode": "source_pinned_contract",
+      "cases": [
+        {
+          "id": "cloudflare-email-receive",
+          "observedName": "onEmail",
+          "eventType": "tool.completed",
+          "expectedCapabilityId": "messaging.read",
+          "rationale": "The email handler receives an inbound message for inspection."
+        },
+        {
+          "id": "cloudflare-email-raw",
+          "observedName": "getRaw",
+          "eventType": "tool.completed",
+          "expectedCapabilityId": "messaging.read",
+          "rationale": "Reading the raw email body is a message read."
+        },
+        {
+          "id": "cloudflare-email-send",
+          "observedName": "sendEmail",
+          "eventType": "tool.completed",
+          "expectedCapabilityId": "messaging.send",
+          "rationale": "sendEmail creates an external communication side effect."
+        },
+        {
+          "id": "cloudflare-email-reply",
+          "observedName": "replyToEmail",
+          "eventType": "tool.completed",
+          "expectedCapabilityId": "messaging.send",
+          "rationale": "A reply sends an external message."
+        },
+        {
+          "id": "cloudflare-email-forward",
+          "observedName": "forward",
+          "eventType": "tool.completed",
+          "expectedCapabilityId": "messaging.send",
+          "rationale": "Forwarding sends message content to another recipient."
+        }
+      ],
+      "status": "passed",
+      "metrics": {
+        "total": 5,
+        "expectedKnown": 5,
+        "expectedUnknown": 0,
+        "exact": 5,
+        "falseUnknown": 0,
+        "misclassified": 0,
+        "falseKnown": 0,
+        "exactMatchRate": 100,
+        "falseUnknownRate": 0
+      }
+    },
+    {
+      "id": "stripe-agent-toolkit",
+      "category": "finance",
+      "project": "Stripe Agent Toolkit and MCP",
+      "repository": "https://github.com/stripe/ai",
+      "sourceRef": "c29cd23cfd27830bf10961d58646a9fd127fa6df",
+      "sourceUrl": "https://docs.stripe.com/mcp",
+      "framework": "stripe-agent-toolkit",
+      "calibrationMode": "source_pinned_contract",
+      "cases": [
+        {
+          "id": "stripe-balance",
+          "observedName": "retrieve_balance",
+          "eventType": "mcp.tool.completed",
+          "expectedCapabilityId": "finance.read",
+          "rationale": "Balance retrieval reads financial state."
+        },
+        {
+          "id": "stripe-payment-intents",
+          "observedName": "list_payment_intents",
+          "eventType": "mcp.tool.completed",
+          "expectedCapabilityId": "finance.read",
+          "rationale": "Listing payment intents reads financial records."
+        },
+        {
+          "id": "stripe-search",
+          "observedName": "search_stripe_resources",
+          "eventType": "mcp.tool.completed",
+          "expectedCapabilityId": "finance.read",
+          "rationale": "Resource search is read-only."
+        },
+        {
+          "id": "stripe-payment-link",
+          "observedName": "create_payment_link",
+          "eventType": "mcp.tool.completed",
+          "expectedCapabilityId": "finance.pay",
+          "rationale": "Creating a payment link initiates a payment-capable external workflow."
+        },
+        {
+          "id": "stripe-refund",
+          "observedName": "create_refund",
+          "eventType": "mcp.tool.completed",
+          "expectedCapabilityId": "finance.pay",
+          "rationale": "A refund moves money and requires payment-level controls."
+        },
+        {
+          "id": "stripe-finalize-invoice",
+          "observedName": "finalize_invoice",
+          "eventType": "mcp.tool.completed",
+          "expectedCapabilityId": "finance.pay",
+          "rationale": "Finalizing an invoice makes a payment obligation externally actionable."
+        },
+        {
+          "id": "stripe-customer",
+          "observedName": "create_customer",
+          "eventType": "mcp.tool.completed",
+          "expectedCapabilityId": "finance.manage",
+          "rationale": "Creating a customer mutates a financial account resource but is not itself a payment."
+        },
+        {
+          "id": "stripe-subscription",
+          "observedName": "update_subscription",
+          "eventType": "mcp.tool.completed",
+          "expectedCapabilityId": "finance.manage",
+          "rationale": "Updating a subscription changes a financial account resource."
+        },
+        {
+          "id": "stripe-cancel",
+          "observedName": "cancel_subscription",
+          "eventType": "mcp.tool.completed",
+          "expectedCapabilityId": "finance.manage",
+          "rationale": "Cancelling a subscription is a controlled financial administration action."
+        }
+      ],
+      "status": "passed",
+      "metrics": {
+        "total": 9,
+        "expectedKnown": 9,
+        "expectedUnknown": 0,
+        "exact": 9,
+        "falseUnknown": 0,
+        "misclassified": 0,
+        "falseKnown": 0,
+        "exactMatchRate": 100,
+        "falseUnknownRate": 0
+      }
+    }
+  ],
+  "controls": {
+    "status": "passed",
+    "metrics": {
+      "total": 5,
+      "expectedKnown": 0,
+      "expectedUnknown": 5,
+      "exact": 5,
+      "falseUnknown": 0,
+      "misclassified": 0,
+      "falseKnown": 0,
+      "exactMatchRate": 100,
+      "falseUnknownRate": 0
+    }
+  },
+  "results": [
+    {
+      "adapterId": "browser-use",
+      "caseId": "browser-use-navigate",
+      "expectedCapabilityId": "browser.navigate",
+      "actualCapabilityId": "browser.navigate",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "browser-use",
+      "caseId": "browser-use-search",
+      "expectedCapabilityId": "browser.navigate",
+      "actualCapabilityId": "browser.navigate",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "browser-use",
+      "caseId": "browser-use-click",
+      "expectedCapabilityId": "browser.interact",
+      "actualCapabilityId": "browser.interact",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "browser-use",
+      "caseId": "browser-use-input",
+      "expectedCapabilityId": "browser.interact",
+      "actualCapabilityId": "browser.interact",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "browser-use",
+      "caseId": "browser-use-scroll",
+      "expectedCapabilityId": "browser.interact",
+      "actualCapabilityId": "browser.interact",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "openhands",
+      "caseId": "openhands-bash",
+      "expectedCapabilityId": "coding.execute",
+      "actualCapabilityId": "coding.execute",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "openhands",
+      "caseId": "openhands-ipython",
+      "expectedCapabilityId": "coding.execute",
+      "actualCapabilityId": "coding.execute",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "openhands",
+      "caseId": "openhands-editor-view",
+      "expectedCapabilityId": "coding.read",
+      "actualCapabilityId": "coding.read",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "openhands",
+      "caseId": "openhands-editor-create",
+      "expectedCapabilityId": "coding.write",
+      "actualCapabilityId": "coding.write",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "openhands",
+      "caseId": "openhands-editor-replace",
+      "expectedCapabilityId": "coding.write",
+      "actualCapabilityId": "coding.write",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "langchain-sql-toolkit",
+      "caseId": "langchain-sql-query",
+      "expectedCapabilityId": "data.query",
+      "actualCapabilityId": "data.query",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "langchain-sql-toolkit",
+      "caseId": "langchain-sql-schema",
+      "expectedCapabilityId": "data.query",
+      "actualCapabilityId": "data.query",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "langchain-sql-toolkit",
+      "caseId": "langchain-sql-tables",
+      "expectedCapabilityId": "data.query",
+      "actualCapabilityId": "data.query",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "langchain-sql-toolkit",
+      "caseId": "langchain-sql-checker",
+      "expectedCapabilityId": "data.query",
+      "actualCapabilityId": "data.query",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "cloudflare-agents-email",
+      "caseId": "cloudflare-email-receive",
+      "expectedCapabilityId": "messaging.read",
+      "actualCapabilityId": "messaging.read",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "cloudflare-agents-email",
+      "caseId": "cloudflare-email-raw",
+      "expectedCapabilityId": "messaging.read",
+      "actualCapabilityId": "messaging.read",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "cloudflare-agents-email",
+      "caseId": "cloudflare-email-send",
+      "expectedCapabilityId": "messaging.send",
+      "actualCapabilityId": "messaging.send",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "cloudflare-agents-email",
+      "caseId": "cloudflare-email-reply",
+      "expectedCapabilityId": "messaging.send",
+      "actualCapabilityId": "messaging.send",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "cloudflare-agents-email",
+      "caseId": "cloudflare-email-forward",
+      "expectedCapabilityId": "messaging.send",
+      "actualCapabilityId": "messaging.send",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "stripe-agent-toolkit",
+      "caseId": "stripe-balance",
+      "expectedCapabilityId": "finance.read",
+      "actualCapabilityId": "finance.read",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "stripe-agent-toolkit",
+      "caseId": "stripe-payment-intents",
+      "expectedCapabilityId": "finance.read",
+      "actualCapabilityId": "finance.read",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "stripe-agent-toolkit",
+      "caseId": "stripe-search",
+      "expectedCapabilityId": "finance.read",
+      "actualCapabilityId": "finance.read",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "stripe-agent-toolkit",
+      "caseId": "stripe-payment-link",
+      "expectedCapabilityId": "finance.pay",
+      "actualCapabilityId": "finance.pay",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "stripe-agent-toolkit",
+      "caseId": "stripe-refund",
+      "expectedCapabilityId": "finance.pay",
+      "actualCapabilityId": "finance.pay",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "stripe-agent-toolkit",
+      "caseId": "stripe-finalize-invoice",
+      "expectedCapabilityId": "finance.pay",
+      "actualCapabilityId": "finance.pay",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "stripe-agent-toolkit",
+      "caseId": "stripe-customer",
+      "expectedCapabilityId": "finance.manage",
+      "actualCapabilityId": "finance.manage",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "stripe-agent-toolkit",
+      "caseId": "stripe-subscription",
+      "expectedCapabilityId": "finance.manage",
+      "actualCapabilityId": "finance.manage",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "stripe-agent-toolkit",
+      "caseId": "stripe-cancel",
+      "expectedCapabilityId": "finance.manage",
+      "actualCapabilityId": "finance.manage",
+      "resolution": "adapter_rule",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "negative-controls",
+      "caseId": "unknown-browser-biometric",
+      "resolution": "unknown",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "negative-controls",
+      "caseId": "unknown-coding-deploy",
+      "resolution": "unknown",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "negative-controls",
+      "caseId": "unknown-data-model",
+      "resolution": "unknown",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "negative-controls",
+      "caseId": "unknown-message-voice",
+      "resolution": "unknown",
+      "outcome": "exact"
+    },
+    {
+      "adapterId": "negative-controls",
+      "caseId": "unknown-finance-trade",
+      "resolution": "unknown",
+      "outcome": "exact"
+    }
+  ],
+  "claims": [
+    "Pinned public tool contracts map deterministically to the expected AgentCert capability IDs.",
+    "Expected-known cases are measured for false-unknown and semantic misclassification separately.",
+    "Expected-unknown controls detect broad aliases that would otherwise inflate apparent coverage."
+  ],
+  "limitations": [
+    "Source-pinned contract calibration is not a full runtime compatibility test of every framework release.",
+    "Only browser-use includes an existing checked-in real-agent run; the other rows validate public tool interfaces.",
+    "A semantic match proves classification only, not authorization, enforcement, outcome verification, or business correctness.",
+    "The optional LLM suggestion provider is excluded from this deterministic score."
+  ]
+}

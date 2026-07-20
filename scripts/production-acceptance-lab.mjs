@@ -8,6 +8,7 @@ const startedAt = new Date().toISOString();
 const checks = [];
 
 await check("control-plane-build", "npm", ["--prefix", "packages/agentcert-control-plane", "run", "build"]);
+await check("semantic-adapter-calibration", "node", ["packages/agentcert-control-plane/dist/semantic-calibration-cli.js", "--dataset", "datasets/agent-semantics/golden-v0.1.json", "--out", ".agentcert/acceptance/semantic-adapter-matrix.json"]);
 await check("tenant-isolation-stress", "npm", ["--prefix", "packages/agentcert-control-plane", "exec", "--", "vitest", "run", "tests/tenant-isolation.stress.test.ts"]);
 await check("api-fuzz-postgres-redis-recovery", "npm", ["--prefix", "packages/agentcert-control-plane", "exec", "--", "vitest", "run", "tests/production-acceptance-lab.test.ts"]);
 await check("concurrent-idempotency-and-rate-limits", "npm", ["--prefix", "packages/agentcert-control-plane", "exec", "--", "vitest", "run", "tests/production-security.test.ts", "tests/universal-assurance.test.ts"]);

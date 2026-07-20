@@ -10,3 +10,4 @@ export * from "./signing.js";
 export * from "./coordination.js";
 export * from "./semantics.js";
 export * from "./semantic-classifier.js";
+export * from "./semantic-calibration.js";

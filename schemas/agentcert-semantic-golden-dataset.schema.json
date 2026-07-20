@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.app/schemas/agentcert-semantic-golden-dataset.schema.json",
+  "title": "AgentCert semantic golden dataset v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "datasetVersion", "createdAt", "adapters", "controls"],
+  "properties": {
+    "schemaVersion": { "const": "agentcert.semantic_golden_dataset.v0.1" },
+    "datasetVersion": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "adapters": { "type": "array", "minItems": 5, "maxItems": 5, "items": { "$ref": "#/$defs/adapter" } },
+    "controls": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/control" } }
+  },
+  "$defs": {
+    "adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "project", "repository", "sourceRef", "sourceUrl", "framework", "calibrationMode", "cases"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "category": { "enum": ["browser", "coding", "data", "messaging", "finance"] },
+        "project": { "type": "string", "minLength": 1 },
+        "repository": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "sourceRef": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "sourceUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "framework": { "type": "string", "minLength": 1 },
+        "calibrationMode": { "enum": ["recorded_run_and_source_contract", "source_pinned_contract"] },
+        "cases": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/knownCase" } }
+      }
+    },
+    "caseBase": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "observedName": { "type": "string", "minLength": 1 },
+        "eventType": { "type": "string", "minLength": 1 },
+        "payload": { "type": "object" },
+        "rationale": { "type": "string", "minLength": 1 }
+      },
+      "required": ["id", "observedName", "eventType", "rationale"]
+    },
+    "knownCase": {
+      "allOf": [
+        { "$ref": "#/$defs/caseBase" },
+        { "type": "object", "required": ["expectedCapabilityId"], "properties": { "expectedCapabilityId": { "type": "string", "minLength": 1 } } }
+      ],
+      "unevaluatedProperties": false
+    },
+    "control": { "allOf": [{ "$ref": "#/$defs/caseBase" }], "unevaluatedProperties": false }
+  }
+}

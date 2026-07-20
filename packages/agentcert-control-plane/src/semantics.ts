@@ -146,7 +146,15 @@ interface ResolvedObservation {
   run?: RunRecord;
   semantic: SemanticEventDeclaration;
   manifest?: CapabilityManifest;
-  resolution: "declared" | "human_correction" | "alias" | "unknown";
+  resolution: "declared" | "human_correction" | "adapter_rule" | "alias" | "unknown";
+  unknownKey?: string;
+}
+
+export interface SemanticClassification {
+  observedName: string;
+  capabilityId?: string;
+  domain?: CapabilityDomain;
+  resolution: ResolvedObservation["resolution"];
   unknownKey?: string;
 }
 
@@ -155,31 +163,50 @@ const CONTROLLED_WRITE = { idempotency: "required", reversibility: "compensatabl
 
 export const BUILTIN_CAPABILITY_PACKS: Readonly<Record<Exclude<CapabilityDomain, "custom">, readonly CapabilityManifest[]>> = {
   browser: [
-    manifest("browser.navigate", "Browser navigate", "browser", ["navigate", "read"], "read", ["web.page"], ["browser:navigate"], READ_ONLY, ["navigate", "goto", "open_url", "browser.navigate"]),
-    manifest("browser.interact", "Browser interaction", "browser", ["execute"], "write", ["web.element"], ["browser:interact"], { ...CONTROLLED_WRITE, risk: "medium", verification: "reported" }, ["click", "type", "select", "browser.click", "browser.interact"]),
+    manifest("browser.navigate", "Browser navigate", "browser", ["navigate", "read"], "read", ["web.page"], ["browser:navigate"], READ_ONLY, ["navigate", "goto", "go_to_url", "open", "open_url", "search", "browser.navigate"]),
+    manifest("browser.interact", "Browser interaction", "browser", ["execute"], "write", ["web.element"], ["browser:interact"], { ...CONTROLLED_WRITE, risk: "medium", verification: "reported" }, ["click", "input", "type", "select", "scroll", "send_keys", "upload", "hover", "dblclick", "rightclick", "browser.click", "browser.interact"]),
     manifest("browser.submit", "Browser form submission", "browser", ["submit"], "external", ["web.form"], ["browser:submit"], CONTROLLED_WRITE, ["submit", "form_submit", "browser.submit"]),
   ],
   coding: [
     manifest("coding.read", "Read source code", "coding", ["read"], "read", ["source.file"], ["repository:read"], READ_ONLY, ["read_file", "cat", "grep", "search_code", "coding.read"]),
     manifest("coding.write", "Modify source code", "coding", ["create", "update", "delete"], "write", ["source.file"], ["repository:write"], { ...CONTROLLED_WRITE, risk: "medium", verification: "reported" }, ["write_file", "apply_patch", "edit_file", "coding.write"]),
-    manifest("coding.execute", "Execute code or commands", "coding", ["execute"], "destructive", ["process", "workspace"], ["process:execute"], { ...CONTROLLED_WRITE, reversibility: "unknown", risk: "critical" }, ["shell", "terminal", "exec", "run_command", "coding.execute"]),
+    manifest("coding.execute", "Execute code or commands", "coding", ["execute"], "destructive", ["process", "workspace"], ["process:execute"], { ...CONTROLLED_WRITE, reversibility: "unknown", risk: "critical" }, ["shell", "terminal", "exec", "run_command", "execute_bash", "execute_ipython_cell", "coding.execute"]),
   ],
   data: [
-    manifest("data.query", "Query structured data", "data", ["read"], "read", ["database", "dataset"], ["data:read"], READ_ONLY, ["query", "select", "sql_query", "data.query"]),
+    manifest("data.query", "Query structured data", "data", ["read"], "read", ["database", "dataset"], ["data:read"], READ_ONLY, ["query", "select", "sql_query", "sql_db_query", "sql_db_schema", "sql_db_list_tables", "sql_db_query_checker", "data.query"]),
     manifest("data.mutate", "Mutate structured data", "data", ["create", "update", "delete"], "write", ["database", "dataset"], ["data:write"], CONTROLLED_WRITE, ["insert", "update", "delete", "execute_sql", "data.mutate"]),
     manifest("data.export", "Export data", "data", ["export"], "external", ["dataset", "file"], ["data:export"], { ...CONTROLLED_WRITE, reversibility: "irreversible" }, ["export", "download_csv", "data.export"]),
   ],
   messaging: [
-    manifest("messaging.read", "Read messages", "messaging", ["read"], "read", ["message", "thread"], ["messages:read"], READ_ONLY, ["read_email", "get_message", "list_messages", "messaging.read"]),
-    manifest("messaging.send", "Send an external message", "messaging", ["send"], "external", ["message", "recipient"], ["messages:send"], { ...CONTROLLED_WRITE, reversibility: "irreversible" }, ["send_email", "send_message", "reply", "messaging.send"]),
+    manifest("messaging.read", "Read messages", "messaging", ["read"], "read", ["message", "thread"], ["messages:read"], READ_ONLY, ["read_email", "get_message", "list_messages", "on_email", "get_raw", "messaging.read"]),
+    manifest("messaging.send", "Send an external message", "messaging", ["send"], "external", ["message", "recipient"], ["messages:send"], { ...CONTROLLED_WRITE, reversibility: "irreversible" }, ["send_email", "send_message", "sendemail", "reply", "reply_to_email", "replytoemail", "forward", "messaging.send"]),
   ],
   finance: [
-    manifest("finance.read", "Read financial records", "finance", ["read"], "read", ["account", "transaction"], ["finance:read"], { ...READ_ONLY, risk: "medium" }, ["get_balance", "list_transactions", "finance.read"]),
-    manifest("finance.pay", "Create or submit a payment", "finance", ["pay", "submit"], "external", ["payment", "account"], ["payments:write"], { ...CONTROLLED_WRITE, reversibility: "irreversible", risk: "critical" }, ["pay", "create_payment", "payment_intent", "finance.pay"]),
+    manifest("finance.read", "Read financial records", "finance", ["read"], "read", ["account", "transaction"], ["finance:read"], { ...READ_ONLY, risk: "medium" }, ["get_balance", "retrieve_balance", "list_transactions", "list_customers", "list_disputes", "list_invoices", "list_payment_intents", "list_prices", "list_products", "list_subscriptions", "search_stripe_resources", "fetch_stripe_resources", "search_stripe_documentation", "finance.read"]),
+    manifest("finance.pay", "Create, submit, or reverse a payment", "finance", ["pay", "submit"], "external", ["payment", "account"], ["payments:write"], { ...CONTROLLED_WRITE, reversibility: "irreversible", risk: "critical" }, ["pay", "create_payment", "create_payment_link", "create_refund", "finalize_invoice", "payment_intent", "finance.pay"]),
+    manifest("finance.manage", "Manage financial account resources", "finance", ["create", "update", "delete"], "external", ["customer", "invoice", "price", "product", "subscription", "dispute"], ["finance:write"], { ...CONTROLLED_WRITE, reversibility: "compensatable", risk: "high" }, ["create_customer", "create_invoice", "create_invoice_item", "create_price", "create_product", "update_dispute", "update_subscription", "cancel_subscription", "finance.manage"]),
   ],
 };
 
 export const BUILTIN_CAPABILITY_MANIFESTS: readonly CapabilityManifest[] = Object.values(BUILTIN_CAPABILITY_PACKS).flat();
+
+export function classifySemanticEvent(input: {
+  event: EventRecord;
+  run?: RunRecord;
+  customManifests?: CapabilityManifest[];
+  corrections?: CapabilityCorrectionRecord[];
+}): SemanticClassification {
+  const manifests = [...(input.customManifests ?? []), ...BUILTIN_CAPABILITY_MANIFESTS];
+  const corrections = new Map((input.corrections ?? []).map((item) => [item.unknownKey, item]));
+  const resolved = resolveObservation(input.event, input.run, manifests, corrections);
+  return {
+    observedName: resolved.semantic.observedName,
+    capabilityId: resolved.manifest?.id,
+    domain: resolved.manifest?.domain,
+    resolution: resolved.resolution,
+    unknownKey: resolved.unknownKey,
+  };
+}
 
 export function parseCapabilityManifest(input: unknown): CapabilityManifest {
   const value = object(input, "manifest");
@@ -347,8 +374,10 @@ function resolveObservation(
   const correction = corrections.get(key);
   const declared = explicit?.capabilityId ? manifests.find((item) => item.id === explicit.capabilityId) : undefined;
   const corrected = correction ? manifests.find((item) => item.id === correction.capabilityId) : undefined;
+  const adapterRule = integrationCapabilityId(event, run, observedName);
+  const adapted = adapterRule ? manifests.find((item) => item.id === adapterRule) : undefined;
   const alias = manifests.find((item) => aliases(item).has(normalize(observedName)) || aliases(item).has(normalize(event.type)));
-  const manifest = declared ?? corrected ?? alias;
+  const manifest = declared ?? corrected ?? adapted ?? alias;
   return {
     event,
     run,
@@ -359,9 +388,60 @@ function resolveObservation(
       ...(manifest ? { capabilityId: manifest.id } : {}),
     },
     manifest,
-    resolution: declared ? "declared" : corrected ? "human_correction" : alias ? "alias" : "unknown",
+    resolution: declared ? "declared" : corrected ? "human_correction" : adapted ? "adapter_rule" : alias ? "alias" : "unknown",
     ...(manifest ? {} : { unknownKey: key }),
   };
+}
+
+function integrationCapabilityId(event: EventRecord, run: RunRecord | undefined, observedName: string): string | undefined {
+  const framework = normalize(optionalString(run?.metadata.framework) ?? "");
+  const name = normalize(observedName);
+
+  if (matchesFramework(framework, "browser_use", "browser-use", "browseruse")) {
+    if (["navigate", "goto", "go_to_url", "open", "open_url", "search"].includes(name)) return "browser.navigate";
+    if (["submit", "form_submit"].includes(name)) return "browser.submit";
+    if (["click", "input", "type", "select", "scroll", "send_keys", "upload", "hover", "dblclick", "rightclick"].includes(name)) return "browser.interact";
+  }
+
+  if (matchesFramework(framework, "openhands", "open_hands")) {
+    if (["execute_bash", "execute_ipython_cell"].includes(name)) return "coding.execute";
+    if (name === "str_replace_editor") {
+      const command = nestedString(event.payload, "command");
+      if (command === "view") return "coding.read";
+      if (["create", "str_replace", "insert", "undo_edit"].includes(command ?? "")) return "coding.write";
+    }
+  }
+
+  if (framework.includes("langchain") || framework.includes("langgraph")) {
+    if (["sql_db_query", "sql_db_schema", "sql_db_list_tables", "sql_db_query_checker"].includes(name)) return "data.query";
+  }
+
+  if (framework.includes("cloudflare") && framework.includes("agent")) {
+    if (["sendemail", "send_email", "replytoemail", "reply_to_email", "forward"].includes(name)) return "messaging.send";
+    if (["onemail", "on_email", "getraw", "get_raw"].includes(name)) return "messaging.read";
+  }
+
+  if (framework.includes("stripe")) {
+    if (/^(retrieve|list|search|fetch)_/.test(name)) return "finance.read";
+    if (["create_payment_link", "create_refund", "finalize_invoice"].includes(name)) return "finance.pay";
+    if (["create_customer", "create_invoice", "create_invoice_item", "create_price", "create_product", "update_dispute", "update_subscription", "cancel_subscription"].includes(name)) return "finance.manage";
+  }
+  return undefined;
+}
+
+function matchesFramework(framework: string, ...candidates: string[]): boolean {
+  return candidates.some((candidate) => framework.includes(candidate));
+}
+
+function nestedString(value: Record<string, unknown>, key: string): string | undefined {
+  const direct = optionalString(value[key]);
+  if (direct) return normalize(direct);
+  for (const container of ["input", "args", "arguments", "toolInput", "tool_input", "data"]) {
+    const nested = optionalObject(value[container]);
+    const found = nested ? optionalString(nested[key]) : undefined;
+    if (found) return normalize(found);
+  }
+  return undefined;
 }
 
 function collectUnknown(observations: ResolvedObservation[]): UnknownCapabilityObservation[] {
