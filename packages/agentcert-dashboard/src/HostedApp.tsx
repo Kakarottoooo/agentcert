@@ -83,6 +83,15 @@ import { resolveAuthMode } from "./auth-routing";
 import { isSandboxCertificationRun } from "./sandbox-certifications";
 import { buildHostedWorkspaceUrl, resolveHostedRoute, type HostedFocus, type HostedView } from "./hosted-routing";
 import { canManageHostedProjects } from "./hosted-role-permissions";
+import { summarizeCurrentAssurance } from "./current-assurance";
+import {
+  PRIMARY_WORKSPACE_NAVIGATION,
+  secondaryWorkspaceNavigation,
+  workspaceAreaForView,
+  workspaceHeading,
+  workspaceTabs,
+  type WorkspaceNavigationItem,
+} from "./hosted-navigation";
 
 interface HostedAccountContext {
   organization: { id: string; name: string };
@@ -291,17 +300,20 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
     return () => window.cancelAnimationFrame(frame);
   }, [data, focus, view]);
 
-  const navigation: Array<[HostedView, string, number?]> = [
-    ["overview", "Overview"], ["agents", "Agents", data?.agents.length], ["runs", "Runs", data?.runs.length],
-    ["assurance", "Assurance cases", data?.assuranceCases.filter((item) => item.status === "review_required").length],
-    ["sandbox", "Sandbox certifications", data?.runs.filter(isSandboxCertificationRun).length],
-    ["gates", "Release gates", data?.runs.filter((run) => run.kind === "release_gate").length],
-    ["actions", "Runtime actions", data?.actions.filter((action) => action.status === "PENDING_APPROVAL").length],
-    ["incidents", "Incidents", data?.incidents.filter((incident) => incident.status !== "resolved").length],
-    ["evidence", "Evidence", data?.evidence.length], ["integrations", "Integrations"],
-    ["team", "Team & access"],
-    ...(capabilities?.platformAdmin ? [["governance", "Governance"] as [HostedView, string]] : []),
-  ];
+  const platformAdmin = Boolean(capabilities?.platformAdmin);
+  const activeArea = workspaceAreaForView(view);
+  const primaryCounts: Partial<Record<HostedView, number>> = {
+    overview: (data?.assuranceCases.filter((item) => item.continuousAssurance?.freshness.status !== "CURRENT").length ?? 0)
+      + (data?.actions.filter((action) => action.status === "PENDING_APPROVAL").length ?? 0)
+      + (data?.incidents.filter((incident) => incident.status !== "resolved").length ?? 0),
+    assurance: data?.assuranceCases.filter((item) => item.status === "review_required").length,
+    actions: (data?.actions.filter((action) => action.status === "PENDING_APPROVAL").length ?? 0)
+      + (data?.incidents.filter((incident) => incident.status !== "resolved").length ?? 0),
+    evidence: data?.evidence.length,
+  };
+  const secondaryNavigation = secondaryWorkspaceNavigation(platformAdmin);
+  const contextualTabs = workspaceTabs(view, platformAdmin);
+  const heading = workspaceHeading(view);
 
   return (
     <div className="hosted-shell">
@@ -312,14 +324,30 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
         </a>
         <div className="workspace-return-links"><a href="/evidence">Public evidence</a><a href="/">Product site</a></div>
         <HostedProjectSwitcher session={session} projects={projects} current={project} canManage={canManageHostedProjects(memberRole)} onSelect={selectProject} onChange={(nextProjects, selected) => { setProjects(nextProjects); selectProject(selected); }} />
-        <nav>{navigation.map(([id, label, count]) => <button key={id} className={view === id ? "active" : ""} onClick={() => navigate(id)}><span>{label}</span>{count ? <em>{count}</em> : null}</button>)}</nav>
+        <nav className="workspace-primary-nav" aria-label="Assurance workflow">
+          <span className="workspace-nav-label">Assurance</span>
+          {PRIMARY_WORKSPACE_NAVIGATION.map((item) => <WorkspaceNavigationButton
+            key={item.view}
+            item={item}
+            active={workspaceAreaForView(item.view) === activeArea}
+            count={primaryCounts[item.view]}
+            onNavigate={navigate}
+          />)}
+        </nav>
+        <div className="workspace-secondary-nav">
+          {secondaryNavigation.map((group) => <details key={group.id} open={activeArea === group.id ? true : undefined}>
+            <summary><span>{group.label}</span><small>{group.id === "setup" ? "Connect and authorize" : "Specialized controls"}</small></summary>
+            <div>{group.items.map((item) => <WorkspaceNavigationButton key={item.view} item={item} active={view === item.view} onNavigate={navigate} />)}</div>
+          </details>)}
+        </div>
         <div className="account-block">
           <button className={view === "account" ? "account-link active" : "account-link"} onClick={() => navigate("account")}><span>{session.email ?? config.auth.provider}</span><strong>Account settings</strong></button>
           <button className="sign-out-link" onClick={onSignOut}>Sign out</button>
         </div>
       </aside>
       <main className="hosted-workspace">
-        <header className="hosted-header"><div><span className="surface-mode">Workspace</span><span className="workspace-project">{project?.slug ?? "project"}</span><h1>{viewTitle(view)}</h1></div><button onClick={() => void refresh()} disabled={loading}>Refresh</button></header>
+        <header className="hosted-header"><div><span className="surface-mode">Workspace</span><span className="workspace-project">{project?.slug ?? "project"}</span><h1>{heading.title}</h1><p>{heading.description}</p></div><button onClick={() => void refresh()} disabled={loading}>Refresh</button></header>
+        {contextualTabs.length > 1 ? <WorkspaceContextTabs items={contextualTabs} activeView={view} onNavigate={navigate} /> : null}
         {error ? <div className="console-error">{error}</div> : null}
         {!data || !project ? <div className="loading">Loading control plane...</div> : view === "account" ? (
           <AccountView config={config} session={session} project={project} context={accountContext} onSignOut={onSignOut} />
@@ -327,6 +355,29 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
       </main>
     </div>
   );
+}
+
+function WorkspaceNavigationButton({ item, active, count, onNavigate }: {
+  item: WorkspaceNavigationItem;
+  active: boolean;
+  count?: number;
+  onNavigate: (view: HostedView) => void;
+}) {
+  return <button className={active ? "active" : ""} onClick={() => onNavigate(item.view)} title={item.description}>
+    <span>{item.label}</span>{count ? <em>{count}</em> : null}
+  </button>;
+}
+
+function WorkspaceContextTabs({ items, activeView, onNavigate }: {
+  items: readonly WorkspaceNavigationItem[];
+  activeView: HostedView;
+  onNavigate: (view: HostedView) => void;
+}) {
+  return <nav className="workspace-context-tabs" aria-label="Current workspace section">
+    {items.map((item) => <button key={item.view} className={activeView === item.view ? "active" : ""} onClick={() => onNavigate(item.view)}>
+      <span>{item.label}</span><small>{item.description}</small>
+    </button>)}
+  </nav>;
 }
 
 function AccountView({ config, session, project, context, onSignOut }: { config: HostedConfig; session: HostedSession; project: HostedProject; context?: HostedAccountContext; onSignOut: () => void }) {
@@ -395,8 +446,37 @@ function HostedViewContent({ view, data, project, projects, session, role, onboa
 
 function HostedOverviewView({ data, project, session, onboarding, refresh, onNavigate }: { data: ConsoleData; project: HostedProject; session: HostedSession; onboarding?: HostedOnboardingStatus; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
   const summary = data.overview.summary;
+  const assurance = summarizeCurrentAssurance(data.assuranceCases);
+  const latestRun = data.runs[0];
+  const pendingActions = data.actions.filter((action) => action.status === "PENDING_APPROVAL");
+  const activeIncidents = data.incidents.filter((incident) => incident.status !== "resolved");
   return <>
     {onboarding ? <HostedOnboarding status={onboarding} project={project} session={session} refresh={refresh} onOpenIntegrations={() => onNavigate("integrations")} onReviewRuns={() => onNavigate("runs")} /> : null}
+    <section className={`current-assurance-banner ${assurance.status.toLowerCase().replaceAll("_", "-")}`}>
+      <div className="current-assurance-copy">
+        <span className="eyebrow">Current assurance state</span>
+        <div className="current-assurance-title"><h2>{assurance.title}</h2><Status value={assurance.status} /></div>
+        <p>{assurance.reason}</p>
+      </div>
+      <dl>
+        <div><dt>Reviewed scope</dt><dd>{assurance.assuranceCase?.name ?? "Not established"}</dd></div>
+        <div><dt>Latest run</dt><dd>{latestRun ? `${latestRun.status} · ${compactTime(latestRun.startedAt)}` : "No runs"}</dd></div>
+        <div><dt>Expires</dt><dd>{assurance.assuranceCase?.expiresAt ? new Date(assurance.assuranceCase.expiresAt).toLocaleDateString() : "Not issued"}</dd></div>
+      </dl>
+      <button className="primary-action compact" onClick={() => onNavigate("assurance")}>{assurance.status === "CURRENT" ? "Review validity" : "Resolve assurance state"}</button>
+    </section>
+    <section className="assurance-task-grid" aria-label="Assurance workflow summary">
+      <article><span>Release assurance</span><strong>{assurance.status.replaceAll("_", " ")}</strong><p>{data.assuranceCases.length} scoped review{data.assuranceCases.length === 1 ? "" : "s"}; {data.runs.filter((run) => run.kind === "release_gate").length} release gate run{data.runs.filter((run) => run.kind === "release_gate").length === 1 ? "" : "s"}.</p><button onClick={() => onNavigate("assurance")}>Open release assurance</button></article>
+      <article className={pendingActions.length || activeIncidents.length ? "attention" : ""}><span>Runtime assurance</span><strong>{pendingActions.length + activeIncidents.length} need attention</strong><p>{pendingActions.length} action{pendingActions.length === 1 ? "" : "s"} awaiting a decision; {activeIncidents.length} active incident{activeIncidents.length === 1 ? "" : "s"}.</p><button onClick={() => onNavigate(activeIncidents.length > 0 && pendingActions.length === 0 ? "incidents" : "actions")}>Open runtime assurance</button></article>
+      <article><span>Evidence & audit</span><strong>{summary.evidence} retained object{summary.evidence === 1 ? "" : "s"}</strong><p>{compactBytes(data.overview.storage.usedBytes)} used; {data.overview.storage.retentionDays}-day retention; manifest integrity stays explicit.</p><button onClick={() => onNavigate("evidence")}>Inspect evidence</button></article>
+    </section>
+
+    {(pendingActions.length > 0 || activeIncidents.length > 0) ? <section className="operations-band attention-queue"><div><SectionTitle title="Actions requiring a decision" caption="Policy has paused these actions for a human reviewer" /><ActionRows actions={pendingActions.slice(0, 5)} /></div><div><SectionTitle title="Active incidents" caption="Open, investigating, and recovered incidents" /><IncidentRows incidents={activeIncidents.slice(0, 5)} /></div></section> : null}
+    <section className="data-section current-activity"><div className="section-actions"><SectionTitle title="Recent assurance activity" caption="The latest release, runtime, and custom checks" /><button onClick={() => onNavigate("runs")}>Inspect traces</button></div><RunsTable runs={data.runs.slice(0, 6)} /></section>
+
+    <details className="assurance-diagnostics">
+      <summary><span><strong>System diagnostics</strong><small>Delivery health, SLO, detailed observability, and corpus quality</small></span><Status value={data.operations.status} /></summary>
+      <div className="assurance-diagnostics-body">
     <section className="trust-operations-band">
       <AlertSummary label="Production health" alert={{ status: data.operations.status, message: `Checked ${compactTime(data.operations.generatedAt)}` }} />
       <AlertSummary label="Shared coordination" alert={data.operations.alerts.redis} />
@@ -421,8 +501,8 @@ function HostedOverviewView({ data, project, session, onboarding, refresh, onNav
       <ControlMetric label="Label precision" value={percent(summary.taxonomyQuality.autoLabelPrecision)} detail={`${summary.taxonomyQuality.correctedFailures} corrections`} />
       <ControlMetric label="Correction rate" value={percent(summary.taxonomyQuality.correctionRate)} detail="Human-reviewed taxonomy" attention={summary.taxonomyQuality.correctionRate > 0.25} />
     </section>
-    <section className="operations-band"><div><SectionTitle title="Runtime queue" caption="Actions waiting for a human decision" /><ActionRows actions={data.actions.filter((action) => action.status === "PENDING_APPROVAL").slice(0, 5)} /></div><div><SectionTitle title="Active incidents" caption="Open, investigating, and recovered incidents" /><IncidentRows incidents={data.incidents.filter((incident) => incident.status !== "resolved").slice(0, 5)} /></div></section>
-    <section className="data-section"><SectionTitle title="Recent runs" caption="Pre-release and runtime assurance activity" /><RunsTable runs={data.runs.slice(0, 8)} /></section>
+      </div>
+    </details>
   </>;
 }
 
@@ -730,7 +810,6 @@ function OperationsTrends({ operations }: { operations: HostedOperations }) {
 function SectionTitle({ title, caption }: { title: string; caption: string }) { return <div className="section-title"><h2>{title}</h2><p>{caption}</p></div>; }
 function Status({ value }: { value: string }) { return <span className={`hosted-status ${value.toLowerCase().replace(/_/g, "-")}`}>{value.replace(/_/g, " ")}</span>; }
 function EmptyHosted({ text }: { text: string }) { return <div className="hosted-empty">{text}</div>; }
-function viewTitle(view: HostedView): string { return ({ overview: "Operational overview", agents: "Agent registry", runs: "Assurance runs", assurance: "Assurance lifecycle", sandbox: "Sandbox certifications", gates: "Release gates", actions: "Runtime actions", incidents: "Incident ledger", evidence: "Evidence registry", integrations: "Integrations", team: "Team & access", governance: "Governance administration", account: "Account center" })[view]; }
 function compactTime(value: string): string { return new Intl.DateTimeFormat("en", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
 function compactBytes(value: number): string { return value < 1024 ? `${value} B` : value < 1024 * 1024 ? `${(value / 1024).toFixed(1)} KB` : `${(value / 1024 / 1024).toFixed(1)} MB`; }
 function percent(value: number): string { return `${Math.round(value * 100)}%`; }
