@@ -203,7 +203,7 @@ paths:
         "422": {description: Required project evidence is missing}
   /v1/projects/{projectId}/overview:
     get:
-      summary: Read operational counts and recent activity
+      summary: Read current assurance, the role-aware next action, operational counts, and recent activity
       parameters: [{$ref: "#/components/parameters/ProjectId"}]
       responses:
         "200": { description: Project overview }

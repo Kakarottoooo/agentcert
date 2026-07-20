@@ -16,7 +16,7 @@ export default function HostedOnboarding({ status, project, session, onOpenInteg
   status: HostedOnboardingStatus;
   project: HostedProject;
   session: HostedSession;
-  onOpenIntegrations: () => void;
+  onOpenIntegrations?: () => void;
   onReviewRuns: () => void;
   refresh: () => Promise<void>;
 }) {
@@ -31,7 +31,7 @@ export default function HostedOnboarding({ status, project, session, onOpenInteg
       <p>{status.complete ? "The hosted control plane has authenticated the CLI and retained the first evidence object." : `Project ${project.name} is isolated. The key cannot approve runtime actions.`}</p>
     </div>
     <div className="onboarding-actions">
-      <button className={status.complete ? "" : "primary-action compact"} onClick={status.complete ? onReviewRuns : onOpenIntegrations}>{status.complete ? "Review runs" : "Open integrations"}</button>
+      {status.complete ? <button onClick={onReviewRuns}>Review runs</button> : onOpenIntegrations ? <button className="primary-action compact" onClick={onOpenIntegrations}>Open integrations</button> : null}
       <button onClick={() => void refresh()}>Check progress</button>
     </div>
     <ol>{status.steps.map((step, index) => <li key={step.id} className={step.status === "complete" ? "done" : ""}>

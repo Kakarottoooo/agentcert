@@ -83,7 +83,7 @@ import { resolveAuthMode } from "./auth-routing";
 import { isSandboxCertificationRun } from "./sandbox-certifications";
 import { buildHostedWorkspaceUrl, resolveHostedRoute, type HostedFocus, type HostedView } from "./hosted-routing";
 import { canManageHostedProjects } from "./hosted-role-permissions";
-import { summarizeCurrentAssurance } from "./current-assurance";
+
 import {
   PRIMARY_WORKSPACE_NAVIGATION,
   secondaryWorkspaceNavigation,
@@ -430,7 +430,7 @@ function AccountView({ config, session, project, context, onSignOut }: { config:
 }
 
 function HostedViewContent({ view, data, project, projects, session, role, onboarding, refresh, onNavigate }: { view: HostedView; data: ConsoleData; project: HostedProject; projects: HostedProject[]; session: HostedSession; role?: HostedMemberRole; onboarding?: HostedOnboardingStatus; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
-  if (view === "overview") return <HostedOverviewView data={data} project={project} session={session} onboarding={onboarding} refresh={refresh} onNavigate={onNavigate} />;
+  if (view === "overview") return <HostedOverviewView data={data} refresh={refresh} onNavigate={onNavigate} />;
   if (view === "agents") return <AgentsView agents={data.agents} project={project} session={session} refresh={refresh} />;
   if (view === "runs") return <HostedRunsView runs={data.runs} project={project} session={session} />;
   if (view === "assurance") return <HostedAssuranceView cases={data.assuranceCases} evidence={data.evidence} project={project} session={session} role={role} refresh={refresh} />;
@@ -441,34 +441,37 @@ function HostedViewContent({ view, data, project, projects, session, role, onboa
   if (view === "evidence") return <EvidenceView evidence={data.evidence} overview={data.overview} project={project} session={session} refresh={refresh} />;
   if (view === "team") return <TeamView project={project} projects={projects.filter((item) => item.organizationId === project.organizationId)} session={session} />;
   if (view === "governance") return <GovernanceView project={project} session={session} />;
-  return <IntegrationsView project={project} session={session} operations={data.operations} refresh={refresh} />;
+  return <>{onboarding ? <HostedOnboarding status={onboarding} project={project} session={session} refresh={refresh} onReviewRuns={() => onNavigate("runs")} /> : null}<IntegrationsView project={project} session={session} operations={data.operations} refresh={refresh} /></>;
 }
 
-function HostedOverviewView({ data, project, session, onboarding, refresh, onNavigate }: { data: ConsoleData; project: HostedProject; session: HostedSession; onboarding?: HostedOnboardingStatus; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
+function HostedOverviewView({ data, refresh, onNavigate }: { data: ConsoleData; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
   const summary = data.overview.summary;
-  const assurance = summarizeCurrentAssurance(data.assuranceCases);
+  const assurance = data.overview.currentAssurance;
+  const nextAction = data.overview.nextAction;
   const latestRun = data.runs[0];
   const pendingActions = data.actions.filter((action) => action.status === "PENDING_APPROVAL");
   const activeIncidents = data.incidents.filter((incident) => incident.status !== "resolved");
   return <>
-    {onboarding ? <HostedOnboarding status={onboarding} project={project} session={session} refresh={refresh} onOpenIntegrations={() => onNavigate("integrations")} onReviewRuns={() => onNavigate("runs")} /> : null}
-    <section className={`current-assurance-banner ${assurance.status.toLowerCase().replaceAll("_", "-")}`}>
+
+    <section className={`current-assurance-banner ${assurance.status.toLowerCase().replaceAll("_", "-")} next-${nextAction.priority}`}>
+      <div className="current-assurance-summary">
       <div className="current-assurance-copy">
         <span className="eyebrow">Current assurance state</span>
         <div className="current-assurance-title"><h2>{assurance.title}</h2><Status value={assurance.status} /></div>
         <p>{assurance.reason}</p>
       </div>
       <dl>
-        <div><dt>Reviewed scope</dt><dd>{assurance.assuranceCase?.name ?? "Not established"}</dd></div>
+        <div><dt>Reviewed scope</dt><dd>{assurance.assuranceCaseName ?? "Not established"}</dd></div>
         <div><dt>Latest run</dt><dd>{latestRun ? `${latestRun.status} · ${compactTime(latestRun.startedAt)}` : "No runs"}</dd></div>
-        <div><dt>Expires</dt><dd>{assurance.assuranceCase?.expiresAt ? new Date(assurance.assuranceCase.expiresAt).toLocaleDateString() : "Not issued"}</dd></div>
+        <div><dt>Expires</dt><dd>{assurance.expiresAt ? new Date(assurance.expiresAt).toLocaleDateString() : "Not issued"}</dd></div>
       </dl>
-      <button className="primary-action compact" onClick={() => onNavigate("assurance")}>{assurance.status === "CURRENT" ? "Review validity" : "Resolve assurance state"}</button>
+      </div>
+      <div className="role-aware-next-action"><span className="eyebrow">Most important next action</span><strong>{nextAction.title}</strong><p>{nextAction.reason}</p>{nextAction.permission.note ? <small>{nextAction.permission.note}</small> : null}<button className="primary-action compact" onClick={() => onNavigate(nextAction.destination.view)}>{nextAction.actionLabel}</button></div>
     </section>
     <section className="assurance-task-grid" aria-label="Assurance workflow summary">
-      <article><span>Release assurance</span><strong>{assurance.status.replaceAll("_", " ")}</strong><p>{data.assuranceCases.length} scoped review{data.assuranceCases.length === 1 ? "" : "s"}; {data.runs.filter((run) => run.kind === "release_gate").length} release gate run{data.runs.filter((run) => run.kind === "release_gate").length === 1 ? "" : "s"}.</p><button onClick={() => onNavigate("assurance")}>Open release assurance</button></article>
-      <article className={pendingActions.length || activeIncidents.length ? "attention" : ""}><span>Runtime assurance</span><strong>{pendingActions.length + activeIncidents.length} need attention</strong><p>{pendingActions.length} action{pendingActions.length === 1 ? "" : "s"} awaiting a decision; {activeIncidents.length} active incident{activeIncidents.length === 1 ? "" : "s"}.</p><button onClick={() => onNavigate(activeIncidents.length > 0 && pendingActions.length === 0 ? "incidents" : "actions")}>Open runtime assurance</button></article>
-      <article><span>Evidence & audit</span><strong>{summary.evidence} retained object{summary.evidence === 1 ? "" : "s"}</strong><p>{compactBytes(data.overview.storage.usedBytes)} used; {data.overview.storage.retentionDays}-day retention; manifest integrity stays explicit.</p><button onClick={() => onNavigate("evidence")}>Inspect evidence</button></article>
+      <article><span>Release assurance</span><strong>{assurance.status.replaceAll("_", " ")}</strong><p>{data.assuranceCases.length} scoped review{data.assuranceCases.length === 1 ? "" : "s"}; {data.runs.filter((run) => run.kind === "release_gate").length} release gate run{data.runs.filter((run) => run.kind === "release_gate").length === 1 ? "" : "s"}.</p></article>
+      <article className={pendingActions.length || activeIncidents.length ? "attention" : ""}><span>Runtime assurance</span><strong>{pendingActions.length + activeIncidents.length} need attention</strong><p>{pendingActions.length} action{pendingActions.length === 1 ? "" : "s"} awaiting a decision; {activeIncidents.length} active incident{activeIncidents.length === 1 ? "" : "s"}.</p></article>
+      <article><span>Evidence & audit</span><strong>{summary.evidence} retained object{summary.evidence === 1 ? "" : "s"}</strong><p>{compactBytes(data.overview.storage.usedBytes)} used; {data.overview.storage.retentionDays}-day retention; manifest integrity stays explicit.</p></article>
     </section>
 
     {(pendingActions.length > 0 || activeIncidents.length > 0) ? <section className="operations-band attention-queue"><div><SectionTitle title="Actions requiring a decision" caption="Policy has paused these actions for a human reviewer" /><ActionRows actions={pendingActions.slice(0, 5)} /></div><div><SectionTitle title="Active incidents" caption="Open, investigating, and recovered incidents" /><IncidentRows incidents={activeIncidents.slice(0, 5)} /></div></section> : null}
