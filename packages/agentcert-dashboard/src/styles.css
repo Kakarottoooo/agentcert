@@ -4790,7 +4790,7 @@ button {
 .role-aware-next-action strong { margin-top: 7px; font-size: 20px; line-height: 1.25; }
 .role-aware-next-action p { margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .role-aware-next-action small { margin-top: 9px; color: var(--amber); font-size: 11px; line-height: 1.45; }
-.role-aware-next-action button { width: fit-content; margin-top: 18px; }
+.role-aware-next-action .primary-action { width: fit-content; margin-top: 18px; }
 .current-assurance-banner.next-critical .role-aware-next-action { border-top: 3px solid var(--red); }
 .current-assurance-banner.next-high .role-aware-next-action,
 .current-assurance-banner.next-medium .role-aware-next-action { border-top: 3px solid var(--amber); }
@@ -4798,5 +4798,22 @@ button {
 
 @media (max-width: 1100px) {
   .current-assurance-banner { grid-template-columns: 1fr; }
-  .role-aware-next-action button { width: fit-content; }
+  .role-aware-next-action .primary-action { width: fit-content; }
+}
+
+.targeted-record { outline: 2px solid var(--teal); outline-offset: 2px; }
+.next-action-audit { grid-column: 1 / -1; }
+.next-action-timeline { display: grid; gap: 12px; margin-top: 16px; }
+.next-action-timeline article { padding: 16px; border: 1px solid var(--border); background: var(--surface-2); }
+.next-action-transition { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; align-items: center; gap: 14px; }
+.next-action-transition > span { color: var(--muted); font-size: 11px; }
+.next-action-transition strong { overflow-wrap: anywhere; font-size: 14px; }
+.next-action-transition b { margin: 0 5px; color: var(--muted); font-weight: 500; }
+.next-action-timeline article > p { margin: 10px 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.next-action-timeline dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0 0 12px; border: 1px solid var(--border); }
+.next-action-timeline dl div { min-width: 0; padding: 10px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.next-action-timeline dt { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+.next-action-timeline dd { margin: 4px 0 0; overflow-wrap: anywhere; font-size: 12px; }
+@media (max-width: 720px) {
+  .next-action-transition, .next-action-timeline dl { grid-template-columns: 1fr; }
 }

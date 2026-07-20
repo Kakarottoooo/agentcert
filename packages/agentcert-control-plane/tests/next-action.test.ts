@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveCurrentAssurance, resolveProjectNextAction } from "../src/next-action.js";
+import { projectNextActionFingerprint, resolveCurrentAssurance, resolveProjectNextAction } from "../src/next-action.js";
 import type { ActionRecord, AssuranceCaseRecord, EvidenceCompleteness, IncidentRecord, MemberRole } from "../src/types.js";
 
 const owner = { kind: "user", role: "owner" } as const;
@@ -122,5 +122,13 @@ describe("role-aware project next action", () => {
       status: "CURRENT",
       assuranceCaseId: "replacement",
     });
+  });
+  it("keeps the material-decision fingerprint stable across viewer roles", () => {
+    const assuranceCases = [assuranceCase("case-1", "CURRENT")];
+    const pending = [action("action-1", "HIGH")];
+    const ownerAction = resolveProjectNextAction({ actor: owner, assuranceCases, actions: pending, incidents: [] });
+    const viewerAction = resolveProjectNextAction({ actor: viewer, assuranceCases, actions: pending, incidents: [] });
+    expect(ownerAction.permission.canPerform).not.toBe(viewerAction.permission.canPerform);
+    expect(projectNextActionFingerprint(ownerAction)).toBe(projectNextActionFingerprint(viewerAction));
   });
 });

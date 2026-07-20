@@ -33,6 +33,23 @@ one `nextAction`. The server resolves active incidents, pending high-risk
 approvals, assurance freshness, and evidence completeness in that order. The
 result includes the actor's permission, destination, rationale, and stable v0.2 schema version.
 
+### Next-action explainability and audit
+
+The overview also returns `nextActionHistory` under
+`agentcert.next_action_decision.v0.3`. Each append-only entry records the
+matched rule, the bounded input summary, evaluator identity and role, current
+decision, previous decision, SHA-256 decision fingerprint, and occurrence
+time. The primary action and notification link include the exact assurance
+case, runtime action, incident, or run identifier when one exists.
+
+Overview evaluation performs an idempotent reconciliation against the latest
+stored fingerprint. The first evaluation establishes a baseline without
+email. A material recommendation change writes the decision and any
+`next_action_changed` notification jobs in one Postgres transaction guarded
+by a project advisory lock. Identical refreshes, concurrent readers, actor
+role changes, and lower-priority input noise do not append history or email.
+The complete transition timeline is visible under **Evidence & Audit**.
+
 ## Recommended Production Profile
 
 - **Render Web Service:** one Docker deployment serves the React console and
