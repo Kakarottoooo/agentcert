@@ -92,7 +92,8 @@ function collectStringValues(input: unknown, paths: EvidenceArtifactPath[], root
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return;
   }
-  for (const value of Object.values(input)) {
+  for (const [name, value] of Object.entries(input)) {
+    if (name === "outDir") continue;
     if (typeof value === "string" && value.length > 0) {
       paths.push({ sourcePath: value, root });
     }

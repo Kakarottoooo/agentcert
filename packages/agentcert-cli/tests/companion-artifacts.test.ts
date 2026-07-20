@@ -19,7 +19,7 @@ describe("companion artifact collection", () => {
     await rm(parent, { recursive: true, force: true });
   });
 
-  it("collects referenced files, resolves product-relative evidence, and reports non-files and URLs", async () => {
+  it("collects referenced files, resolves product-relative evidence, and ignores directory metadata", async () => {
     await writeFile(join(root, ".tripwire", "latest", "trace.json"), "trace");
     await writeFile(join(root, ".tripwire", "latest", "screenshots", "step-1.png"), "png");
     const result = await collectCompanionArtifacts(bundle({
@@ -44,8 +44,8 @@ describe("companion artifact collection", () => {
     expect(result.totalBytes).toBe(8);
     expect(result.skipped).toEqual(expect.arrayContaining([
       expect.objectContaining({ sourcePath: "https://example.com/external-report.json", reason: "remote_url" }),
-      expect.objectContaining({ sourcePath: ".tripwire/latest", reason: "unsupported_type" }),
     ]));
+    expect(result.skipped).toHaveLength(1);
   });
 
   it("never reads lexical or symlink-resolved paths outside the artifact root", async () => {

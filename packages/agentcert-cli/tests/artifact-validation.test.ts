@@ -47,7 +47,7 @@ describe("evidence artifact validation", () => {
       dir,
     );
 
-    expect(result).toEqual({ checked: 4, missing: [] });
+    expect(result).toEqual({ checked: 3, missing: [] });
   });
 
   it("reports missing local artifact paths without treating URLs as files", async () => {
