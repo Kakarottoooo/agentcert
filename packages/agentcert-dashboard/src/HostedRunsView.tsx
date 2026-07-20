@@ -29,7 +29,10 @@ export default function HostedRunsView({ runs, project, session }: { runs: Hoste
     const haystack = `${run.externalId} ${run.kind} ${run.status} ${JSON.stringify(run.metadata)}`.toLowerCase();
     return (!query || haystack.includes(query.toLowerCase())) && (kind === "all" || run.kind === kind) && (status === "all" || run.status === status);
   }), [kind, query, runs, status]);
-  const [selectedId, setSelectedId] = useState<string>();
+  const [selectedId, setSelectedId] = useState<string | undefined>(() => {
+    const requested = new URLSearchParams(window.location.search).get("runId");
+    return runs.some((run) => run.id === requested) ? requested ?? undefined : undefined;
+  });
   const selectedRun = runs.find((run) => run.id === selectedId) ?? filtered[0];
   const [analysis, setAnalysis] = useState<HostedRunAnalysis>();
   const [bundle, setBundle] = useState<EvidenceBundleDocument>();

@@ -241,7 +241,7 @@ export interface HostedIncidentTransition {
 
 export type HostedNotificationAlertType =
   | "incident_opened" | "incident_regressed" | "incident_recovered" | "incident_resolved" | "slo_burn_rate"
-  | "assurance_current" | "assurance_revalidation_required" | "assurance_suspended" | "assurance_expired" | "assurance_expiry_warning";
+  | "assurance_current" | "assurance_revalidation_required" | "assurance_suspended" | "assurance_expired" | "assurance_expiry_warning" | "next_action_changed";
 
 export interface HostedNotificationDestination {
   id: string;
@@ -655,10 +655,66 @@ export interface HostedRetentionReport {
   }>;
 }
 
+export type HostedNextActionRule =
+  | "active_incident"
+  | "pending_approval"
+  | "assurance_revalidation"
+  | "baseline_missing"
+  | "evidence_incomplete"
+  | "assurance_current";
+
+export interface HostedNextAction {
+  schemaVersion: "agentcert.next_action.v0.2";
+  rule: HostedNextActionRule;
+  kind: "ACKNOWLEDGE_INCIDENT" | "INVESTIGATE_INCIDENT" | "RESOLVE_INCIDENT" | "REVIEW_PENDING_ACTION" | "REVALIDATE_ASSURANCE" | "ESTABLISH_BASELINE" | "COMPLETE_EVIDENCE" | "MONITOR_ASSURANCE";
+  priority: "critical" | "high" | "medium" | "normal";
+  title: string;
+  reason: string;
+  actionLabel: string;
+  destination: { view: "assurance" | "actions" | "incidents" | "runs" | "evidence" };
+  permission: { canPerform: boolean; actor: HostedMemberRole | "api_key"; requiredRoles: HostedMemberRole[]; note?: string };
+  context: { assuranceCaseId?: string; actionId?: string; incidentId?: string; runId?: string; evidenceStatus?: "complete" | "partial" | "rejected" };
+}
+
+export type HostedNextActionDecisionSnapshot = Pick<
+  HostedNextAction,
+  "rule" | "kind" | "priority" | "title" | "reason" | "destination" | "context"
+>;
+
+export interface HostedNextActionInputSummary {
+  assurance: { status: "CURRENT" | "REVALIDATION_REQUIRED" | "SUSPENDED" | "EXPIRED" | "NOT_CONFIGURED"; assuranceCaseId?: string };
+  incidents: {
+    activeCount: number;
+    selected?: { id: string; severity: HostedIncident["severity"]; status: HostedIncident["status"] };
+  };
+  approvals: {
+    pendingCount: number;
+    selected?: { id: string; riskLevel: HostedAction["riskLevel"] };
+  };
+  evidence?: { runId: string; status: "complete" | "partial" | "rejected"; reasons: string[] };
+}
+
+export interface HostedNextActionDecisionRecord {
+  id: string;
+  projectId: string;
+  schemaVersion: "agentcert.next_action_decision.v0.3";
+  fingerprint: string;
+  actor: { kind: "user" | "api_key"; role: HostedMemberRole | "api_key"; actorId?: string };
+  inputs: HostedNextActionInputSummary;
+  decision: HostedNextActionDecisionSnapshot;
+  previous?: {
+    decisionId: string;
+    fingerprint: string;
+    decision: HostedNextActionDecisionSnapshot;
+  };
+  occurredAt: string;
+}
+
 export interface HostedOverview {
   projectId: string;
   currentAssurance: { status: "CURRENT" | "REVALIDATION_REQUIRED" | "SUSPENDED" | "EXPIRED" | "NOT_CONFIGURED"; title: string; reason: string; assuranceCaseId?: string; assuranceCaseName?: string; expiresAt?: string };
-  nextAction: { schemaVersion: "agentcert.next_action.v0.2"; kind: "ACKNOWLEDGE_INCIDENT" | "INVESTIGATE_INCIDENT" | "RESOLVE_INCIDENT" | "REVIEW_PENDING_ACTION" | "REVALIDATE_ASSURANCE" | "ESTABLISH_BASELINE" | "COMPLETE_EVIDENCE" | "MONITOR_ASSURANCE"; priority: "critical" | "high" | "medium" | "normal"; title: string; reason: string; actionLabel: string; destination: { view: "assurance" | "actions" | "incidents" | "runs" | "evidence" }; permission: { canPerform: boolean; actor: HostedMemberRole | "api_key"; requiredRoles: HostedMemberRole[]; note?: string }; context: { assuranceCaseId?: string; actionId?: string; incidentId?: string; runId?: string; evidenceStatus?: "complete" | "partial" | "rejected" } };
+  nextAction: HostedNextAction;
+  nextActionHistory: HostedNextActionDecisionRecord[];
   storage: {
     usedBytes: number;
     limitBytes: number;

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { canonicalJson } from "./signing.js";
 import type {
   ActionRecord,
   ApiKeyScope,
@@ -8,6 +10,9 @@ import type {
   IncidentRecord,
   MemberRole,
   ProjectNextAction,
+  ProjectNextActionDecisionSnapshot,
+  ProjectNextActionInputSummary,
+  ProjectNextActionRule,
   ProjectNextActionKind,
   ProjectNextActionPriority,
   ProjectNextActionView,
@@ -74,6 +79,42 @@ export function preferredEvidenceRunId(cases: AssuranceCaseRecord[], fallbackRun
     ?? fallbackRunId;
 }
 
+export function summarizeProjectNextActionInputs(input: ResolveProjectNextActionInput): ProjectNextActionInputSummary {
+  const assurance = resolveCurrentAssurance(input.assuranceCases);
+  const incident = highestPriorityIncident(input.incidents);
+  const approval = highestPriorityApproval(input.actions);
+  return {
+    assurance: {
+      status: assurance.status,
+      ...(assurance.assuranceCaseId ? { assuranceCaseId: assurance.assuranceCaseId } : {}),
+    },
+    incidents: {
+      activeCount: input.incidents.filter((item) => item.status !== "resolved").length,
+      ...(incident ? { selected: { id: incident.id, severity: incident.severity, status: incident.status } } : {}),
+    },
+    approvals: {
+      pendingCount: input.actions.filter((item) => item.status === "PENDING_APPROVAL").length,
+      ...(approval ? { selected: { id: approval.id, riskLevel: approval.riskLevel } } : {}),
+    },
+    ...(input.evidence ? {
+      evidence: {
+        runId: input.evidence.runId,
+        status: input.evidence.completeness.status,
+        reasons: [...input.evidence.completeness.reasons],
+      },
+    } : {}),
+  };
+}
+
+export function projectNextActionSnapshot(action: ProjectNextAction): ProjectNextActionDecisionSnapshot {
+  const { rule, kind, priority, title, reason, destination, context } = action;
+  return { rule, kind, priority, title, reason, destination, context };
+}
+
+export function projectNextActionFingerprint(action: ProjectNextAction): string {
+  return createHash("sha256").update(canonicalJson(projectNextActionSnapshot(action))).digest("hex");
+}
+
 export function resolveProjectNextAction(input: ResolveProjectNextActionInput): ProjectNextAction {
   const incident = highestPriorityIncident(input.incidents);
   if (incident) return incidentAction(input.actor, incident);
@@ -84,6 +125,7 @@ export function resolveProjectNextAction(input: ResolveProjectNextActionInput): 
   const assurance = resolveCurrentAssurance(input.assuranceCases);
   if (assurance.status !== "CURRENT" && assurance.status !== "NOT_CONFIGURED") {
     return candidate(input.actor, {
+      rule: "assurance_revalidation",
       kind: "REVALIDATE_ASSURANCE",
       priority: assurance.status === "SUSPENDED" ? "critical" : "high",
       title: assurance.title,
@@ -99,6 +141,7 @@ export function resolveProjectNextAction(input: ResolveProjectNextActionInput): 
 
   if (assurance.status === "NOT_CONFIGURED") {
     return candidate(input.actor, {
+      rule: "baseline_missing",
       kind: "ESTABLISH_BASELINE",
       priority: "medium",
       title: assurance.title,
@@ -116,6 +159,7 @@ export function resolveProjectNextAction(input: ResolveProjectNextActionInput): 
     const completeness = input.evidence.completeness;
     const rejected = completeness.status === "rejected";
     return candidate(input.actor, {
+      rule: "evidence_incomplete",
       kind: "COMPLETE_EVIDENCE",
       priority: rejected ? "high" : "medium",
       title: rejected ? "Evidence was rejected" : "Evidence is incomplete",
@@ -131,6 +175,7 @@ export function resolveProjectNextAction(input: ResolveProjectNextActionInput): 
   }
 
   return candidate(input.actor, {
+    rule: "assurance_current",
     kind: "MONITOR_ASSURANCE",
     priority: "normal",
     title: "No intervention is required",
@@ -184,6 +229,7 @@ function incidentAction(actor: NextActionActor, incident: IncidentRecord): Proje
       ? { kind: "INVESTIGATE_INCIDENT" as const, label: "Continue investigation" }
       : { kind: "ACKNOWLEDGE_INCIDENT" as const, label: "Acknowledge incident" };
   return candidate(actor, {
+    rule: "active_incident",
     kind: transition.kind,
     priority: incident.severity === "critical" ? "critical" : "high",
     title: incident.summary,
@@ -199,6 +245,7 @@ function incidentAction(actor: NextActionActor, incident: IncidentRecord): Proje
 
 function approvalAction(actor: NextActionActor, action: ActionRecord): ProjectNextAction {
   return candidate(actor, {
+    rule: "pending_approval",
     kind: "REVIEW_PENDING_ACTION",
     priority: action.riskLevel === "CRITICAL" ? "critical" : "high",
     title: `${action.actionType} requires human approval`,
@@ -213,6 +260,7 @@ function approvalAction(actor: NextActionActor, action: ActionRecord): ProjectNe
 }
 
 interface Candidate {
+  rule: ProjectNextActionRule;
   kind: ProjectNextActionKind;
   priority: ProjectNextActionPriority;
   title: string;
@@ -232,6 +280,7 @@ function candidate(actor: NextActionActor, input: Candidate): ProjectNextAction 
     : Boolean(input.requiredScope && actor.scopes.includes(input.requiredScope));
   return {
     schemaVersion: "agentcert.next_action.v0.2",
+    rule: input.rule,
     kind: input.kind,
     priority: input.priority,
     title: input.title,

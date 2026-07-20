@@ -70,6 +70,8 @@ import type {
   TeamSnapshot,
   CollectorSourceKeyRecord,
   CollectorHeartbeatRecord,
+  ProjectNextAction,
+  ProjectNextActionDecisionRecord,
 } from "./types.js";
 import { DisabledEmailProvider, type EmailProvider } from "./notifications.js";
 import { EnvelopeValidationError, isSpanId, isTraceId, parseUniversalEnvelope, type UniversalEnvelope } from "./protocol.js";
@@ -93,7 +95,14 @@ import {
 import type { CoordinationHealth } from "./coordination.js";
 import { canInviteRole, canManageMember, roleNeedsExplicitProjects, rolesForHumanScope } from "./rbac.js";
 import { buildObservabilitySnapshot, buildRunObservability } from "./observability.js";
-import { preferredEvidenceRunId, resolveCurrentAssurance, resolveProjectNextAction } from "./next-action.js";
+import {
+  preferredEvidenceRunId,
+  projectNextActionFingerprint,
+  projectNextActionSnapshot,
+  resolveCurrentAssurance,
+  resolveProjectNextAction,
+  summarizeProjectNextActionInputs,
+} from "./next-action.js";
 import {
   DEFAULT_API_KEY_SCOPES,
   WebhookSecretVault,
@@ -1860,20 +1869,58 @@ export class AgentCertControlPlane {
         completeness: calculateEvidenceCompleteness(evidenceRun, events, runEvidence, this.evidencePolicy, Boolean(approvedLegalHold)),
       }))
       : undefined;
-    const nextAction = resolveProjectNextAction({
+    const nextActionInput = {
       actor: auth.kind === "user"
-        ? { kind: "user", role: actorRole! }
-        : { kind: "api_key", scopes: auth.scopes ?? DEFAULT_API_KEY_SCOPES },
+        ? { kind: "user" as const, role: actorRole! }
+        : { kind: "api_key" as const, scopes: auth.scopes ?? DEFAULT_API_KEY_SCOPES },
       assuranceCases,
       actions,
       incidents,
       evidence: evidenceAssessment,
-    });
+    } as const;
+    const nextAction = resolveProjectNextAction(nextActionInput);
+    const occurredAt = new Date().toISOString();
+    const nextActionUrl = nextActionWorkspaceUrl(this.publicUrl, projectId, nextAction);
+    const destinations = this.emailProvider.configured
+      ? (await this.store.listNotificationDestinations(projectId))
+        .filter((destination) => destination.status === "active" && destination.alertTypes.includes("next_action_changed"))
+      : [];
+    const notificationJobs = destinations.map((destination) => this.notificationJob(
+      destination,
+      "next_action_changed",
+      `[AgentCert] Next action changed: ${nextAction.title}`,
+      {
+        text: [
+          `Next action: ${nextAction.title}`,
+          `Matched rule: ${nextAction.rule}`,
+          `Reason: ${nextAction.reason}`,
+          `Priority: ${nextAction.priority}`,
+          "",
+          `Open the exact record: ${nextActionUrl}`,
+        ].join("\n"),
+        html: `<p><strong>${escapeHtml(nextAction.title)}</strong></p><ul><li>Matched rule: ${escapeHtml(nextAction.rule)}</li><li>Reason: ${escapeHtml(nextAction.reason)}</li><li>Priority: ${escapeHtml(nextAction.priority)}</li></ul><p><a href="${escapeHtml(nextActionUrl)}">Open the exact record</a></p>`,
+      },
+      new Date(occurredAt),
+    ));
+    const decision: ProjectNextActionDecisionRecord = {
+      id: randomUUID(), projectId, schemaVersion: "agentcert.next_action_decision.v0.3",
+      fingerprint: projectNextActionFingerprint(nextAction),
+      actor: {
+        kind: auth.kind, role: auth.kind === "user" ? actorRole! : "api_key",
+        ...((auth.kind === "user" ? auth.userId : auth.apiKeyId) ? { actorId: auth.kind === "user" ? auth.userId : auth.apiKeyId } : {}),
+      },
+      inputs: summarizeProjectNextActionInputs(nextActionInput),
+      decision: projectNextActionSnapshot(nextAction),
+      occurredAt,
+    };
+    await this.store.recordNextActionDecision(decision, notificationJobs);
+    const nextActionHistory = await this.store.listNextActionDecisions(projectId, 100);
     const quality = failureQualityMetrics(qualityRuns, reviews, qualityEvidence);
     return {
       projectId,
       currentAssurance: assurance,
       nextAction,
+      nextActionHistory,
       storage: {
         usedBytes: storageUsage.bytes,
         limitBytes: this.evidencePolicy.projectLimitBytes,
@@ -2738,6 +2785,21 @@ export class AgentCertControlPlane {
     })));
   }
 
+  private notificationJob(
+    destination: NotificationDestinationRecord,
+    alertType: NotificationAlertType,
+    subject: string,
+    content: { text: string; html: string },
+    now = new Date(),
+  ): NotificationJobRecord {
+    const createdAt = now.toISOString();
+    return {
+      id: randomUUID(), projectId: destination.projectId, destinationId: destination.id, alertType,
+      recipient: destination.email, subject, text: content.text, html: content.html, status: "pending",
+      attemptCount: 0, maxAttempts: DEFAULT_NOTIFICATION_MAX_ATTEMPTS, nextAttemptAt: createdAt, createdAt,
+    };
+  }
+
   private async enqueueEmail(
     destination: NotificationDestinationRecord,
     alertType: NotificationAlertType,
@@ -2745,12 +2807,7 @@ export class AgentCertControlPlane {
     content: { text: string; html: string },
     now = new Date(),
   ): Promise<NotificationJobRecord> {
-    const createdAt = now.toISOString();
-    return this.store.enqueueNotificationJob({
-      id: randomUUID(), projectId: destination.projectId, destinationId: destination.id, alertType,
-      recipient: destination.email, subject, text: content.text, html: content.html, status: "pending",
-      attemptCount: 0, maxAttempts: DEFAULT_NOTIFICATION_MAX_ATTEMPTS, nextAttemptAt: createdAt, createdAt,
-    });
+    return this.store.enqueueNotificationJob(this.notificationJob(destination, alertType, subject, content, now));
   }
 
   private requirePlatformAdmin(auth: AuthContext): void {
@@ -2903,10 +2960,11 @@ function notificationAlertTypes(value: unknown): NotificationAlertType[] {
   const allowed = new Set<NotificationAlertType>([
     "incident_opened", "incident_regressed", "incident_recovered", "incident_resolved", "slo_burn_rate",
     "assurance_current", "assurance_revalidation_required", "assurance_suspended", "assurance_expired", "assurance_expiry_warning",
+    "next_action_changed",
   ]);
   const selected = stringList(value);
   if (selected.length === 0 || selected.some((item) => !allowed.has(item as NotificationAlertType))) {
-    throw new ControlPlaneError("alertTypes must contain one or more supported incident or assurance alert types.");
+    throw new ControlPlaneError("alertTypes must contain one or more supported incident, assurance, or next-action alert types.");
   }
   return selected as NotificationAlertType[];
 }
@@ -2943,6 +3001,23 @@ function runContinuousAssuranceBinding(value: unknown): RunContinuousAssuranceBi
 function monotonicTimestamp(previous: string): string {
   return new Date(Math.max(Date.now(), (Date.parse(previous) || 0) + 1)).toISOString();
 }
+function nextActionWorkspaceUrl(publicUrl: string, projectId: string, action: ProjectNextAction): string {
+  const url = new URL("/app", publicUrl);
+  url.searchParams.set("view", action.destination.view);
+  url.searchParams.set("project", projectId);
+  const target = action.context.incidentId
+    ? ["incidentId", action.context.incidentId]
+    : action.context.actionId
+      ? ["actionId", action.context.actionId]
+      : action.context.assuranceCaseId
+        ? ["caseId", action.context.assuranceCaseId]
+        : action.context.runId
+          ? ["runId", action.context.runId]
+          : undefined;
+  if (target) url.searchParams.set(target[0], target[1]);
+  return url.toString();
+}
+
 
 function publicNotificationDestination(destination: NotificationDestinationRecord): PublicNotificationDestinationRecord {
   const { verificationTokenHash: _verificationTokenHash, ...publicRecord } = destination;

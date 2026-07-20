@@ -81,7 +81,7 @@ import HostedAssuranceView from "./HostedAssuranceView";
 import { BrandMark, ProductHeader } from "./Brand";
 import { resolveAuthMode } from "./auth-routing";
 import { isSandboxCertificationRun } from "./sandbox-certifications";
-import { buildHostedWorkspaceUrl, resolveHostedRoute, type HostedFocus, type HostedView } from "./hosted-routing";
+import { buildHostedWorkspaceUrl, resolveHostedRoute, targetForNextAction, type HostedFocus, type HostedView } from "./hosted-routing";
 import { canManageHostedProjects } from "./hosted-role-permissions";
 
 import {
@@ -430,7 +430,7 @@ function AccountView({ config, session, project, context, onSignOut }: { config:
 }
 
 function HostedViewContent({ view, data, project, projects, session, role, onboarding, refresh, onNavigate }: { view: HostedView; data: ConsoleData; project: HostedProject; projects: HostedProject[]; session: HostedSession; role?: HostedMemberRole; onboarding?: HostedOnboardingStatus; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
-  if (view === "overview") return <HostedOverviewView data={data} refresh={refresh} onNavigate={onNavigate} />;
+  if (view === "overview") return <HostedOverviewView data={data} project={project} refresh={refresh} onNavigate={onNavigate} />;
   if (view === "agents") return <AgentsView agents={data.agents} project={project} session={session} refresh={refresh} />;
   if (view === "runs") return <HostedRunsView runs={data.runs} project={project} session={session} />;
   if (view === "assurance") return <HostedAssuranceView cases={data.assuranceCases} evidence={data.evidence} project={project} session={session} role={role} refresh={refresh} />;
@@ -444,13 +444,15 @@ function HostedViewContent({ view, data, project, projects, session, role, onboa
   return <>{onboarding ? <HostedOnboarding status={onboarding} project={project} session={session} refresh={refresh} onReviewRuns={() => onNavigate("runs")} /> : null}<IntegrationsView project={project} session={session} operations={data.operations} refresh={refresh} /></>;
 }
 
-function HostedOverviewView({ data, refresh, onNavigate }: { data: ConsoleData; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
+function HostedOverviewView({ data, project, refresh, onNavigate }: { data: ConsoleData; project: HostedProject; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
   const summary = data.overview.summary;
   const assurance = data.overview.currentAssurance;
   const nextAction = data.overview.nextAction;
   const latestRun = data.runs[0];
   const pendingActions = data.actions.filter((action) => action.status === "PENDING_APPROVAL");
   const activeIncidents = data.incidents.filter((incident) => incident.status !== "resolved");
+  const nextActionTarget = targetForNextAction(nextAction);
+  const nextActionHref = buildHostedWorkspaceUrl(window.location.origin, { view: nextAction.destination.view, projectId: project.id, ...(nextActionTarget ? { target: nextActionTarget } : {}) });
   return <>
 
     <section className={`current-assurance-banner ${assurance.status.toLowerCase().replaceAll("_", "-")} next-${nextAction.priority}`}>
@@ -466,7 +468,7 @@ function HostedOverviewView({ data, refresh, onNavigate }: { data: ConsoleData; 
         <div><dt>Expires</dt><dd>{assurance.expiresAt ? new Date(assurance.expiresAt).toLocaleDateString() : "Not issued"}</dd></div>
       </dl>
       </div>
-      <div className="role-aware-next-action"><span className="eyebrow">Most important next action</span><strong>{nextAction.title}</strong><p>{nextAction.reason}</p>{nextAction.permission.note ? <small>{nextAction.permission.note}</small> : null}<button className="primary-action compact" onClick={() => onNavigate(nextAction.destination.view)}>{nextAction.actionLabel}</button></div>
+      <div className="role-aware-next-action"><span className="eyebrow">Most important next action</span><strong>{nextAction.title}</strong><p>{nextAction.reason}</p>{nextAction.permission.note ? <small>{nextAction.permission.note}</small> : null}<a className="primary-action compact" href={nextActionHref}>{nextAction.actionLabel}</a></div>
     </section>
     <section className="assurance-task-grid" aria-label="Assurance workflow summary">
       <article><span>Release assurance</span><strong>{assurance.status.replaceAll("_", " ")}</strong><p>{data.assuranceCases.length} scoped review{data.assuranceCases.length === 1 ? "" : "s"}; {data.runs.filter((run) => run.kind === "release_gate").length} release gate run{data.runs.filter((run) => run.kind === "release_gate").length === 1 ? "" : "s"}.</p></article>
@@ -547,8 +549,10 @@ function RunsTable({ runs, empty = "No runs recorded yet." }: { runs: HostedRun[
 
 function ActionsView({ actions, project, session, refresh }: { actions: HostedAction[]; project: HostedProject; session: HostedSession; refresh: () => Promise<void> }) {
   const [busy, setBusy] = useState<string>(); const [error, setError] = useState<string>();
+  const targetActionId = new URLSearchParams(window.location.search).get("actionId");
+  const orderedActions = targetActionId ? [...actions].sort((left, right) => Number(right.id === targetActionId) - Number(left.id === targetActionId)) : actions;
   async function review(actionId: string, decision: "approve" | "reject") { setBusy(actionId); setError(undefined); try { await reviewHostedAction(session, project.id, actionId, decision); await refresh(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } finally { setBusy(undefined); } }
-  return <section className="data-section"><SectionTitle title="Runtime actions" caption="Policy decisions, human approvals, and observed-state verification" />{error ? <div className="console-error">{error}</div> : null}<div className="action-list">{actions.map((action) => <article key={action.id}><div className="action-main"><div><span className="eyebrow">{action.actionType} · {action.targetSystem}</span><strong>{action.externalId}</strong></div><Status value={action.status} /><p>{action.reasons.join(" ")}</p></div><dl><div><dt>Risk</dt><dd>{action.riskLevel} ({action.riskScore})</dd></div><div><dt>Decision</dt><dd>{action.decision}</dd></div><div><dt>Verification</dt><dd>{action.verificationSuccess === undefined ? "Not submitted" : action.verificationSuccess ? "Matched" : "Mismatch"}</dd></div></dl>{action.status === "PENDING_APPROVAL" ? <div className="approval-actions"><button disabled={busy === action.id} onClick={() => void review(action.id, "reject")}>Reject</button><button className="primary-action compact" disabled={busy === action.id} onClick={() => void review(action.id, "approve")}>Approve</button></div> : null}</article>)}{actions.length === 0 ? <EmptyHosted text="No runtime actions have been proposed." /> : null}</div></section>;
+  return <section className="data-section"><SectionTitle title="Runtime actions" caption="Policy decisions, human approvals, and observed-state verification" />{error ? <div className="console-error">{error}</div> : null}<div className="action-list">{orderedActions.map((action) => <article className={action.id === targetActionId ? "targeted-record" : undefined} key={action.id}><div className="action-main"><div><span className="eyebrow">{action.actionType} · {action.targetSystem}</span><strong>{action.externalId}</strong></div><Status value={action.status} /><p>{action.reasons.join(" ")}</p></div><dl><div><dt>Risk</dt><dd>{action.riskLevel} ({action.riskScore})</dd></div><div><dt>Decision</dt><dd>{action.decision}</dd></div><div><dt>Verification</dt><dd>{action.verificationSuccess === undefined ? "Not submitted" : action.verificationSuccess ? "Matched" : "Mismatch"}</dd></div></dl>{action.status === "PENDING_APPROVAL" ? <div className="approval-actions"><button disabled={busy === action.id} onClick={() => void review(action.id, "reject")}>Reject</button><button className="primary-action compact" disabled={busy === action.id} onClick={() => void review(action.id, "approve")}>Approve</button></div> : null}</article>)}{actions.length === 0 ? <EmptyHosted text="No runtime actions have been proposed." /> : null}</div></section>;
 }
 
 function IncidentsView({ incidents, operations, project, session, refresh }: {
@@ -562,6 +566,8 @@ function IncidentsView({ incidents, operations, project, session, refresh }: {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const targetIncidentId = new URLSearchParams(window.location.search).get("incidentId");
+  const orderedIncidents = targetIncidentId ? [...incidents].sort((left, right) => Number(right.id === targetIncidentId) - Number(left.id === targetIncidentId)) : incidents;
   async function transition(incident: HostedIncident, action: "acknowledge" | "resolve") {
     if (selected !== incident.id || reason.trim().length < 10) {
       setSelected(incident.id);
@@ -579,7 +585,7 @@ function IncidentsView({ incidents, operations, project, session, refresh }: {
   return <div className="incident-workspace">
     <section className="data-section"><SectionTitle title="Incident lifecycle" caption="Human acknowledgement, deterministic recovery evidence, and explicit resolution" />
       {error ? <div className="console-error">{error}</div> : null}
-      <div className="incident-ledger">{incidents.map((incident) => <article key={incident.id}>
+      <div className="incident-ledger">{orderedIncidents.map((incident) => <article className={incident.id === targetIncidentId ? "targeted-record" : undefined} key={incident.id}>
         <div className="incident-heading"><div><span className="eyebrow">{incident.type} · {incident.severity}</span><strong>{incident.summary}</strong></div><Status value={incident.status} /></div>
         <p>{incident.firstDivergence ?? "No first divergence recorded."}</p>
         <dl><div><dt>Occurrences</dt><dd>{incident.occurrenceCount}</dd></div><div><dt>Passing streak</dt><dd>{incident.consecutivePasses}/2</dd></div><div><dt>Updated</dt><dd>{compactTime(incident.updatedAt ?? incident.createdAt)}</dd></div><div><dt>GitHub</dt><dd>{incident.githubIssueUrl ? <a href={incident.githubIssueUrl} target="_blank" rel="noreferrer">#{incident.githubIssueNumber}</a> : "Not linked"}</dd></div></dl>
@@ -589,7 +595,7 @@ function IncidentsView({ incidents, operations, project, session, refresh }: {
       </article>)}{incidents.length === 0 ? <EmptyHosted text="No incidents recorded." /> : null}</div>
     </section>
     <section className="data-section"><SectionTitle title="Transition evidence" caption="Append-only state changes for the current operational incident" />
-      <div className="transition-ledger">{operations.incidents.transitions.map((transition) => <div key={transition.id}><span>{compactTime(transition.occurredAt)}</span><strong>{transition.fromStatus ?? "created"} → {transition.toStatus}</strong><p>{transition.reason}</p><small>{transition.actorEmail ?? transition.actorType}</small></div>)}{operations.incidents.transitions.length === 0 ? <EmptyHosted text="No operational incident transitions yet." /> : null}</div>
+      <div className="transition-ledger">{operations.incidents.transitions.map((transition) => <div key={transition.id}><span>{compactTime(transition.occurredAt)}</span><strong>{transition.fromStatus ?? "created"} →{transition.toStatus}</strong><p>{transition.reason}</p><small>{transition.actorEmail ?? transition.actorType}</small></div>)}{operations.incidents.transitions.length === 0 ? <EmptyHosted text="No operational incident transitions yet." /> : null}</div>
     </section>
   </div>;
 }
@@ -612,6 +618,7 @@ function EvidenceView({ evidence, overview, project, session, refresh }: {
     finally { setBusy(false); }
   }
   return <div className="evidence-registry-layout">
+    <section className="data-section next-action-audit"><SectionTitle title="Next action decision history" caption="Append-only material recommendation changes, matched rules, actor roles, and decision inputs" /><div className="next-action-timeline">{overview.nextActionHistory.map((entry) => { const target = targetForNextAction(entry.decision); const href = buildHostedWorkspaceUrl(window.location.origin, { view: entry.decision.destination.view, projectId: project.id, ...(target ? { target } : {}) }); return <article key={entry.id}><div className="next-action-transition"><span>{compactTime(entry.occurredAt)}</span><strong>{entry.previous?.decision.title ?? "Initial recommendation"} <b>to</b> {entry.decision.title}</strong><Status value={entry.decision.priority} /></div><p>{entry.decision.reason}</p><dl><div><dt>Matched rule</dt><dd>{entry.decision.rule.replaceAll("_", " ")}</dd></div><div><dt>Actor</dt><dd>{entry.actor.role}</dd></div><div><dt>Assurance</dt><dd>{entry.inputs.assurance.status}</dd></div><div><dt>Runtime</dt><dd>{entry.inputs.approvals.pendingCount} approvals, {entry.inputs.incidents.activeCount} incidents</dd></div><div><dt>Evidence</dt><dd>{entry.inputs.evidence?.status ?? "not selected"}</dd></div><div><dt>Fingerprint</dt><dd><code>{entry.fingerprint.slice(0, 12)}</code></dd></div></dl><a href={href}>Open exact record</a></article>; })}{overview.nextActionHistory.length === 0 ? <EmptyHosted text="The first material next-action decision will appear after the project overview is evaluated." /> : null}</div></section>
     <section className={`legal-hold-panel ${legalHold?.status ?? "none"}`}>
       <div><span className="eyebrow">Retention control</span><h2>{legalHold?.status === "approved" ? "Legal hold active" : `${overview.storage.retentionDays}-day default retention`}</h2>
         <p>{legalHold?.status === "approved" ? "Automatic evidence deletion is paused for this project until a platform administrator releases the hold." : legalHold?.status === "requested" ? "The application is awaiting platform review. Normal retention continues until approval." : "Evidence is deleted after the retention window. Enterprise projects may apply for a reviewed legal hold."}</p></div>
@@ -670,7 +677,7 @@ function CollectorStatusPanel({ status }: { status?: HostedCollectorStatus }) {
 function NotificationDestinations({ project, session, operations, refresh }: { project: HostedProject; session: HostedSession; operations: HostedOperations; refresh: () => Promise<void> }) {
   const alertTypes: HostedNotificationAlertType[] = [
     "incident_opened", "incident_regressed", "incident_recovered", "incident_resolved", "slo_burn_rate",
-    "assurance_revalidation_required", "assurance_suspended", "assurance_expired", "assurance_expiry_warning", "assurance_current",
+    "assurance_revalidation_required", "assurance_suspended", "assurance_expired", "assurance_expiry_warning", "assurance_current", "next_action_changed",
   ];
   const [email, setEmail] = useState("");
   const [selected, setSelected] = useState<HostedNotificationAlertType[]>(alertTypes);
@@ -822,7 +829,7 @@ function notificationLabel(value: HostedNotificationAlertType): string {
     incident_opened: "Incident opened", incident_regressed: "Incident regressed", incident_recovered: "Incident recovered",
     incident_resolved: "Incident resolved", slo_burn_rate: "SLO burn rate", assurance_current: "Assurance current",
     assurance_revalidation_required: "Revalidation required", assurance_suspended: "Assurance suspended", assurance_expired: "Assurance expired",
-    assurance_expiry_warning: "Assurance expiry warning",
+    assurance_expiry_warning: "Assurance expiry warning", next_action_changed: "Next action changed",
   })[value];
 }
 function authRedirectUrl(config: HostedConfig, inviteToken: string | null): string {

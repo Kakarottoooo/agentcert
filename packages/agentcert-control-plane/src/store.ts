@@ -39,6 +39,8 @@ import type {
   PilotFunnelSource,
   AssuranceCaseRecord,
   AssuranceCaseDecisionRecord,
+  ProjectNextActionDecisionRecord,
+  ProjectNextActionDecisionResult,
   CollectorSourceKeyRecord,
   CollectorHeartbeatRecord,
   TrustedCollectorAlertRecord,
@@ -69,6 +71,7 @@ export const CONTROL_PLANE_MIGRATIONS = [
   "018_continuous_assurance.sql",
   "019_continuous_assurance_adoption.sql",
   "020_observability_indexes.sql",
+  "021_next_action_audit.sql",
 ] as const;
 
 const DEFAULT_PROJECT_NAME = "Agent assurance project";
@@ -139,6 +142,8 @@ export interface ControlPlaneStore {
   listAssuranceCasesForMaintenance(now: string, before: string, limit?: number): Promise<AssuranceCaseRecord[]>;
   insertAssuranceCaseDecision(record: AssuranceCaseDecisionRecord): Promise<AssuranceCaseDecisionRecord>;
   listAssuranceCaseDecisions(projectId: string, caseId: string): Promise<AssuranceCaseDecisionRecord[]>;
+  recordNextActionDecision(record: ProjectNextActionDecisionRecord, notificationJobs: NotificationJobRecord[]): Promise<ProjectNextActionDecisionResult>;
+  listNextActionDecisions(projectId: string, limit?: number): Promise<ProjectNextActionDecisionRecord[]>;
   upsertAgent(agent: AgentRecord): Promise<AgentRecord>;
   getAgent(projectId: string, agentId: string): Promise<AgentRecord | undefined>;
   listAgents(projectId: string): Promise<AgentRecord[]>;
@@ -284,6 +289,7 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   private pilotFeedback = new Map<string, PilotFeedbackRecord>();
   private assuranceCases = new Map<string, AssuranceCaseRecord>();
   private assuranceCaseDecisions = new Map<string, AssuranceCaseDecisionRecord>();
+  private nextActionDecisions = new Map<string, ProjectNextActionDecisionRecord>();
   private retentionLocks = new Map<string, Promise<void>>();
 
   async migrate(): Promise<void> {}
@@ -516,6 +522,39 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   async listAssuranceCaseDecisions(projectId: string, caseId: string): Promise<AssuranceCaseDecisionRecord[]> {
     return [...this.assuranceCaseDecisions.values()].filter((item) => item.projectId === projectId && item.assuranceCaseId === caseId)
       .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt)).map((item) => structuredClone(item));
+  }
+
+  async recordNextActionDecision(
+    record: ProjectNextActionDecisionRecord,
+    notificationJobs: NotificationJobRecord[],
+  ): Promise<ProjectNextActionDecisionResult> {
+    const previous = newest(
+      [...this.nextActionDecisions.values()].filter((item) => item.projectId === record.projectId),
+      "occurredAt",
+    )[0];
+    if (previous?.fingerprint === record.fingerprint) {
+      return { changed: false, record: structuredClone(previous) };
+    }
+    const next: ProjectNextActionDecisionRecord = {
+      ...record,
+      ...(previous ? {
+        previous: {
+          decisionId: previous.id,
+          fingerprint: previous.fingerprint,
+          decision: structuredClone(previous.decision),
+        },
+      } : {}),
+    };
+    this.nextActionDecisions.set(next.id, structuredClone(next));
+    if (previous) {
+      for (const job of notificationJobs) this.notificationJobs.set(job.id, structuredClone(job));
+    }
+    return { changed: true, record: structuredClone(next), ...(previous ? { previous: structuredClone(previous) } : {}) };
+  }
+
+  async listNextActionDecisions(projectId: string, limit = 100): Promise<ProjectNextActionDecisionRecord[]> {
+    return newest([...this.nextActionDecisions.values()].filter((item) => item.projectId === projectId), "occurredAt")
+      .slice(0, limit).map((item) => structuredClone(item));
   }
 
   async roleForProject(userId: string, projectId: string): Promise<MemberRole | undefined> {
@@ -1656,6 +1695,75 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
       "SELECT * FROM agentcert_assurance_case_decisions WHERE project_id=$1 AND assurance_case_id=$2 ORDER BY occurred_at ASC",
       [projectId, caseId],
     ), assuranceCaseDecisionFromRow);
+  }
+
+  async recordNextActionDecision(
+    record: ProjectNextActionDecisionRecord,
+    notificationJobs: NotificationJobRecord[],
+  ): Promise<ProjectNextActionDecisionResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`agentcert-next-action:${record.projectId}`]);
+      const latest = await client.query(
+        "SELECT * FROM agentcert_next_action_decisions WHERE project_id=$1 ORDER BY occurred_at DESC,id DESC LIMIT 1",
+        [record.projectId],
+      );
+      const previous = latest.rows[0] ? nextActionDecisionFromRow(latest.rows[0]) : undefined;
+      if (previous?.fingerprint === record.fingerprint) {
+        await client.query("COMMIT");
+        return { changed: false, record: previous };
+      }
+      const next: ProjectNextActionDecisionRecord = {
+        ...record,
+        ...(previous ? {
+          previous: {
+            decisionId: previous.id,
+            fingerprint: previous.fingerprint,
+            decision: previous.decision,
+          },
+        } : {}),
+      };
+      await client.query(
+        `INSERT INTO agentcert_next_action_decisions
+         (id,project_id,schema_version,fingerprint,actor,inputs,decision,previous_decision_id,previous_fingerprint,previous_decision,occurred_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [
+          next.id, next.projectId, next.schemaVersion, next.fingerprint, JSON.stringify(next.actor),
+          JSON.stringify(next.inputs), JSON.stringify(next.decision), next.previous?.decisionId ?? null,
+          next.previous?.fingerprint ?? null, next.previous ? JSON.stringify(next.previous.decision) : null, next.occurredAt,
+        ],
+      );
+      if (previous) {
+        for (const job of notificationJobs) {
+          await client.query(
+            `INSERT INTO agentcert_notification_jobs
+             (id,project_id,destination_id,alert_type,recipient,subject,text_body,html_body,status,attempt_count,max_attempts,
+              next_attempt_at,locked_at,locked_by,provider,provider_message_id,last_error,created_at,completed_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+            [
+              job.id, job.projectId, job.destinationId, job.alertType, job.recipient, job.subject, job.text, job.html,
+              job.status, job.attemptCount, job.maxAttempts, job.nextAttemptAt, job.lockedAt ?? null, job.lockedBy ?? null,
+              job.provider ?? null, job.providerMessageId ?? null, job.lastError ?? null, job.createdAt, job.completedAt ?? null,
+            ],
+          );
+        }
+      }
+      await client.query("COMMIT");
+      return { changed: true, record: next, ...(previous ? { previous } : {}) };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async listNextActionDecisions(projectId: string, limit = 100): Promise<ProjectNextActionDecisionRecord[]> {
+    return many(this.pool.query(
+      "SELECT * FROM agentcert_next_action_decisions WHERE project_id=$1 ORDER BY occurred_at DESC,id DESC LIMIT $2",
+      [projectId, limit],
+    ), nextActionDecisionFromRow);
   }
 
   async roleForProject(userId: string, projectId: string): Promise<MemberRole | undefined> {
@@ -2908,6 +3016,25 @@ function assuranceCaseDecisionFromRow(row: Record<string, unknown>): AssuranceCa
     fromStatus: optionalText(row.from_status) as AssuranceCaseDecisionRecord["fromStatus"],
     toStatus: text(row.to_status) as AssuranceCaseDecisionRecord["toStatus"], actorId: text(row.actor_id),
     actorEmail: optionalText(row.actor_email), reason: text(row.reason), evidenceIds: stringArray(row.evidence_ids), occurredAt: iso(row.occurred_at),
+  };
+}
+
+function nextActionDecisionFromRow(row: Record<string, unknown>): ProjectNextActionDecisionRecord {
+  const previousDecisionId = optionalText(row.previous_decision_id);
+  const previousFingerprint = optionalText(row.previous_fingerprint);
+  const previousDecision = optionalObject(row.previous_decision) as ProjectNextActionDecisionRecord["decision"] | undefined;
+  return {
+    id: text(row.id),
+    projectId: text(row.project_id),
+    schemaVersion: text(row.schema_version) as ProjectNextActionDecisionRecord["schemaVersion"],
+    fingerprint: text(row.fingerprint),
+    actor: object(row.actor) as unknown as ProjectNextActionDecisionRecord["actor"],
+    inputs: object(row.inputs) as unknown as ProjectNextActionDecisionRecord["inputs"],
+    decision: object(row.decision) as unknown as ProjectNextActionDecisionRecord["decision"],
+    ...(previousDecisionId && previousFingerprint && previousDecision ? {
+      previous: { decisionId: previousDecisionId, fingerprint: previousFingerprint, decision: previousDecision },
+    } : {}),
+    occurredAt: iso(row.occurred_at),
   };
 }
 

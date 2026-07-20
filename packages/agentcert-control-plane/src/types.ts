@@ -39,6 +39,13 @@ export type ProjectNextActionKind =
   | "MONITOR_ASSURANCE";
 export type ProjectNextActionPriority = "critical" | "high" | "medium" | "normal";
 export type ProjectNextActionView = "assurance" | "actions" | "incidents" | "runs" | "evidence";
+export type ProjectNextActionRule =
+  | "active_incident"
+  | "pending_approval"
+  | "assurance_revalidation"
+  | "baseline_missing"
+  | "evidence_incomplete"
+  | "assurance_current";
 
 export interface CurrentAssuranceSummary {
   status: CurrentAssuranceStatus;
@@ -51,6 +58,7 @@ export interface CurrentAssuranceSummary {
 
 export interface ProjectNextAction {
   schemaVersion: "agentcert.next_action.v0.2";
+  rule: ProjectNextActionRule;
   kind: ProjectNextActionKind;
   priority: ProjectNextActionPriority;
   title: string;
@@ -70,6 +78,44 @@ export interface ProjectNextAction {
     runId?: string;
     evidenceStatus?: EvidenceCompletenessStatus;
   };
+}
+
+export interface ProjectNextActionInputSummary {
+  assurance: { status: CurrentAssuranceStatus; assuranceCaseId?: string };
+  incidents: { activeCount: number; selected?: { id: string; severity: IncidentRecord["severity"]; status: IncidentStatus } };
+  approvals: { pendingCount: number; selected?: { id: string; riskLevel: ActionRecord["riskLevel"] } };
+  evidence?: { runId: string; status: EvidenceCompletenessStatus; reasons: string[] };
+}
+
+export type ProjectNextActionDecisionSnapshot = Pick<
+  ProjectNextAction,
+  "rule" | "kind" | "priority" | "title" | "reason" | "destination" | "context"
+>;
+
+export interface ProjectNextActionDecisionRecord {
+  id: string;
+  projectId: string;
+  schemaVersion: "agentcert.next_action_decision.v0.3";
+  fingerprint: string;
+  actor: {
+    kind: "user" | "api_key";
+    role: MemberRole | "api_key";
+    actorId?: string;
+  };
+  inputs: ProjectNextActionInputSummary;
+  decision: ProjectNextActionDecisionSnapshot;
+  previous?: {
+    decisionId: string;
+    fingerprint: string;
+    decision: ProjectNextActionDecisionSnapshot;
+  };
+  occurredAt: string;
+}
+
+export interface ProjectNextActionDecisionResult {
+  changed: boolean;
+  record: ProjectNextActionDecisionRecord;
+  previous?: ProjectNextActionDecisionRecord;
 }
 
 export type CollectorSourceKeyStatus = "active" | "retired" | "revoked";
@@ -847,7 +893,8 @@ export type NotificationAlertType =
   | "assurance_revalidation_required"
   | "assurance_suspended"
   | "assurance_expired"
-  | "assurance_expiry_warning";
+  | "assurance_expiry_warning"
+  | "next_action_changed";
 export type NotificationDestinationStatus = "pending_verification" | "active" | "disabled";
 
 export interface NotificationDestinationRecord {
