@@ -7,6 +7,25 @@ and private evidence. The legacy GitHub Pages monitor remains an immutable
 public evidence archive and links visitors to `/evidence`. Existing `/demo`
 links are preserved as a compatibility alias for `/evidence`.
 
+## Workspace Surface
+
+The authenticated workspace is organized around four customer decisions rather
+than the control plane's internal resources:
+
+- **Current Assurance:** whether the selected agent scope is currently assured,
+  why that state changed, and the next required action.
+- **Release Assurance:** reviews, test runs, release gates, and continuous
+  revalidation.
+- **Runtime Assurance:** proposed actions, approvals, observed outcomes, and
+  incidents.
+- **Evidence & Audit:** signed evidence, integrity state, timelines, exports,
+  and historical review.
+
+Agent registration, connections, and team access live under **Setup**. Sandbox
+certification and platform governance live under **Advanced**. Existing API
+resources and deep links remain available; this is a presentation-layer
+consolidation, not a second implementation of the assurance workflows.
+
 ## Recommended Production Profile
 
 - **Render Web Service:** one Docker deployment serves the React console and

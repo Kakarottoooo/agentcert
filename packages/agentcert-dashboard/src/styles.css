@@ -1658,6 +1658,14 @@ button {
   gap: 3px;
 }
 
+.workspace-nav-label {
+  margin: 0 11px 5px;
+  color: #88aa9e;
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
 .hosted-sidebar nav button {
   display: flex;
   min-height: 40px;
@@ -1689,6 +1697,86 @@ button {
   font-size: 11px;
   font-style: normal;
   font-weight: 800;
+}
+
+.workspace-secondary-nav {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.workspace-secondary-nav details {
+  min-width: 0;
+}
+
+.workspace-secondary-nav summary {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 11px;
+  color: #cce0d8;
+  border-radius: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.workspace-secondary-nav summary::-webkit-details-marker {
+  display: none;
+}
+
+.workspace-secondary-nav summary::after {
+  content: "+";
+  color: #88aa9e;
+  font-size: 17px;
+}
+
+.workspace-secondary-nav details[open] summary::after {
+  content: "−";
+}
+
+.workspace-secondary-nav summary:hover,
+.workspace-secondary-nav details[open] > summary {
+  color: white;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.workspace-secondary-nav summary span {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.workspace-secondary-nav summary small {
+  display: none;
+}
+
+.workspace-secondary-nav details > div {
+  display: grid;
+  gap: 2px;
+  padding: 4px 0 2px 8px;
+}
+
+.workspace-secondary-nav button {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  color: #b9d0c7;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.workspace-secondary-nav button:hover,
+.workspace-secondary-nav button.active {
+  color: white;
+  background: rgba(80, 196, 156, 0.1);
 }
 
 .sandbox-certification-page {
@@ -2046,8 +2134,15 @@ button {
 }
 
 .hosted-header h1 {
-  margin: 2px 0 16px;
+  margin: 2px 0 3px;
   font-size: 27px;
+}
+
+.hosted-header p {
+  max-width: 720px;
+  margin: 0 0 15px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .workspace-project {
@@ -2068,6 +2163,231 @@ button {
   border-radius: 6px;
   cursor: pointer;
   font-weight: 750;
+}
+
+.workspace-context-tabs {
+  display: flex;
+  gap: 0;
+  margin: -10px 0 22px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace-context-tabs button {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 2px;
+  min-width: 168px;
+  padding: 11px 14px 10px;
+  color: var(--muted);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+}
+
+.workspace-context-tabs button:hover,
+.workspace-context-tabs button.active {
+  color: var(--brand-ink);
+  border-bottom-color: var(--teal);
+}
+
+.workspace-context-tabs span {
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.workspace-context-tabs small {
+  color: inherit;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.current-assurance-banner {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(420px, .75fr) auto;
+  gap: 24px;
+  align-items: center;
+  margin-bottom: 18px;
+  padding: 26px;
+  background: white;
+  border: 1px solid var(--border);
+  border-left: 5px solid var(--teal);
+}
+
+.current-assurance-banner.revalidation-required,
+.current-assurance-banner.expired,
+.current-assurance-banner.not-configured {
+  border-left-color: var(--amber);
+}
+
+.current-assurance-banner.suspended {
+  border-left-color: var(--red);
+}
+
+.current-assurance-copy {
+  min-width: 0;
+}
+
+.current-assurance-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 5px;
+}
+
+.current-assurance-title h2 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.current-assurance-copy p {
+  max-width: 700px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.current-assurance-banner dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  border: 1px solid var(--border);
+}
+
+.current-assurance-banner dl div {
+  min-width: 0;
+  padding: 11px;
+  border-right: 1px solid var(--border);
+}
+
+.current-assurance-banner dl div:last-child {
+  border-right: 0;
+}
+
+.current-assurance-banner dt {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.current-assurance-banner dd {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.assurance-task-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 18px;
+  background: white;
+  border: 1px solid var(--border);
+}
+
+.assurance-task-grid article {
+  display: grid;
+  min-width: 0;
+  min-height: 178px;
+  align-content: start;
+  padding: 20px;
+  border-right: 1px solid var(--border);
+}
+
+.assurance-task-grid article:last-child {
+  border-right: 0;
+}
+
+.assurance-task-grid article.attention {
+  box-shadow: inset 0 3px var(--amber);
+}
+
+.assurance-task-grid span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.assurance-task-grid strong {
+  margin-top: 8px;
+  font-size: 21px;
+  text-transform: capitalize;
+}
+
+.assurance-task-grid p {
+  margin: 8px 0 16px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.assurance-task-grid button {
+  width: fit-content;
+  margin-top: auto;
+  padding: 0;
+  color: var(--teal);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-weight: 850;
+}
+
+.attention-queue {
+  margin-bottom: 18px;
+  border-top-color: var(--amber);
+}
+
+.current-activity {
+  margin-bottom: 18px;
+}
+
+.assurance-diagnostics {
+  background: white;
+  border: 1px solid var(--border);
+}
+
+.assurance-diagnostics > summary {
+  display: flex;
+  min-height: 70px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 0 18px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.assurance-diagnostics > summary::-webkit-details-marker {
+  display: none;
+}
+
+.assurance-diagnostics > summary > span:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.assurance-diagnostics > summary strong {
+  font-size: 15px;
+}
+
+.assurance-diagnostics > summary small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.assurance-diagnostics[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.assurance-diagnostics-body {
+  padding: 18px;
+}
+
+.assurance-diagnostics-body > :last-child {
+  margin-bottom: 0;
 }
 
 .eyebrow {
@@ -4115,6 +4435,12 @@ button {
 }
 
 @media (max-width: 1100px) {
+  .current-assurance-banner {
+    grid-template-columns: 1fr;
+  }
+  .current-assurance-banner > button {
+    width: fit-content;
+  }
   .team-member-list > article { grid-template-columns: minmax(220px, 1fr) minmax(140px, .5fr); }
   .team-project-grants, .team-member-actions { grid-column: span 1; }
   .team-audit-list > div { grid-template-columns: 130px 180px 1fr; }
@@ -4185,6 +4511,37 @@ button {
     overflow-x: auto;
     scrollbar-width: thin;
   }
+  .hosted-sidebar .workspace-primary-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+  .hosted-sidebar .workspace-primary-nav button {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+    line-height: 1.2;
+  }
+  .workspace-nav-label {
+    display: none;
+  }
+  .workspace-secondary-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 4px;
+    padding-top: 8px;
+  }
+  .workspace-secondary-nav details > div {
+    position: absolute;
+    z-index: 4;
+    min-width: 220px;
+    padding: 8px;
+    background: #0d1e18;
+    border: 1px solid rgba(255, 255, 255, .16);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, .22);
+  }
+  .workspace-secondary-nav details:last-child > div {
+    right: 16px;
+  }
   .hosted-sidebar nav button {
     flex: 0 0 auto;
     min-height: 38px;
@@ -4210,6 +4567,32 @@ button {
   .account-recovery-panel form { grid-template-columns: 1fr; }
   .hosted-workspace {
     width: calc(100% - 24px);
+  }
+  .current-assurance-banner,
+  .assurance-task-grid {
+    grid-template-columns: 1fr;
+  }
+  .current-assurance-banner {
+    padding: 20px;
+  }
+  .current-assurance-banner dl {
+    grid-template-columns: 1fr;
+  }
+  .current-assurance-banner dl div,
+  .assurance-task-grid article {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .current-assurance-banner dl div:last-child,
+  .assurance-task-grid article:last-child {
+    border-bottom: 0;
+  }
+  .current-assurance-title {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .workspace-context-tabs button {
+    min-width: 150px;
   }
   .section-actions {
     align-items: stretch;
