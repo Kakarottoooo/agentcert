@@ -25,6 +25,7 @@ describe("companion artifact collection", () => {
     const result = await collectCompanionArtifacts(bundle({
       artifacts: {
         trace: ".tripwire/latest/trace.json",
+        "tripwire-ci.outDir": ".tripwire/latest",
         remote: "https://example.com/external-report.json",
       },
       results: [{

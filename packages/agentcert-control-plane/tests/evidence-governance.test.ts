@@ -61,6 +61,9 @@ describe("evidence governance", () => {
 
   it("does not count artifact output directories as manifest-reconciled files", () => {
     const bytes = Buffer.from(JSON.stringify({
+      artifacts: {
+        "tripwire-ci.outDir": ".tripwire/latest",
+      },
       results: [{
         artifacts: {
           outDir: ".tripwire/latest",
