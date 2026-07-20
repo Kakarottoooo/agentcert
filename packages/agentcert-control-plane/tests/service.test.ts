@@ -44,6 +44,72 @@ describe("AgentCertControlPlane", () => {
     });
   });
 
+  it("persists human capability corrections and recomputes semantic coverage", async () => {
+    const { service, projectId } = await setup();
+    const run = await service.startRun(user, projectId, { externalId: "semantic-run", kind: "custom", metadata: { framework: "langgraph" } });
+    await service.appendEvents(user, projectId, run.id, { events: [{
+      sequence: 0,
+      type: "agentcert.tool.completed",
+      payload: { semantic: { schemaVersion: "agentcert.semantic_event.v0.1", observedName: "vendor_lookup", invocationId: "invoke-1", phase: "completed" } },
+    }] });
+
+    const before = await service.semanticCoverage(user, projectId, 30);
+    expect(before.unknown).toMatchObject([{ observedName: "vendor_lookup", occurrences: 1 }]);
+    const correction = await service.reviewUnknownCapability(user, projectId, before.unknown[0]!.key, {
+      capabilityId: "coding.read", confidence: 0.9, rationale: "The tool reads a vendor-owned source repository without modifying it.",
+    });
+    const after = await service.semanticCoverage(user, projectId, 30);
+
+    expect(correction).toMatchObject({ capabilityId: "coding.read", source: "human", reviewerEmail: user.email });
+    expect(after.unknown).toEqual([]);
+    expect(after.domains.find((item) => item.domain === "coding")).toMatchObject({ observed: 1, recognized: 1 });
+    expect((await service.listCapabilityCorrections(user, projectId)).corrections).toEqual([correction]);
+  });
+
+  it("does not apply an unrelated CURRENT review to semantic events from another run", async () => {
+    const { service, store, projectId } = await setup();
+    const run = await service.startRun(user, projectId, { externalId: "unreviewed-run", kind: "custom" });
+    await service.appendEvents(user, projectId, run.id, { events: [{
+      sequence: 0,
+      type: "agentcert.tool.completed",
+      payload: { semantic: {
+        schemaVersion: "agentcert.semantic_event.v0.1", capabilityId: "coding.read",
+        observedName: "read_file", invocationId: "invoke-unreviewed", phase: "completed",
+      } },
+    }] });
+    const assuranceCase = await service.createAssuranceCase(user, projectId, {
+      name: "Unrelated reviewed release",
+      subject: { id: "other-agent", name: "Other Agent", version: "1.0.0", kind: "coding" },
+      policyPackVersion: "agentcert.base.v0.1",
+      evaluationPlan: {
+        requiredEvidenceKinds: ["evidence_bundle"],
+        controls: [{ id: "semantic-review", title: "Review declared semantic coverage", mode: "manual" }],
+      },
+      continuousAssurance: { scope: {
+        schemaVersion: "agentcert.assurance_scope.v0.1",
+        agent: { id: "other-agent", version: "1.0.0", artifactSha256: "a".repeat(64) },
+        model: { provider: "deterministic", name: "scripted-agent", version: "1.0.0" },
+        prompt: { sha256: "b".repeat(64) },
+        tools: { manifestSha256: "c".repeat(64) },
+        policy: { id: "agentcert.base.v0.1", version: "agentcert.base.v0.1", sha256: "d".repeat(64) },
+        scenarioSuite: { id: "other-suite", version: "1.0.0", sha256: "e".repeat(64) },
+      } },
+    });
+    const issuedAt = new Date(Date.parse(assuranceCase.updatedAt) + 1_000).toISOString();
+    const current = markContinuousAssuranceCurrent(assuranceCase.continuousAssurance!, issuedAt);
+    const observedAt = new Date(Date.parse(issuedAt) + 1_000).toISOString();
+    const reviewedOtherRun = applyContinuousAssuranceObservation(current, {
+      observed: current.scope, trigger: "release", runStatus: "passed", runId: "reviewed-other-run", observedAt,
+    }).contract;
+    await store.updateAssuranceCase({
+      ...assuranceCase, status: "issued", continuousAssurance: reviewedOtherRun, updatedAt: observedAt,
+    }, assuranceCase.status, assuranceCase.updatedAt);
+
+    const coverage = await service.semanticCoverage(user, projectId, 30);
+    expect(coverage.evidenceStrength).toBe("recorded");
+    expect(coverage.coverage.semantic).toMatchObject({ numerator: 1, denominator: 1, percent: 100 });
+  });
+
   it("creates, renames, and isolates projects without changing stable slugs", async () => {
     const { service, projectId } = await setup();
     const created = await service.createProject(user, { name: "Browser agents" });

@@ -5,6 +5,7 @@ export * from "./remote-collector.js";
 export * from "./collector-gateway.js";
 export * from "./gateway-conformance.js";
 export * from "./run-recorder.js";
+export * from "./tool-wrapper.js";
 
 export interface AgentCertClientOptions {
   baseUrl: string;

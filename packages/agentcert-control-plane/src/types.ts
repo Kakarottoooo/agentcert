@@ -36,15 +36,18 @@ export type ProjectNextActionKind =
   | "REVALIDATE_ASSURANCE"
   | "ESTABLISH_BASELINE"
   | "COMPLETE_EVIDENCE"
+  | "CLASSIFY_CAPABILITY"
+  | "CLOSE_COVERAGE_GAP"
   | "MONITOR_ASSURANCE";
 export type ProjectNextActionPriority = "critical" | "high" | "medium" | "normal";
-export type ProjectNextActionView = "assurance" | "actions" | "incidents" | "runs" | "evidence";
+export type ProjectNextActionView = "overview" | "assurance" | "actions" | "incidents" | "runs" | "evidence";
 export type ProjectNextActionRule =
   | "active_incident"
   | "pending_approval"
   | "assurance_revalidation"
   | "baseline_missing"
   | "evidence_incomplete"
+  | "semantic_coverage_gap"
   | "assurance_current";
 
 export interface CurrentAssuranceSummary {
@@ -77,6 +80,7 @@ export interface ProjectNextAction {
     incidentId?: string;
     runId?: string;
     evidenceStatus?: EvidenceCompletenessStatus;
+    unknownCapabilityKey?: string;
   };
 }
 
@@ -85,6 +89,7 @@ export interface ProjectNextActionInputSummary {
   incidents: { activeCount: number; selected?: { id: string; severity: IncidentRecord["severity"]; status: IncidentStatus } };
   approvals: { pendingCount: number; selected?: { id: string; riskLevel: ActionRecord["riskLevel"] } };
   evidence?: { runId: string; status: EvidenceCompletenessStatus; reasons: string[] };
+  semantics?: { unknownCount: number; bypassStatus: "none_declared" | "attention" | "critical"; selectedKey?: string; evidenceStrength: string };
 }
 
 export type ProjectNextActionDecisionSnapshot = Pick<

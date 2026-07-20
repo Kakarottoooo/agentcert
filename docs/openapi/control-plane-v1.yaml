@@ -334,6 +334,66 @@ paths:
         "200": {description: Run, fault, policy, approval, risk, and outcome aggregates with explicit truncation flags}
         "403": {description: The caller lacks runs:read or actions:read}
         "422": {description: Unsupported observation period}
+  /v1/projects/{projectId}/semantics/coverage:
+    get:
+      summary: Read bounded observed, semantic, enforced, and verified capability coverage
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: query, name: days, required: false, schema: {type: integer, enum: [7, 30, 90], default: 30}}
+      responses:
+        "200": {description: Semantic coverage v0.1 with evidence strength, bypass risks, domains, and unknown capabilities}
+        "403": {description: The caller lacks runs:read or actions:read}
+        "422": {description: Unsupported semantic coverage period}
+  /v1/projects/{projectId}/semantics/manifests:
+    get:
+      summary: List immutable built-in and project capability manifests
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses: {"200": {description: Capability registry v0.1}}
+    post:
+      summary: Create or update a project capability manifest
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: "#/components/schemas/CapabilityManifest"}}}
+      responses:
+        "200": {description: Stored project capability manifest}
+        "409": {description: Attempted replacement of a built-in capability ID}
+        "422": {description: Manifest validation failed}
+  /v1/projects/{projectId}/semantics/corrections:
+    get:
+      summary: List human-confirmed capability mappings
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses: {"200": {description: Project capability correction ledger}}
+  /v1/projects/{projectId}/semantics/unknown/{unknownKey}/suggest:
+    post:
+      summary: Request an advisory capability mapping from the optional classifier
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: path, name: unknownKey, required: true, schema: {type: string, pattern: "^[0-9a-f]{24}$"}}
+      responses:
+        "200": {description: Advisory suggestion that has not been persisted}
+        "409": {description: Optional semantic classifier is disabled}
+  /v1/projects/{projectId}/semantics/unknown/{unknownKey}/review:
+    post:
+      summary: Persist a human-confirmed capability mapping and reviewer rationale
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: path, name: unknownKey, required: true, schema: {type: string, pattern: "^[0-9a-f]{24}$"}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [capabilityId, rationale, confidence]
+              properties:
+                capabilityId: {type: string}
+                rationale: {type: string, minLength: 1, maxLength: 1000}
+                confidence: {type: number, minimum: 0, maximum: 1}
+      responses:
+        "200": {description: Attributed project capability correction}
+        "404": {description: Unknown capability is absent from the current 30-day queue}
+        "422": {description: Capability ID, rationale, or confidence is invalid}
   /v1/projects/{projectId}/runs/{runId}/failure-reviews:
     post:
       summary: Human-confirm or correct a generated failure taxonomy label
@@ -600,6 +660,8 @@ components:
     ApiKeyId: {in: path, name: apiKeyId, required: true, schema: {type: string, format: uuid}}
     IdempotencyKey: {in: header, name: Idempotency-Key, required: false, schema: {type: string, minLength: 1, maxLength: 200}}
   schemas:
+    CapabilityManifest:
+      $ref: "../../schemas/agentcert-capability-manifest.schema.json"
     AssuranceCaseInput:
       type: object
       required: [name, subject, policyPackVersion, evaluationPlan]

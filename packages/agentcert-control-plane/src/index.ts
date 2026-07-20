@@ -8,3 +8,5 @@ export * from "./protocol.js";
 export * from "./security.js";
 export * from "./signing.js";
 export * from "./coordination.js";
+export * from "./semantics.js";
+export * from "./semantic-classifier.js";

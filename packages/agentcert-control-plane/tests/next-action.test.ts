@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { projectNextActionFingerprint, resolveCurrentAssurance, resolveProjectNextAction } from "../src/next-action.js";
 import type { ActionRecord, AssuranceCaseRecord, EvidenceCompleteness, IncidentRecord, MemberRole } from "../src/types.js";
+import type { SemanticCoverageSnapshot } from "../src/semantics.js";
 
 const owner = { kind: "user", role: "owner" } as const;
 const operator = { kind: "user", role: "operator" } as const;
@@ -103,6 +104,47 @@ describe("role-aware project next action", () => {
       priority: "high",
       destination: { view: "runs" },
       context: { runId: "run-1", evidenceStatus: "rejected" },
+    });
+  });
+
+  it("makes an unknown capability the next action after higher-priority controls are clear", () => {
+    const semantics = {
+      unknown: [{ key: "unknown-1", observedName: "vendor_magic", occurrences: 3 }],
+      bypassRisk: { status: "attention", reasons: ["One capability is unknown."] },
+      evidenceStrength: "recorded",
+    } as SemanticCoverageSnapshot;
+    expect(resolveProjectNextAction({
+      actor: operator,
+      assuranceCases: [assuranceCase("case-1", "CURRENT")],
+      actions: [],
+      incidents: [],
+      evidence: { runId: "run-1", runExternalId: "release-1", completeness: evidence("complete") },
+      semantics,
+    })).toMatchObject({
+      kind: "CLASSIFY_CAPABILITY",
+      destination: { view: "overview" },
+      context: { unknownCapabilityKey: "unknown-1" },
+      permission: { canPerform: true },
+    });
+  });
+
+  it("describes an enforcement bypass as a coverage-boundary task when nothing is unknown", () => {
+    const semantics = {
+      unknown: [],
+      bypassRisk: { status: "critical", reasons: ["Two side-effecting executions were not enforced."] },
+      evidenceStrength: "recorded",
+    } as SemanticCoverageSnapshot;
+    expect(resolveProjectNextAction({
+      actor: owner,
+      assuranceCases: [assuranceCase("case-1", "CURRENT")],
+      actions: [],
+      incidents: [],
+      evidence: { runId: "run-1", runExternalId: "release-1", completeness: evidence("complete") },
+      semantics,
+    })).toMatchObject({
+      kind: "CLOSE_COVERAGE_GAP",
+      actionLabel: "Inspect coverage boundary",
+      context: {},
     });
   });
 

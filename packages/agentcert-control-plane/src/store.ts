@@ -49,6 +49,7 @@ import type {
   TrustedCollectorRunRecord,
   TrustedSourceRecord,
 } from "./types.js";
+import type { CapabilityCorrectionRecord, CapabilityManifestRecord } from "./semantics.js";
 
 export const CONTROL_PLANE_MIGRATIONS = [
   "001_initial.sql",
@@ -72,6 +73,7 @@ export const CONTROL_PLANE_MIGRATIONS = [
   "019_continuous_assurance_adoption.sql",
   "020_observability_indexes.sql",
   "021_next_action_audit.sql",
+  "022_agent_semantics.sql",
 ] as const;
 
 const DEFAULT_PROJECT_NAME = "Agent assurance project";
@@ -131,6 +133,10 @@ export interface ControlPlaneStore {
   listTeamAudit(organizationId: string, limit?: number): Promise<TeamAuditRecord[]>;
   insertPilotFeedback(feedback: PilotFeedbackRecord): Promise<PilotFeedbackRecord>;
   listPilotFeedback(projectId: string, limit?: number): Promise<PilotFeedbackRecord[]>;
+  upsertCapabilityManifest(record: CapabilityManifestRecord): Promise<CapabilityManifestRecord>;
+  listCapabilityManifests(projectId: string): Promise<CapabilityManifestRecord[]>;
+  upsertCapabilityCorrection(record: CapabilityCorrectionRecord): Promise<CapabilityCorrectionRecord>;
+  listCapabilityCorrections(projectId: string): Promise<CapabilityCorrectionRecord[]>;
   pilotFunnelSource(since: string): Promise<PilotFunnelSource>;
   insertAssuranceCase(record: AssuranceCaseRecord): Promise<AssuranceCaseRecord>;
   insertAssuranceCaseWithDecision(record: AssuranceCaseRecord, decision: AssuranceCaseDecisionRecord): Promise<AssuranceCaseRecord>;
@@ -290,6 +296,8 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   private assuranceCases = new Map<string, AssuranceCaseRecord>();
   private assuranceCaseDecisions = new Map<string, AssuranceCaseDecisionRecord>();
   private nextActionDecisions = new Map<string, ProjectNextActionDecisionRecord>();
+  private capabilityManifests = new Map<string, CapabilityManifestRecord>();
+  private capabilityCorrections = new Map<string, CapabilityCorrectionRecord>();
   private retentionLocks = new Map<string, Promise<void>>();
 
   async migrate(): Promise<void> {}
@@ -444,6 +452,30 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
 
   async listPilotFeedback(projectId: string, limit = 100): Promise<PilotFeedbackRecord[]> {
     return newest([...this.pilotFeedback.values()].filter((item) => item.projectId === projectId), "createdAt").slice(0, limit);
+  }
+
+  async upsertCapabilityManifest(record: CapabilityManifestRecord): Promise<CapabilityManifestRecord> {
+    const key = `${record.projectId}:${record.manifest.id}`;
+    const existing = this.capabilityManifests.get(key);
+    const next = existing ? { ...record, id: existing.id, createdAt: existing.createdAt } : record;
+    this.capabilityManifests.set(key, structuredClone(next));
+    return structuredClone(next);
+  }
+
+  async listCapabilityManifests(projectId: string): Promise<CapabilityManifestRecord[]> {
+    return newest([...this.capabilityManifests.values()].filter((item) => item.projectId === projectId), "updatedAt").map((item) => structuredClone(item));
+  }
+
+  async upsertCapabilityCorrection(record: CapabilityCorrectionRecord): Promise<CapabilityCorrectionRecord> {
+    const key = `${record.projectId}:${record.unknownKey}`;
+    const existing = this.capabilityCorrections.get(key);
+    const next = existing ? { ...record, id: existing.id, createdAt: existing.createdAt } : record;
+    this.capabilityCorrections.set(key, structuredClone(next));
+    return structuredClone(next);
+  }
+
+  async listCapabilityCorrections(projectId: string): Promise<CapabilityCorrectionRecord[]> {
+    return newest([...this.capabilityCorrections.values()].filter((item) => item.projectId === projectId), "updatedAt").map((item) => structuredClone(item));
   }
 
   async pilotFunnelSource(since: string): Promise<PilotFunnelSource> {
@@ -1532,6 +1564,50 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     return many(
       this.pool.query("SELECT * FROM agentcert_pilot_feedback WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2", [projectId, limit]),
       pilotFeedbackFromRow,
+    );
+  }
+
+  async upsertCapabilityManifest(record: CapabilityManifestRecord): Promise<CapabilityManifestRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_capability_manifests
+       (id,project_id,manifest_id,manifest,created_by,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (project_id,manifest_id) DO UPDATE SET manifest=excluded.manifest,updated_at=excluded.updated_at
+       RETURNING *`,
+      [record.id, record.projectId, record.manifest.id, JSON.stringify(record.manifest), record.createdBy, record.createdAt, record.updatedAt],
+    );
+    return capabilityManifestFromRow(result.rows[0]);
+  }
+
+  async listCapabilityManifests(projectId: string): Promise<CapabilityManifestRecord[]> {
+    return many(
+      this.pool.query("SELECT * FROM agentcert_capability_manifests WHERE project_id=$1 ORDER BY updated_at DESC", [projectId]),
+      capabilityManifestFromRow,
+    );
+  }
+
+  async upsertCapabilityCorrection(record: CapabilityCorrectionRecord): Promise<CapabilityCorrectionRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_capability_corrections
+       (id,project_id,unknown_key,observed_name,framework,event_type,capability_id,rationale,confidence,reviewer_id,reviewer_email,source,classifier,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       ON CONFLICT (project_id,unknown_key) DO UPDATE SET
+         observed_name=excluded.observed_name,framework=excluded.framework,event_type=excluded.event_type,
+         capability_id=excluded.capability_id,rationale=excluded.rationale,confidence=excluded.confidence,
+         reviewer_id=excluded.reviewer_id,reviewer_email=excluded.reviewer_email,source=excluded.source,
+         classifier=excluded.classifier,updated_at=excluded.updated_at
+       RETURNING *`,
+      [record.id, record.projectId, record.unknownKey, record.observedName, record.framework ?? null, record.eventType,
+       record.capabilityId, record.rationale, record.confidence, record.reviewerId, record.reviewerEmail ?? null,
+       record.source, jsonOrNull(record.classifier), record.createdAt, record.updatedAt],
+    );
+    return capabilityCorrectionFromRow(result.rows[0]);
+  }
+
+  async listCapabilityCorrections(projectId: string): Promise<CapabilityCorrectionRecord[]> {
+    return many(
+      this.pool.query("SELECT * FROM agentcert_capability_corrections WHERE project_id=$1 ORDER BY updated_at DESC", [projectId]),
+      capabilityCorrectionFromRow,
     );
   }
 
@@ -3329,6 +3405,23 @@ function failureReviewFromRow(row: Record<string, unknown>): FailureReviewRecord
       contradictingSignals: stringArray(rationale.contradictingSignals),
       classifierLimitation: optionalText(rationale.classifierLimitation),
     },
+    createdAt: iso(row.created_at), updatedAt: iso(row.updated_at),
+  };
+}
+function capabilityManifestFromRow(row: Record<string, unknown>): CapabilityManifestRecord {
+  return {
+    id: text(row.id), projectId: text(row.project_id), manifest: object(row.manifest) as unknown as CapabilityManifestRecord["manifest"],
+    createdBy: text(row.created_by), createdAt: iso(row.created_at), updatedAt: iso(row.updated_at),
+  };
+}
+function capabilityCorrectionFromRow(row: Record<string, unknown>): CapabilityCorrectionRecord {
+  const classifier = optionalObject(row.classifier);
+  return {
+    id: text(row.id), projectId: text(row.project_id), unknownKey: text(row.unknown_key), observedName: text(row.observed_name),
+    framework: optionalText(row.framework), eventType: text(row.event_type), capabilityId: text(row.capability_id),
+    rationale: text(row.rationale), confidence: number(row.confidence), reviewerId: text(row.reviewer_id),
+    reviewerEmail: optionalText(row.reviewer_email), source: text(row.source) as CapabilityCorrectionRecord["source"],
+    classifier: classifier ? { provider: text(classifier.provider), model: text(classifier.model), confidence: number(classifier.confidence) } : undefined,
     createdAt: iso(row.created_at), updatedAt: iso(row.updated_at),
   };
 }
