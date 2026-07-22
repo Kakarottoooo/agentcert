@@ -114,7 +114,9 @@ def _semantic(
 
 def _descriptor(value: Any) -> dict[str, Any]:
     normalized = _serializable(value)
-    encoded = json.dumps(normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    encoded = json.dumps(
+        normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode()
     return {
         "sha256": hashlib.sha256(encoded).hexdigest(),
         "sizeBytes": len(encoded),
@@ -145,7 +147,10 @@ def _shape(value: Any) -> str | list[str]:
 
 def _error(error: Exception) -> dict[str, str]:
     message = str(error)
-    return {"name": type(error).__name__, "message": message[:500] + ("..." if len(message) > 500 else "")}
+    return {
+        "name": type(error).__name__,
+        "message": message[:500] + ("..." if len(message) > 500 else ""),
+    }
 
 
 def _validate_capability(value: dict[str, Any]) -> None:
@@ -155,4 +160,15 @@ def _validate_capability(value: dict[str, Any]) -> None:
 
 def _sensitive(key: str) -> bool:
     normalized = key.lower().replace("_", "").replace("-", "")
-    return any(part in normalized for part in ("token", "secret", "password", "authorization", "cookie", "credential", "apikey"))
+    return any(
+        part in normalized
+        for part in (
+            "token",
+            "secret",
+            "password",
+            "authorization",
+            "cookie",
+            "credential",
+            "apikey",
+        )
+    )
