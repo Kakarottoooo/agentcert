@@ -44,7 +44,7 @@ and target-audit reconciliation. Only the Hosted central classifier can issue
 [Public evidence](https://agentcert.app/evidence) |
 [Private workspace](https://agentcert.app/app) |
 [GitHub source](https://github.com/Kakarottoooo/agentcert) |
-[v0.7.0 release](https://github.com/Kakarottoooo/agentcert/releases/tag/v0.7.0)
+[v0.7.1 release](https://github.com/Kakarottoooo/agentcert/releases/tag/v0.7.1)
 
 ```bash
 npx agentcert release-gate --config agentcert.config.json --strict
