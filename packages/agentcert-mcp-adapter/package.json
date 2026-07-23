@@ -11,18 +11,28 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": { "agentcert-mcp": "./dist/cli.js" },
-  "files": ["dist", "README.md", "package.json"],
+  "bin": {
+    "agentcert-mcp": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "package.json"
+  ],
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
     "test": "vitest run tests",
     "prepack": "npm run build"
   },
-  "engines": { "node": ">=20" },
-  "publishConfig": { "access": "public" },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
     "agentcert-sdk": "^0.4.1",
-    "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

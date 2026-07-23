@@ -1,5 +1,5 @@
 export function renderCommandHelp(command: string): string | undefined {
-  if (command === "sandbox") return undefined;
+  if (command === "sandbox" || command === "browser-adapter") return undefined;
   if (command === "init") return `Usage:
   agentcert init --template <browser|coding|mcp|workflow|data> [--subject <name>]
   agentcert init --template browser --github-action

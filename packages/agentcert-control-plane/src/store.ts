@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import pg from "pg";
 import type {
   ActionRecord,
@@ -1496,9 +1496,34 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
   }
 
   async migrate(): Promise<void> {
-    for (const name of CONTROL_PLANE_MIGRATIONS) {
-      const migration = await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8");
-      await this.pool.query(migration);
+    const migrations = await Promise.all(CONTROL_PLANE_MIGRATIONS.map(async (name) => {
+      const sql = await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8");
+      return { name, sql, sha256: createHash("sha256").update(sql).digest("hex") };
+    }));
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('agentcert:control-plane:migrations'))");
+      await client.query(`CREATE TABLE IF NOT EXISTS agentcert_schema_migrations (
+        name TEXT PRIMARY KEY,
+        sha256 TEXT NOT NULL CHECK (sha256 ~ '^[a-f0-9]{64}$'),
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`);
+
+      const applied = new Map<string, string>((await client.query("SELECT name,sha256 FROM agentcert_schema_migrations")).rows.map((row) => [String(row.name), String(row.sha256)]));
+      for (const migration of migrations) {
+        const recordedSha = applied.get(migration.name);
+        if (recordedSha && recordedSha !== migration.sha256) throw new Error(`Migration ${migration.name} checksum changed after application.`);
+        if (recordedSha) continue;
+        await client.query(migration.sql);
+        await client.query("INSERT INTO agentcert_schema_migrations (name,sha256) VALUES ($1,$2)", [migration.name, migration.sha256]);
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
     }
   }
 

@@ -6,7 +6,9 @@ Current engines:
 
 - `src/mcpbench`: Python MCP/tool benchmark and runtime sequence monitor.
 - `packages/tripwire-ci`: TypeScript browser/computer-use agent robustness gate.
-- `packages/onegent-runtime`: planned production action enforcement layer.
+- `packages/onegent-runtime`: narrow action-assurance reference runtime with
+  mandates, policy/approval, credential-isolated browser enforcement,
+  independent outcome verification, and signed evidence.
 
 Shared concepts live in docs and schemas first, then move into code when two or more engines need the same behavior.
 
@@ -24,7 +26,8 @@ Flow:
 
 Boundaries:
 
-- `adapters`: future MCP stdio, remote endpoint, provider, and replay adapters.
+- `adapters`: MCP stdio is implemented in `packages/agentcert-mcp-adapter`;
+  additional remote/provider adapters remain workflow-driven work.
 - `introspection`: schema linting, tool classification, and permission estimates.
 - `monitor`: runtime sequence analysis, canary tracking, policy evaluation, and provenance.
 - `evals`: deterministic tasks, suites, and scripted agents.
@@ -48,9 +51,9 @@ Tripwire CI is organized around controlled browser execution:
 
 Tripwire stays in TypeScript because its natural runtime is Playwright/CDP.
 
-## Onegent Runtime Direction
+## Onegent Runtime Boundary
 
-Onegent Runtime should eventually sit at the production action boundary:
+Onegent Runtime supplies the reference action boundary used by AgentCert:
 
 1. Receive proposed action.
 2. Classify risk.
@@ -60,4 +63,12 @@ Onegent Runtime should eventually sit at the production action boundary:
 6. Verify result.
 7. Write audit evidence.
 
-This layer should share AgentCert evidence and reporting vocabulary, but it should not depend on MCPBench or Tripwire internals.
+The Hosted control plane signs short-lived execution grants and centrally
+classifies submitted runtime evidence. Customer-owned gateways retain their
+credentials and sign the source event chain. The public
+`agentcert/browser-adapter-kit` subpath supplies a sandbox-only adapter and
+conformance contract without exposing the private runtime as another product.
+
+This layer shares AgentCert evidence vocabulary, but does not depend on
+MCPBench or Tripwire internals. It does not claim hardware attestation or
+prevent actions performed through credentials outside the registered gateway.

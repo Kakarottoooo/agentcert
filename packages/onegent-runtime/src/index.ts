@@ -22,6 +22,7 @@ export * from "./trusted-runtime.js";
 export * from "./trusted-browser-demo.js";
 export * from "./controlled-adapter.js";
 export * from "./browser-enforcement-runtime.js";
+export * from "./browser-adapter-kit.js";
 export * from "./ui.js";
 export * from "./vendor-sandbox-egress.js";
 

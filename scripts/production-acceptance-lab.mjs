@@ -8,9 +8,12 @@ const startedAt = new Date().toISOString();
 const checks = [];
 
 await check("control-plane-build", "npm", ["--prefix", "packages/agentcert-control-plane", "run", "build"]);
+await check("onegent-runtime-build", "npm", ["--prefix", "packages/onegent-runtime", "run", "build"]);
 await check("semantic-adapter-calibration", "node", ["packages/agentcert-control-plane/dist/semantic-calibration-cli.js", "--dataset", "datasets/agent-semantics/golden-v0.1.json", "--out", ".agentcert/acceptance/semantic-adapter-matrix.json"]);
 await check("tenant-isolation-stress", "npm", ["--prefix", "packages/agentcert-control-plane", "exec", "--", "vitest", "run", "tests/tenant-isolation.stress.test.ts"]);
 await check("api-fuzz-postgres-redis-recovery", "npm", ["--prefix", "packages/agentcert-control-plane", "exec", "--", "vitest", "run", "tests/production-acceptance-lab.test.ts"]);
+await check("postgres-action-assurance", "npm", ["--prefix", "packages/agentcert-control-plane", "exec", "--", "vitest", "run", "tests/action-assurance-postgres.test.ts", "tests/browser-enforcement-postgres.test.ts"]);
+await check("browser-enforcement-signature-replay-and-reconciliation", "node", ["--test", "scripts/browser-enforcement-v02.e2e.test.mjs"]);
 await check("concurrent-idempotency-and-rate-limits", "npm", ["--prefix", "packages/agentcert-control-plane", "exec", "--", "vitest", "run", "tests/production-security.test.ts", "tests/universal-assurance.test.ts"]);
 await check("webhook-failure-retry-and-dlq", "npm", ["--prefix", "packages/agentcert-control-plane", "exec", "--", "vitest", "run", "tests/trust-operations.test.ts"]);
 await check("assurance-lifecycle", "npm", ["--prefix", "packages/agentcert-control-plane", "exec", "--", "vitest", "run", "tests/assurance-lifecycle.test.ts"]);

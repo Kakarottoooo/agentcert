@@ -102,6 +102,20 @@ or mismatched artifacts remain observable as `partial` or `rejected`.
 Project API keys can create runs, record events, and upload evidence, but
 cannot approve their own runtime actions.
 
+## Customer-owned browser gateway
+
+Generate and certify a sandbox-only credential-isolated browser adapter:
+
+```bash
+npx agentcert browser-adapter init
+npx agentcert browser-adapter certify --adapter ./agentcert.browser-adapter.mjs
+```
+
+The adapter imports `agentcert/browser-adapter-kit`, keeps write and read-only
+credentials in separate customer callbacks, and writes a digest-only report.
+It rejects production actions. See the
+[two-hour onboarding guide](https://github.com/Kakarottoooo/agentcert/blob/main/docs/customer-owned-browser-adapter.md).
+
 ## Sandbox onboarding
 
 Create and certify a synthetic SandboxSystem adapter with the same public CLI:

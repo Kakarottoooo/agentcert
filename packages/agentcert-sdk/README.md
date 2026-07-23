@@ -109,6 +109,34 @@ framework-neutral event ingestion. `verifyServerAttestation()` verifies the
 canonical Ed25519 metadata chain returned on hosted evidence records against
 the public key from `GET /v1/signing-keys/current`.
 
+Customer-owned browser gateways can register a runtime identity and manage
+short-lived, one-time execution grants without importing control-plane
+internals:
+
+```ts
+const runtime = await agentcert.registerRuntimeIdentity({
+  runtimeInstanceId: "customer-browser-gateway",
+  publicKeyPem: process.env.RUNTIME_PUBLIC_KEY_PEM!,
+  keyId: "customer-browser-runtime-2026-07",
+  adapterCapabilities: ["customer.browser.submit"],
+  validUntil: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
+});
+
+const grant = await agentcert.issueExecutionGrant(action.id, {
+  runtimeIdentityId: runtime.runtimeIdentityId,
+  adapterId: "customer.browser.submit",
+  allowedOrigins: ["https://sandbox.customer.example"],
+  approvedParameters: { orderId: "ORDER-1", status: "SUBMITTED" },
+  outcomePredicate: { type: "state_subset", status: "SUBMITTED" },
+  agentBuildId: "customer-agent@1.0.0",
+  agentBuildDigest: "a".repeat(64),
+});
+```
+
+Only owners/admins can register or suspend runtime identities and issue or
+revoke grants. The customer gateway still owns the runtime signing key and
+credentials; AgentCert Hosted never receives either secret.
+
 ## Assurance observability
 
 `AgentCertRunRecorder` is the thin framework-neutral path for ordered,

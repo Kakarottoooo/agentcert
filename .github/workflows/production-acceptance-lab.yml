@@ -46,6 +46,7 @@ jobs:
         run: |
           npm --prefix packages/agentcert-control-plane ci
           npm --prefix packages/agentcert-cli ci
+          npm --prefix packages/onegent-runtime ci
       - name: Run fault and recovery acceptance
         run: node scripts/production-acceptance-lab.mjs
       - uses: actions/upload-artifact@v7

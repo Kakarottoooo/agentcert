@@ -1,6 +1,6 @@
 {
   "name": "agentcert",
-  "version": "0.6.3",
+  "version": "0.7.0",
   "description": "Assurance release gates, runtime evidence, and regression CI for AI agents.",
   "type": "module",
   "license": "Apache-2.0",
@@ -29,6 +29,12 @@
   ],
   "bin": {
     "agentcert": "dist/cli.js"
+  },
+  "exports": {
+    "./browser-adapter-kit": {
+      "types": "./dist/vendor/onegent-runtime/browser-adapter-kit.d.ts",
+      "import": "./dist/vendor/onegent-runtime/browser-adapter-kit.js"
+    }
   },
   "files": [
     "dist",

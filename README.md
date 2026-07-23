@@ -44,7 +44,7 @@ and target-audit reconciliation. Only the Hosted central classifier can issue
 [Public evidence](https://agentcert.app/evidence) |
 [Private workspace](https://agentcert.app/app) |
 [GitHub source](https://github.com/Kakarottoooo/agentcert) |
-[v0.6.3 release](https://github.com/Kakarottoooo/agentcert/releases/tag/v0.6.3)
+[v0.7.0 release](https://github.com/Kakarottoooo/agentcert/releases/tag/v0.7.0)
 
 ```bash
 npx agentcert release-gate --config agentcert.config.json --strict
@@ -188,6 +188,7 @@ Production Acceptance Lab: [docs/production-acceptance-lab.md](docs/production-a
 Corpus governance: [docs/corpus-governance.md](docs/corpus-governance.md).
 Adapter compatibility: [docs/adapter-compatibility.md](docs/adapter-compatibility.md).
 Sandbox Adapter Kit: [docs/sandbox-adapter-kit.md](docs/sandbox-adapter-kit.md).
+Customer-owned Browser Adapter Kit: [docs/customer-owned-browser-adapter.md](docs/customer-owned-browser-adapter.md).
 Product site: [agentcert.app](https://agentcert.app/).
 Public evidence: [agentcert.app/evidence](https://agentcert.app/evidence).
 Authenticated workspace: [agentcert.app/app](https://agentcert.app/app).

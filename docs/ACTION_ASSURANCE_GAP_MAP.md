@@ -1,6 +1,11 @@
 # Action Assurance Gap Map
 
-Status: Milestone 0 baseline for `agentcert.action_assurance_receipt.v0.1`.
+Status: historical Milestone 0 baseline for
+`agentcert.action_assurance_receipt.v0.1`, updated with v0.7.0 resolution notes.
+Milestone 1 shipped in migration 023. The narrow browser reference profile in
+Milestone 2 shipped in migration 024 and is documented in
+[`browser-enforcement-boundary.md`](browser-enforcement-boundary.md). Remaining
+gaps apply outside that exact profile.
 
 ## Product boundary
 
@@ -14,9 +19,12 @@ The first slice proves a narrower statement:
 > append-only policy and outcome record, and was summarized in a signed,
 > independently parseable receipt with explicit limitations.
 
-It does not yet prove that every target-system path was technically
-unbypassable. That requires an execution grant and credential or network
-enforcement implemented in Milestone 2.
+The base receipt does not prove that every target-system path was technically
+unbypassable. The v0.7 browser profile can raise one action to `ENFORCED` only
+after a one-time execution grant, registered runtime, credential-isolated
+adapter, complete signed event chain, independent outcome probe, and target
+audit reconciliation all pass. It still cannot prove that credentials or
+paths outside the registered gateway do not exist.
 
 ## Reuse and gaps
 
@@ -28,7 +36,7 @@ enforcement implemented in Milestone 2.
 | Agent build | Continuous-assurance scope fingerprint | Build is not a first-class action principal | Add build reference fields and map legacy fingerprints; registry follows |
 | Policy | Risk assessment and action decision | Decision is mutable on the action row and not separately signed | Append a first-class policy decision record |
 | Approval | Human approval record | Not bound to immutable action bytes | Add `action_digest_sha256`; old approvals remain readable with a warning |
-| Enforcement | Registered controlled adapter and declared credential isolation | In-process registration is not proof of an unbypassable boundary; no one-time grant | Milestone 1 receipts never infer `ENFORCED`; Milestone 2 adds grants |
+| Enforcement | Registered controlled adapter and declared credential isolation | Paths outside the registered gateway remain unobservable | Milestone 2 now adds one-time grants and central classification for `BROWSER_ENFORCED_V0_2` only |
 | Recorder | Durable, source-signed, hash-linked action journal | Hosted action events and Onegent journal are separate concepts | Reference the trusted run receipt when available; retain legacy event APIs |
 | Outcome | Onegent independent probe and Hosted observed state | Hosted callers can self-assert an observation method | Persist observation method and provenance; self-report is always lowest trust |
 | Receipt | Trusted run receipt, audit packet, evidence bundle, server attestation | No action-level portable statement joining mandate, policy, execution, and outcome | Add Action Assurance Receipt core plus detached server attestation |
@@ -65,10 +73,11 @@ enforcement implemented in Milestone 2.
   Receipts must separate approval from enforcement.
 - A migration must not rewrite historical actions or synthesize missing
   authority, signatures, or outcome provenance.
-- PostgreSQL mandate use counters are consumed through one atomic conditional
-  update, so concurrent requests cannot exceed `maxUses`. This is still not a
-  complete enforcement boundary until Milestone 2 isolates target credentials
-  and requires a one-time execution grant.
+- PostgreSQL mandate use counters and browser execution grants are consumed
+  through atomic conditional updates. Concurrent claims admit exactly one
+  winner. This is a complete boundary only for the registered adapter and
+  declared target path; credentials outside that path remain a documented
+  bypass risk.
 - Canonical JSON is currently deterministic within AgentCert, but is not yet a
   claimed RFC 8785 implementation. Cross-language vectors are required before
   making that claim.
