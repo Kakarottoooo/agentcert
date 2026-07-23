@@ -208,6 +208,14 @@ export interface HostedActionReceipt {
       receiptSchemaVersion: string;
       evidenceStrength: "REPORTED" | "RECORDED" | "ENFORCED" | "OUTCOME_VERIFIED" | "INDEPENDENTLY_REVIEWED";
       enforcementLevel: "ENFORCED" | "OBSERVED_ONLY" | "SELF_REPORTED";
+      assuranceProfile?: string;
+      executionSessionId?: string;
+      runtimeIdentity?: { id: string; keyId: string };
+      adapterIdentity?: { id: string; version: string };
+      credentialIsolationSummary?: { mode: string; leaseId: string; revoked: boolean };
+      reconciliationResult?: string;
+      enforcementChecks?: Array<{ id: string; result: "PASS" | "FAIL" | "WARN" | "NOT_CHECKED"; reasonCode: string; message: string }>;
+      enforcementReasonCodes?: string[];
       mandateSummary?: { mandateId: string };
       controls: { controlled: string[]; notControlled: string[] };
       warnings: string[];

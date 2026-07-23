@@ -22,6 +22,9 @@ AgentCert must preserve who performed an agent action, what was observed, which 
 | Project-switch confusion | Stable project IDs and slugs; rename changes display name only; selected project shown beside commands | Require explicit confirmation for destructive project operations before adding them |
 | Stolen API key | One-time display, hashed storage, scopes, revocation, last-used timestamp | Expiring keys and service identities are not yet implemented |
 | Replay or duplicate writes | Idempotency keys, run external IDs, Redis locks in production | Long-running downstream actions require adapter-specific idempotency contracts |
+| Agent bypasses approved browser action | One-time signed grant, runtime key proof, credential-isolated adapter, target-audit reconciliation | Coverage is limited to the dedicated sandbox credential and declared reconciliation window |
+| Runtime or adapter impersonation | Tenant-bound Ed25519 runtime identity, adapter ID/version/origin binding, short grant TTL | Production key custody and rotation remain deployment responsibilities |
+| Event omission or mutation | Strict sequence, previous-event hash, per-event runtime signature, required event set, checkpoint | Runtime host compromise is not hardware-attested in the reference profile |
 | Malicious evidence | MIME/kind allowlist, quotas, manifest SHA-256 reconciliation, no execution, CSP/nosniff | Archive inspection and malware scanning remain required before enterprise uploads |
 | Evidence tampering | Canonical JSON, server Ed25519 signing, historical public keys, deletion ledger | Hardware-backed signing keys are not yet configured |
 | Prompt/PII leakage | Templates submit bounded metadata; pilot context allowlist; docs prohibit secrets | Automated PII detection/redaction needs broader corpus testing |

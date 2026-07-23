@@ -56,6 +56,12 @@ import type {
   ActionPolicyDecisionRecord,
   OutcomeAttestationRecord,
 } from "./action-assurance.js";
+import type {
+  BrowserEnforcementSessionRecord,
+  ExecutionGrantClaimResult,
+  ExecutionGrantRecord,
+  RuntimeIdentityRecord,
+} from "./browser-enforcement.js";
 
 export const CONTROL_PLANE_MIGRATIONS = [
   "001_initial.sql",
@@ -81,6 +87,7 @@ export const CONTROL_PLANE_MIGRATIONS = [
   "021_next_action_audit.sql",
   "022_agent_semantics.sql",
   "023_action_assurance.sql",
+  "024_browser_enforcement_boundary.sql",
 ] as const;
 
 const DEFAULT_PROJECT_NAME = "Agent assurance project";
@@ -184,6 +191,19 @@ export interface ControlPlaneStore {
   insertActionAssuranceReceipt(receipt: ActionAssuranceReceiptRecord): Promise<ActionAssuranceReceiptRecord>;
   getActionAssuranceReceipt(projectId: string, receiptId: string): Promise<ActionAssuranceReceiptRecord | undefined>;
   listActionAssuranceReceipts(projectId: string, actionId?: string, limit?: number): Promise<ActionAssuranceReceiptRecord[]>;
+  insertRuntimeIdentity(identity: RuntimeIdentityRecord): Promise<RuntimeIdentityRecord>;
+  updateRuntimeIdentity(identity: RuntimeIdentityRecord): Promise<RuntimeIdentityRecord>;
+  getRuntimeIdentity(projectId: string, runtimeIdentityId: string): Promise<RuntimeIdentityRecord | undefined>;
+  listRuntimeIdentities(projectId: string): Promise<RuntimeIdentityRecord[]>;
+  insertExecutionGrant(grant: ExecutionGrantRecord): Promise<ExecutionGrantRecord>;
+  getExecutionGrant(projectId: string, executionGrantId: string): Promise<ExecutionGrantRecord | undefined>;
+  getExecutionGrantForAction(projectId: string, actionId: string): Promise<ExecutionGrantRecord | undefined>;
+  claimExecutionGrant(projectId: string, executionGrantId: string, runtimeIdentityId: string, session: BrowserEnforcementSessionRecord, idempotencyKey: string, claimedAt: string): Promise<ExecutionGrantClaimResult>;
+  consumeExecutionGrant(projectId: string, executionGrantId: string, executionSessionId: string, consumedAt: string): Promise<ExecutionGrantRecord | undefined>;
+  revokeExecutionGrant(projectId: string, executionGrantId: string, revokedAt: string, reason: string): Promise<ExecutionGrantRecord | undefined>;
+  saveBrowserEnforcementSession(session: BrowserEnforcementSessionRecord): Promise<BrowserEnforcementSessionRecord>;
+  getBrowserEnforcementSession(projectId: string, executionSessionId: string): Promise<BrowserEnforcementSessionRecord | undefined>;
+  getLatestBrowserEnforcementSessionForAction(projectId: string, actionId: string): Promise<BrowserEnforcementSessionRecord | undefined>;
   insertApproval(approval: ApprovalRecord): Promise<ApprovalRecord>;
   listApprovals(projectId: string, limit?: number): Promise<ApprovalRecord[]>;
   listApprovalsForActions(projectId: string, actionIds: string[]): Promise<ApprovalRecord[]>;
@@ -295,6 +315,9 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   private actionPolicyDecisions = new Map<string, ActionPolicyDecisionRecord>();
   private outcomeAttestations = new Map<string, OutcomeAttestationRecord>();
   private actionAssuranceReceipts = new Map<string, ActionAssuranceReceiptRecord>();
+  private runtimeIdentities = new Map<string, RuntimeIdentityRecord>();
+  private executionGrants = new Map<string, ExecutionGrantRecord>();
+  private browserEnforcementSessions = new Map<string, BrowserEnforcementSessionRecord>();
   private evidence = new Map<string, EvidenceRecord>();
   private incidents = new Map<string, IncidentRecord>();
   private incidentTransitions = new Map<string, IncidentTransitionRecord>();
@@ -773,6 +796,94 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
 
   async listActionAssuranceReceipts(projectId: string, actionId?: string, limit = 100): Promise<ActionAssuranceReceiptRecord[]> {
     return newest([...this.actionAssuranceReceipts.values()].filter((item) => item.projectId === projectId && (!actionId || item.actionId === actionId)), "createdAt").slice(0, limit).map((item) => structuredClone(item));
+  }
+
+  async insertRuntimeIdentity(identity: RuntimeIdentityRecord): Promise<RuntimeIdentityRecord> {
+    const existing = this.runtimeIdentities.get(identity.runtimeIdentityId);
+    if (existing && (existing.projectId !== identity.projectId || existing.keyId !== identity.keyId || existing.publicKeyPem !== identity.publicKeyPem)) {
+      throw new Error(`Runtime identity ${identity.runtimeIdentityId} is immutable; register a new identity for key rotation.`);
+    }
+    if (!existing) this.runtimeIdentities.set(identity.runtimeIdentityId, structuredClone(identity));
+    return structuredClone(existing ?? identity);
+  }
+
+  async updateRuntimeIdentity(identity: RuntimeIdentityRecord): Promise<RuntimeIdentityRecord> {
+    const current = this.runtimeIdentities.get(identity.runtimeIdentityId);
+    if (!current || current.projectId !== identity.projectId) throw new Error(`Runtime identity ${identity.runtimeIdentityId} was not found.`);
+    if (current.keyId !== identity.keyId || current.publicKeyPem !== identity.publicKeyPem) throw new Error(`Runtime identity ${identity.runtimeIdentityId} key material is immutable.`);
+    this.runtimeIdentities.set(identity.runtimeIdentityId, structuredClone(identity));
+    return structuredClone(identity);
+  }
+
+  async getRuntimeIdentity(projectId: string, runtimeIdentityId: string): Promise<RuntimeIdentityRecord | undefined> {
+    const identity = this.runtimeIdentities.get(runtimeIdentityId);
+    return identity?.projectId === projectId ? structuredClone(identity) : undefined;
+  }
+
+  async listRuntimeIdentities(projectId: string): Promise<RuntimeIdentityRecord[]> {
+    return [...this.runtimeIdentities.values()].filter((item) => item.projectId === projectId).map((item) => structuredClone(item));
+  }
+
+  async insertExecutionGrant(grant: ExecutionGrantRecord): Promise<ExecutionGrantRecord> {
+    const actionGrant = [...this.executionGrants.values()].find((item) => item.projectId === grant.projectId && item.actionId === grant.actionId);
+    if (actionGrant && actionGrant.id !== grant.id) throw new Error(`Action ${grant.actionId} already has an ExecutionGrant.`);
+    const existing = this.executionGrants.get(grant.id);
+    if (existing && existing.grant.payloadSha256 !== grant.grant.payloadSha256) throw new Error(`ExecutionGrant ${grant.id} is immutable.`);
+    if (!existing) this.executionGrants.set(grant.id, structuredClone(grant));
+    return structuredClone(existing ?? grant);
+  }
+
+  async getExecutionGrant(projectId: string, executionGrantId: string): Promise<ExecutionGrantRecord | undefined> {
+    const grant = this.executionGrants.get(executionGrantId);
+    return grant?.projectId === projectId ? structuredClone(grant) : undefined;
+  }
+
+  async getExecutionGrantForAction(projectId: string, actionId: string): Promise<ExecutionGrantRecord | undefined> {
+    const grant = [...this.executionGrants.values()].find((item) => item.projectId === projectId && item.actionId === actionId);
+    return grant ? structuredClone(grant) : undefined;
+  }
+
+  async claimExecutionGrant(projectId: string, executionGrantId: string, runtimeIdentityId: string, session: BrowserEnforcementSessionRecord, idempotencyKey: string, claimedAt: string): Promise<ExecutionGrantClaimResult> {
+    const grant = this.executionGrants.get(executionGrantId);
+    if (!grant || grant.projectId !== projectId) return { result: "UNAVAILABLE" };
+    if (grant.status === "CLAIMED" && grant.claimIdempotencyKey === idempotencyKey && grant.executionSessionId === session.id && grant.claimedByRuntimeIdentityId === runtimeIdentityId) {
+      return { result: "IDEMPOTENT_RETRY", grant: structuredClone(grant), session: structuredClone(this.browserEnforcementSessions.get(session.id)!) };
+    }
+    if (grant.status !== "ISSUED") return { result: "REPLAY_REJECTED", grant: structuredClone(grant) };
+    const claimed: ExecutionGrantRecord = { ...grant, status: "CLAIMED", claimedByRuntimeIdentityId: runtimeIdentityId, executionSessionId: session.id, claimIdempotencyKey: idempotencyKey, claimedAt, updatedAt: claimedAt };
+    this.executionGrants.set(executionGrantId, structuredClone(claimed));
+    this.browserEnforcementSessions.set(session.id, structuredClone(session));
+    return { result: "CLAIMED", grant: structuredClone(claimed), session: structuredClone(session) };
+  }
+
+  async consumeExecutionGrant(projectId: string, executionGrantId: string, executionSessionId: string, consumedAt: string): Promise<ExecutionGrantRecord | undefined> {
+    const grant = this.executionGrants.get(executionGrantId);
+    if (!grant || grant.projectId !== projectId || grant.status !== "CLAIMED" || grant.executionSessionId !== executionSessionId) return undefined;
+    const consumed: ExecutionGrantRecord = { ...grant, status: "CONSUMED", consumedAt, updatedAt: consumedAt };
+    this.executionGrants.set(grant.id, structuredClone(consumed));
+    return structuredClone(consumed);
+  }
+
+  async revokeExecutionGrant(projectId: string, executionGrantId: string, revokedAt: string, reason: string): Promise<ExecutionGrantRecord | undefined> {
+    const grant = this.executionGrants.get(executionGrantId);
+    if (!grant || grant.projectId !== projectId || grant.status !== "ISSUED") return undefined;
+    const revoked: ExecutionGrantRecord = { ...grant, status: "REVOKED", revokedAt, stateReason: reason, updatedAt: revokedAt };
+    this.executionGrants.set(grant.id, structuredClone(revoked));
+    return structuredClone(revoked);
+  }
+
+  async saveBrowserEnforcementSession(session: BrowserEnforcementSessionRecord): Promise<BrowserEnforcementSessionRecord> {
+    this.browserEnforcementSessions.set(session.id, structuredClone(session));
+    return structuredClone(session);
+  }
+
+  async getBrowserEnforcementSession(projectId: string, executionSessionId: string): Promise<BrowserEnforcementSessionRecord | undefined> {
+    const session = this.browserEnforcementSessions.get(executionSessionId);
+    return session?.projectId === projectId ? structuredClone(session) : undefined;
+  }
+
+  async getLatestBrowserEnforcementSessionForAction(projectId: string, actionId: string): Promise<BrowserEnforcementSessionRecord | undefined> {
+    return newest([...this.browserEnforcementSessions.values()].filter((item) => item.projectId === projectId && item.actionId === actionId), "updatedAt")[0];
   }
 
   async insertApproval(approval: ApprovalRecord): Promise<ApprovalRecord> {
@@ -2146,6 +2257,129 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     return actionId
       ? many(this.pool.query("SELECT * FROM agentcert_action_assurance_receipts WHERE project_id=$1 AND action_id=$2 ORDER BY created_at DESC LIMIT $3", [projectId, actionId, limit]), actionAssuranceReceiptFromRow)
       : many(this.pool.query("SELECT * FROM agentcert_action_assurance_receipts WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2", [projectId, limit]), actionAssuranceReceiptFromRow);
+  }
+
+  async insertRuntimeIdentity(identity: RuntimeIdentityRecord): Promise<RuntimeIdentityRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_runtime_identities (runtime_identity_id,project_id,key_id,public_key_pem,status,identity,valid_from,valid_until,registered_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (runtime_identity_id) DO NOTHING RETURNING identity`,
+      [identity.runtimeIdentityId, identity.projectId, identity.keyId, identity.publicKeyPem, identity.status, JSON.stringify(identity), identity.validFrom, identity.validUntil, identity.registeredAt],
+    );
+    if (result.rows[0]) return object(result.rows[0].identity) as unknown as RuntimeIdentityRecord;
+    const existing = await this.getRuntimeIdentity(identity.projectId, identity.runtimeIdentityId);
+    if (!existing || existing.keyId !== identity.keyId || existing.publicKeyPem !== identity.publicKeyPem) throw new Error(`Runtime identity ${identity.runtimeIdentityId} is immutable; register a new identity for key rotation.`);
+    return existing;
+  }
+
+  async updateRuntimeIdentity(identity: RuntimeIdentityRecord): Promise<RuntimeIdentityRecord> {
+    const current = await this.getRuntimeIdentity(identity.projectId, identity.runtimeIdentityId);
+    if (!current) throw new Error(`Runtime identity ${identity.runtimeIdentityId} was not found.`);
+    if (current.keyId !== identity.keyId || current.publicKeyPem !== identity.publicKeyPem) throw new Error(`Runtime identity ${identity.runtimeIdentityId} key material is immutable.`);
+    return (await one(this.pool.query(
+      `UPDATE agentcert_runtime_identities SET status=$1,identity=$2 WHERE project_id=$3 AND runtime_identity_id=$4 RETURNING identity`,
+      [identity.status, JSON.stringify(identity), identity.projectId, identity.runtimeIdentityId],
+    ), (row) => object(row.identity) as unknown as RuntimeIdentityRecord))!;
+  }
+
+  async getRuntimeIdentity(projectId: string, runtimeIdentityId: string): Promise<RuntimeIdentityRecord | undefined> {
+    return one(this.pool.query("SELECT identity FROM agentcert_runtime_identities WHERE project_id=$1 AND runtime_identity_id=$2", [projectId, runtimeIdentityId]), (row) => object(row.identity) as unknown as RuntimeIdentityRecord);
+  }
+
+  async listRuntimeIdentities(projectId: string): Promise<RuntimeIdentityRecord[]> {
+    return many(this.pool.query("SELECT identity FROM agentcert_runtime_identities WHERE project_id=$1 ORDER BY registered_at DESC", [projectId]), (row) => object(row.identity) as unknown as RuntimeIdentityRecord);
+  }
+
+  async insertExecutionGrant(grant: ExecutionGrantRecord): Promise<ExecutionGrantRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_execution_grants (id,project_id,action_id,runtime_identity_id,grant_record,grant_digest_sha256,status,expires_at,created_at,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO NOTHING RETURNING grant_record`,
+      [grant.id, grant.projectId, grant.actionId, grant.grant.payload.expectedRuntimeIdentityId, JSON.stringify(grant), grant.grant.payloadSha256, grant.status, grant.grant.payload.expiresAt, grant.createdAt, grant.updatedAt],
+    );
+    if (result.rows[0]) return object(result.rows[0].grant_record) as unknown as ExecutionGrantRecord;
+    const existing = await this.getExecutionGrant(grant.projectId, grant.id);
+    if (!existing || existing.grant.payloadSha256 !== grant.grant.payloadSha256) throw new Error(`ExecutionGrant ${grant.id} is immutable.`);
+    return existing;
+  }
+
+  async getExecutionGrant(projectId: string, executionGrantId: string): Promise<ExecutionGrantRecord | undefined> {
+    return one(this.pool.query("SELECT grant_record FROM agentcert_execution_grants WHERE project_id=$1 AND id=$2", [projectId, executionGrantId]), (row) => object(row.grant_record) as unknown as ExecutionGrantRecord);
+  }
+
+  async getExecutionGrantForAction(projectId: string, actionId: string): Promise<ExecutionGrantRecord | undefined> {
+    return one(this.pool.query("SELECT grant_record FROM agentcert_execution_grants WHERE project_id=$1 AND action_id=$2", [projectId, actionId]), (row) => object(row.grant_record) as unknown as ExecutionGrantRecord);
+  }
+
+  async claimExecutionGrant(projectId: string, executionGrantId: string, runtimeIdentityId: string, session: BrowserEnforcementSessionRecord, idempotencyKey: string, claimedAt: string): Promise<ExecutionGrantClaimResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query("SELECT * FROM agentcert_execution_grants WHERE project_id=$1 AND id=$2 FOR UPDATE", [projectId, executionGrantId]);
+      if (!result.rows[0]) { await client.query("ROLLBACK"); return { result: "UNAVAILABLE" }; }
+      const current = object(result.rows[0].grant_record) as unknown as ExecutionGrantRecord;
+      if (current.status === "CLAIMED" && current.claimIdempotencyKey === idempotencyKey && current.executionSessionId === session.id && current.claimedByRuntimeIdentityId === runtimeIdentityId) {
+        const existingSession = await client.query("SELECT session_record FROM agentcert_browser_enforcement_sessions WHERE project_id=$1 AND id=$2", [projectId, session.id]);
+        await client.query("COMMIT");
+        return { result: "IDEMPOTENT_RETRY", grant: current, session: existingSession.rows[0] ? object(existingSession.rows[0].session_record) as unknown as BrowserEnforcementSessionRecord : undefined };
+      }
+      if (current.status !== "ISSUED" || Date.parse(current.grant.payload.expiresAt) <= Date.parse(claimedAt)) {
+        await client.query("ROLLBACK");
+        return { result: "REPLAY_REJECTED", grant: current };
+      }
+      const claimed: ExecutionGrantRecord = { ...current, status: "CLAIMED", claimedByRuntimeIdentityId: runtimeIdentityId, executionSessionId: session.id, claimIdempotencyKey: idempotencyKey, claimedAt, updatedAt: claimedAt };
+      await client.query(
+        `UPDATE agentcert_execution_grants SET grant_record=$1,status='CLAIMED',execution_session_id=$2,claim_idempotency_key=$3,claimed_at=$4,updated_at=$4
+         WHERE project_id=$5 AND id=$6 AND status='ISSUED'`,
+        [JSON.stringify(claimed), session.id, idempotencyKey, claimedAt, projectId, executionGrantId],
+      );
+      await client.query(
+        `INSERT INTO agentcert_browser_enforcement_sessions (id,project_id,action_id,execution_grant_id,runtime_identity_id,status,session_record,created_at,updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [session.id, session.projectId, session.actionId, session.executionGrantId, session.runtimeIdentityId, session.status, JSON.stringify(session), session.createdAt, session.updatedAt],
+      );
+      await client.query("COMMIT");
+      return { result: "CLAIMED", grant: claimed, session };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async consumeExecutionGrant(projectId: string, executionGrantId: string, executionSessionId: string, consumedAt: string): Promise<ExecutionGrantRecord | undefined> {
+    const current = await this.getExecutionGrant(projectId, executionGrantId);
+    if (!current || current.status !== "CLAIMED" || current.executionSessionId !== executionSessionId) return undefined;
+    const consumed: ExecutionGrantRecord = { ...current, status: "CONSUMED", consumedAt, updatedAt: consumedAt };
+    return one(this.pool.query(
+      `UPDATE agentcert_execution_grants SET grant_record=$1,status='CONSUMED',consumed_at=$2,updated_at=$2
+       WHERE project_id=$3 AND id=$4 AND status='CLAIMED' AND execution_session_id=$5 RETURNING grant_record`,
+      [JSON.stringify(consumed), consumedAt, projectId, executionGrantId, executionSessionId],
+    ), (row) => object(row.grant_record) as unknown as ExecutionGrantRecord);
+  }
+
+  async revokeExecutionGrant(projectId: string, executionGrantId: string, revokedAt: string, reason: string): Promise<ExecutionGrantRecord | undefined> {
+    const current = await this.getExecutionGrant(projectId, executionGrantId);
+    if (!current || current.status !== "ISSUED") return undefined;
+    const revoked: ExecutionGrantRecord = { ...current, status: "REVOKED", revokedAt, stateReason: reason, updatedAt: revokedAt };
+    return one(this.pool.query(
+      `UPDATE agentcert_execution_grants SET grant_record=$1,status='REVOKED',revoked_at=$2,updated_at=$2 WHERE project_id=$3 AND id=$4 AND status='ISSUED' RETURNING grant_record`,
+      [JSON.stringify(revoked), revokedAt, projectId, executionGrantId],
+    ), (row) => object(row.grant_record) as unknown as ExecutionGrantRecord);
+  }
+
+  async saveBrowserEnforcementSession(session: BrowserEnforcementSessionRecord): Promise<BrowserEnforcementSessionRecord> {
+    return (await one(this.pool.query(
+      `UPDATE agentcert_browser_enforcement_sessions SET status=$1,session_record=$2,updated_at=$3 WHERE project_id=$4 AND id=$5 RETURNING session_record`,
+      [session.status, JSON.stringify(session), session.updatedAt, session.projectId, session.id],
+    ), (row) => object(row.session_record) as unknown as BrowserEnforcementSessionRecord)) ?? session;
+  }
+
+  async getBrowserEnforcementSession(projectId: string, executionSessionId: string): Promise<BrowserEnforcementSessionRecord | undefined> {
+    return one(this.pool.query("SELECT session_record FROM agentcert_browser_enforcement_sessions WHERE project_id=$1 AND id=$2", [projectId, executionSessionId]), (row) => object(row.session_record) as unknown as BrowserEnforcementSessionRecord);
+  }
+
+  async getLatestBrowserEnforcementSessionForAction(projectId: string, actionId: string): Promise<BrowserEnforcementSessionRecord | undefined> {
+    return one(this.pool.query("SELECT session_record FROM agentcert_browser_enforcement_sessions WHERE project_id=$1 AND action_id=$2 ORDER BY updated_at DESC LIMIT 1", [projectId, actionId]), (row) => object(row.session_record) as unknown as BrowserEnforcementSessionRecord);
   }
 
   async insertApproval(approval: ApprovalRecord): Promise<ApprovalRecord> {

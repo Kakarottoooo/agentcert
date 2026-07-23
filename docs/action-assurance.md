@@ -49,10 +49,12 @@ listActionReceipts, and getActionReceipt.
 - Physical-world outcomes not covered by an independent probe.
 - Customer identity claims without a stronger identity attestation.
 
-The v0.1 control plane refuses to classify an action as ENFORCED unless it
-receives a verified execution proof with a non-NONE method and an execution
-grant digest. Browser credential brokering and remote gateway enforcement are
-Milestone 2 work, not implied by this release.
+The control plane refuses to classify an action as ENFORCED from SDK flags or
+an execution-grant digest alone. Browser actions can now satisfy the narrow
+`BROWSER_ENFORCED_V0_2` profile when the full signed grant, runtime claim,
+credential-isolated session, event chain, independent outcome, and target
+reconciliation bundle passes the central classifier. See
+[Browser Enforcement Boundary v0.2](browser-enforcement-boundary.md).
 
 ## Browser vertical slice
 
@@ -65,10 +67,9 @@ npm run action-assurance:e2e
 It executes the existing credential-isolated Onegent browser sandbox and
 independent outcome probe, uploads the resulting audit packet, issues a signed
 Action Assurance Receipt, and verifies it with a standalone trust bundle. The
-receipt remains `SELF_REPORTED` / `REPORTED` because v0.1 does not yet bridge
-the Onegent source signature and enforcement proof into the Hosted receipt.
-That conservative downgrade is intentional; Milestone 2 supplies the common
-execution-grant and collector-attestation boundary.
+receipt remains `SELF_REPORTED` / `REPORTED` because it does not use the new
+one-time grant protocol. Run `npm run browser-enforcement:e2e` for the v0.2
+reference profile and its fail-closed negative cases.
 
 ## Examples
 

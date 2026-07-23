@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createPublicKey, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { ArtifactStore } from "./artifacts.js";
 import { hashSecret } from "./auth.js";
 import {
@@ -145,6 +145,21 @@ import {
   type OutcomeAttestationRecord,
   type OutcomeMethod,
 } from "./action-assurance.js";
+import {
+  BROWSER_ENFORCEMENT_PROTOCOL,
+  classifyBrowserEnforcement,
+  createSignedExecutionGrant,
+  digestCanonical,
+  runtimeIdentityTrustedAt,
+  verifyRuntimeSignedObject,
+  verifySignedExecutionGrant,
+  type BrowserEnforcementEvidenceBundle,
+  type BrowserEnforcementSessionRecord,
+  type ExecutionGrantRecord,
+  type RuntimeClaimPayload,
+  type RuntimeIdentityRecord,
+  type RuntimeSignedObject,
+} from "./browser-enforcement.js";
 
 const POLICY_VERSION = "agentcert.default.v1";
 const DEFAULT_WEBHOOK_MAX_ATTEMPTS = 5;
@@ -1585,6 +1600,195 @@ export class AgentCertControlPlane {
     return next;
   }
 
+  async registerBrowserRuntimeIdentity(auth: AuthContext, projectId: string, input: unknown): Promise<RuntimeIdentityRecord> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    requireUser(auth);
+    const body = record(input);
+    const publicKeyPem = requiredString(body, "publicKeyPem");
+    let keyType: string | undefined;
+    try { keyType = createPublicKey(publicKeyPem).asymmetricKeyType; } catch { throw new ControlPlaneError("publicKeyPem must contain a valid public key.", 400, "runtime_key_invalid"); }
+    if (keyType !== "ed25519") throw new ControlPlaneError("Browser runtime keys must use Ed25519.", 400, "runtime_key_algorithm_invalid");
+    const now = new Date();
+    const validUntil = new Date(requiredString(body, "validUntil"));
+    if (!Number.isFinite(validUntil.getTime()) || validUntil <= now) throw new ControlPlaneError("validUntil must be a future timestamp.", 400, "runtime_key_expiry_invalid");
+    const adapterCapabilities = optionalStringList(body.adapterCapabilities, "adapterCapabilities");
+    if (!adapterCapabilities.length) throw new ControlPlaneError("adapterCapabilities must include the browser adapter.", 400, "runtime_capability_missing");
+    const identity: RuntimeIdentityRecord = {
+      runtimeIdentityId: optionalString(body, "runtimeIdentityId") ?? randomUUID(),
+      projectId,
+      runtimeInstanceId: requiredString(body, "runtimeInstanceId"),
+      runtimeType: "ONEGENT_BROWSER_GATEWAY",
+      adapterCapabilities,
+      publicKeyPem,
+      keyId: requiredString(body, "keyId"),
+      keyAlgorithm: "Ed25519",
+      status: "ACTIVE",
+      validFrom: now.toISOString(),
+      validUntil: validUntil.toISOString(),
+      registeredAt: now.toISOString(),
+      registrationMethod: body.developmentFixture === true ? "DEVELOPMENT_FIXTURE" : "PROJECT_ADMIN",
+      metadata: boundedRecord(body.metadata, "metadata"),
+    };
+    return this.store.insertRuntimeIdentity(identity);
+  }
+
+  async listBrowserRuntimeIdentities(auth: AuthContext, projectId: string): Promise<RuntimeIdentityRecord[]> {
+    await this.authorizeProject(auth, projectId, undefined, "actions:read");
+    return this.store.listRuntimeIdentities(projectId);
+  }
+
+  async updateBrowserRuntimeIdentityStatus(auth: AuthContext, projectId: string, runtimeIdentityId: string, input: unknown): Promise<RuntimeIdentityRecord> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    requireUser(auth);
+    const current = await this.store.getRuntimeIdentity(projectId, runtimeIdentityId);
+    if (!current) throw new ControlPlaneError("Runtime identity was not found.", 404, "runtime_identity_not_found");
+    const body = record(input);
+    const status = requiredString(body, "status");
+    if (!new Set(["SUSPENDED", "REVOKED", "COMPROMISED"]).has(status)) throw new ControlPlaneError("status must be SUSPENDED, REVOKED, or COMPROMISED.", 400, "runtime_status_invalid");
+    if (current.status !== "ACTIVE") throw new ControlPlaneError(`Runtime identity cannot transition from ${current.status}.`, 409, "runtime_status_conflict");
+    const effectiveAt = optionalString(body, "effectiveAt") ?? new Date().toISOString();
+    const effectiveTimestamp = new Date(effectiveAt);
+    if (!Number.isFinite(effectiveTimestamp.getTime()) || effectiveTimestamp < new Date(current.validFrom) || effectiveTimestamp > new Date()) throw new ControlPlaneError("effectiveAt must be between validFrom and now.", 400, "runtime_status_effective_at_invalid");
+    return this.store.updateRuntimeIdentity({
+      ...current,
+      status: status as RuntimeIdentityRecord["status"],
+      statusChangedAt: effectiveTimestamp.toISOString(),
+      statusReason: requiredString(body, "reason"),
+    });
+  }
+
+  async issueBrowserExecutionGrant(auth: AuthContext, projectId: string, actionId: string, input: unknown): Promise<ExecutionGrantRecord> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin", "operator"]);
+    requireUser(auth);
+    if (!this.evidenceSigner) throw new ControlPlaneError("ExecutionGrant signing is not configured.", 503, "grant_signing_unavailable");
+    const action = await this.store.getAction(projectId, actionId);
+    if (!action) throw new ControlPlaneError("Action was not found.", 404, "action_not_found");
+    if (!new Set(["ALLOWED", "APPROVED"]).has(action.status)) throw new ControlPlaneError(`ExecutionGrant cannot be issued from action status ${action.status}.`, 409, "action_not_authorized");
+    if (await this.store.getExecutionGrantForAction(projectId, actionId)) throw new ControlPlaneError("This action already has an ExecutionGrant. Create a new action and approval to execute again.", 409, "execution_grant_exists");
+    const body = record(input);
+    const runtimeIdentityId = requiredString(body, "runtimeIdentityId");
+    const runtime = await this.store.getRuntimeIdentity(projectId, runtimeIdentityId);
+    const now = new Date();
+    if (!runtime || runtime.status !== "ACTIVE" || now < new Date(runtime.validFrom) || now >= new Date(runtime.validUntil)) throw new ControlPlaneError("The requested Onegent runtime identity is not active.", 409, "runtime_identity_untrusted");
+    const mandateId = action.assuranceContext?.mandateId;
+    const mandate = mandateId ? await this.store.getActionMandate(projectId, mandateId) : undefined;
+    if (!mandate) throw new ControlPlaneError("A valid mandate is required before issuing an ExecutionGrant.", 409, "mandate_missing");
+    const mandateErrors = validateMandateForAction(mandate, action, now);
+    if (mandateErrors.length) throw new ControlPlaneError(`Mandate cannot authorize this execution: ${mandateErrors.join(", ")}.`, 409, "mandate_invalid");
+    const policyDecision = await this.store.getLatestActionPolicyDecision(projectId, actionId);
+    if (!policyDecision || !new Set(["ALLOW", "NEEDS_APPROVAL"]).has(policyDecision.result) || policyDecision.actionDigestSha256 !== actionIntentDigest(action)) throw new ControlPlaneError("A bound allow/approval policy decision is required.", 409, "policy_decision_mismatch");
+    const approvals = await this.store.listApprovalsForActions(projectId, [actionId]);
+    const approved = approvals.filter((approval) => approval.decision === "APPROVED" && approval.actionDigestSha256 === actionIntentDigest(action));
+    if ((policyDecision.result === "NEEDS_APPROVAL" || mandate.payload.constraints.approvalRequirement === "HUMAN") && !approved.length) throw new ControlPlaneError("A bound human approval is required.", 409, "approval_missing");
+    const adapterId = requiredString(body, "adapterId");
+    if (!runtime.adapterCapabilities.includes(adapterId)) throw new ControlPlaneError("Runtime identity is not registered for this adapter.", 409, "adapter_mismatch");
+    const allowedOrigins = optionalStringList(body.allowedOrigins, "allowedOrigins").map(normalizedOrigin);
+    if (!allowedOrigins.length) throw new ControlPlaneError("allowedOrigins must contain the sandbox target origin.", 400, "allowed_origin_missing");
+    const approvedParameters = boundedRecord(body.approvedParameters, "approvedParameters");
+    const outcomePredicate = boundedRecord(body.outcomePredicate, "outcomePredicate");
+    const agentBuildDigest = requiredDigest(body, "agentBuildDigest");
+    const ttlSeconds = boundedInteger(body.ttlSeconds, 15, 300, 120);
+    const notBefore = now.toISOString();
+    const expiresAt = new Date(Math.min(now.getTime() + ttlSeconds * 1_000, Date.parse(mandate.payload.expiresAt), Date.parse(runtime.validUntil))).toISOString();
+    const executionGrantId = randomUUID();
+    const grant = createSignedExecutionGrant({
+      signer: this.evidenceSigner,
+      executionGrantId,
+      tenantId: projectId,
+      actionId,
+      actionIntentDigest: actionIntentDigest(action),
+      principalIdentityId: String(action.principal.id ?? "unknown-principal"),
+      agentIdentityId: action.agentId ?? String(action.principal.id ?? "unknown-agent"),
+      agentBuildId: requiredString(body, "agentBuildId"),
+      agentBuildDigest,
+      mandateId: mandate.id,
+      mandateChainDigest: mandate.digestSha256,
+      policyDecisionId: policyDecision.id,
+      policyDecisionDigest: digestCanonical(policyDecision),
+      approvalSetDigest: digestCanonical(approved.map((item) => ({ id: item.id, digest: item.actionDigestSha256, reviewerId: item.reviewerId, createdAt: item.createdAt })).sort((a, b) => a.id.localeCompare(b.id))),
+      adapterId,
+      adapterVersionConstraint: optionalString(body, "adapterVersionConstraint") ?? "^0.2.0",
+      expectedRuntimeIdentityId: runtime.runtimeIdentityId,
+      targetAudience: action.targetSystem,
+      allowedOrigins,
+      allowedOperation: optionalString(body, "allowedOperation") ?? action.actionType,
+      allowedResource: optionalString(body, "allowedResource") ?? action.targetSystem,
+      parametersDigest: digestCanonical(approvedParameters),
+      outcomePredicateDigest: digestCanonical(outcomePredicate),
+      credentialIsolationRequirement: "REQUIRED",
+      reconciliationRequirement: "REQUIRED",
+      issuedAt: now.toISOString(),
+      notBefore,
+      expiresAt,
+    });
+    const recordValue: ExecutionGrantRecord = { id: executionGrantId, projectId, actionId, grant, status: "ISSUED", createdAt: now.toISOString(), updatedAt: now.toISOString() };
+    return this.store.insertExecutionGrant(recordValue);
+  }
+
+  async claimBrowserExecutionGrant(projectId: string, executionGrantId: string, input: unknown): Promise<BrowserEnforcementSessionRecord> {
+    const grant = await this.store.getExecutionGrant(projectId, executionGrantId);
+    if (!grant) throw new ControlPlaneError("ExecutionGrant was not found.", 404, "execution_grant_not_found");
+    if (!this.evidenceSigner) throw new ControlPlaneError("ExecutionGrant verification is not configured.", 503, "grant_signing_unavailable");
+    const grantErrors = verifySignedExecutionGrant(grant.grant, { [this.evidenceSigner.keyId]: this.evidenceSigner.publicKeyPem });
+    if (grantErrors.length) throw new ControlPlaneError(`ExecutionGrant verification failed: ${grantErrors.join(", ")}.`, 409, grantErrors[0]!.toLowerCase());
+    const claim = parseRuntimeClaim(input);
+    const runtime = await this.store.getRuntimeIdentity(projectId, claim.payload.runtimeIdentityId);
+    if (!runtime || !runtimeIdentityTrustedAt(runtime, new Date(claim.payload.claimedAt))) throw new ControlPlaneError("Runtime identity is not trusted.", 401, "runtime_identity_untrusted");
+    if (!verifyRuntimeSignedObject(claim, runtime.publicKeyPem, runtime.keyId)) throw new ControlPlaneError("Runtime proof of possession is invalid.", 401, "runtime_proof_invalid");
+    if (claim.payload.protocolVersion !== BROWSER_ENFORCEMENT_PROTOCOL || claim.payload.executionGrantId !== executionGrantId || claim.payload.executionGrantDigest !== grant.grant.payloadSha256 || claim.payload.actionId !== grant.actionId || claim.payload.runtimeIdentityId !== grant.grant.payload.expectedRuntimeIdentityId || claim.payload.runtimeKeyId !== runtime.keyId) throw new ControlPlaneError("RuntimeClaim is not bound to this grant.", 409, "runtime_claim_binding_mismatch");
+    if (Math.abs(Date.now() - Date.parse(claim.payload.claimedAt)) > 60_000) throw new ControlPlaneError("RuntimeClaim timestamp is outside the accepted clock-skew window.", 409, "clock_skew_exceeded");
+    const session: BrowserEnforcementSessionRecord = {
+      id: claim.payload.executionSessionId,
+      projectId,
+      actionId: grant.actionId,
+      executionGrantId,
+      runtimeIdentityId: runtime.runtimeIdentityId,
+      runtimeClaim: claim,
+      status: "CLAIMED",
+      createdAt: claim.payload.claimedAt,
+      updatedAt: claim.payload.claimedAt,
+    };
+    const result = await this.store.claimExecutionGrant(projectId, executionGrantId, runtime.runtimeIdentityId, session, claim.payload.idempotencyKey, claim.payload.claimedAt);
+    if (result.result === "REPLAY_REJECTED") throw new ControlPlaneError("ExecutionGrant has already been claimed or is unavailable.", 409, "execution_grant_replay");
+    if (result.result === "UNAVAILABLE" || !result.session) throw new ControlPlaneError("ExecutionGrant cannot be claimed.", 409, "execution_grant_unavailable");
+    return result.session;
+  }
+
+  async consumeBrowserExecutionGrant(projectId: string, executionGrantId: string, input: unknown): Promise<ExecutionGrantRecord> {
+    const body = record(input);
+    const executionSessionId = requiredString(body, "executionSessionId");
+    const session = await this.store.getBrowserEnforcementSession(projectId, executionSessionId);
+    if (!session || session.executionGrantId !== executionGrantId) throw new ControlPlaneError("Execution session is not bound to this grant.", 409, "execution_session_mismatch");
+    const runtime = await this.store.getRuntimeIdentity(projectId, session.runtimeIdentityId);
+    const claim = parseRuntimeClaim(body.runtimeClaim);
+    if (!runtime || !verifyRuntimeSignedObject(claim, runtime.publicKeyPem, runtime.keyId) || claim.payloadSha256 !== session.runtimeClaim.payloadSha256) throw new ControlPlaneError("Runtime proof is invalid.", 401, "runtime_proof_invalid");
+    const consumed = await this.store.consumeExecutionGrant(projectId, executionGrantId, executionSessionId, new Date().toISOString());
+    if (!consumed) throw new ControlPlaneError("ExecutionGrant cannot transition to consumed.", 409, "execution_grant_consume_conflict");
+    return consumed;
+  }
+
+  async submitBrowserEnforcementEvidence(projectId: string, executionSessionId: string, input: unknown): Promise<BrowserEnforcementSessionRecord> {
+    if (!this.evidenceSigner) throw new ControlPlaneError("Evidence verification is not configured.", 503, "receipt_signing_unavailable");
+    const session = await this.store.getBrowserEnforcementSession(projectId, executionSessionId);
+    if (!session) throw new ControlPlaneError("Execution session was not found.", 404, "execution_session_not_found");
+    const grant = await this.store.getExecutionGrant(projectId, session.executionGrantId);
+    const runtime = await this.store.getRuntimeIdentity(projectId, session.runtimeIdentityId);
+    if (!grant || !runtime) throw new ControlPlaneError("Execution trust records are incomplete.", 409, "execution_trust_incomplete");
+    const bundle = input as BrowserEnforcementEvidenceBundle;
+    if (!bundle || bundle.protocolVersion !== BROWSER_ENFORCEMENT_PROTOCOL || bundle.executionSession?.payload?.executionSessionId !== executionSessionId || bundle.executionGrant?.payloadSha256 !== grant.grant.payloadSha256) throw new ControlPlaneError("Browser enforcement evidence is not bound to this session.", 409, "execution_evidence_binding_mismatch");
+    const evaluation = classifyBrowserEnforcement({ bundle, runtimeIdentity: runtime, issuerKeys: { [this.evidenceSigner.keyId]: this.evidenceSigner.publicKeyPem } });
+    const completed: BrowserEnforcementSessionRecord = { ...session, sessionAttestation: bundle.executionSession, evidenceBundle: bundle, evaluation, status: evaluation.enforcementLevel === "ENFORCED" ? "COMPLETED" : "FAILED", updatedAt: new Date().toISOString() };
+    return this.store.saveBrowserEnforcementSession(completed);
+  }
+
+  async revokeBrowserExecutionGrant(auth: AuthContext, projectId: string, executionGrantId: string, input: unknown): Promise<ExecutionGrantRecord> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    requireUser(auth);
+    const revoked = await this.store.revokeExecutionGrant(projectId, executionGrantId, new Date().toISOString(), requiredString(record(input), "reason"));
+    if (!revoked) throw new ControlPlaneError("Only an issued ExecutionGrant can be revoked.", 409, "execution_grant_revoke_conflict");
+    return revoked;
+  }
+
   async issueActionAssuranceReceipt(auth: AuthContext, projectId: string, actionId: string): Promise<ActionAssuranceReceiptRecord> {
     await this.authorizeProject(auth, projectId, ["owner", "admin"]);
     requireUser(auth);
@@ -1594,10 +1798,11 @@ export class AgentCertControlPlane {
     const policyDecision = await this.store.getLatestActionPolicyDecision(projectId, actionId);
     if (!policyDecision) throw new ControlPlaneError("Action has no append-only policy decision.", 409, "policy_decision_missing");
     const mandate = action.assuranceContext?.mandateId ? await this.store.getActionMandate(projectId, action.assuranceContext.mandateId) : undefined;
-    const [approvals, outcome, evidence] = await Promise.all([
+    const [approvals, outcome, evidence, browserSession] = await Promise.all([
       this.store.listApprovalsForActions(projectId, [actionId]),
       this.store.getLatestOutcomeAttestation(projectId, actionId),
       this.store.listEvidenceForActions(projectId, [actionId]),
+      this.store.getLatestBrowserEnforcementSessionForAction(projectId, actionId),
     ]);
     const now = new Date();
     const defaultExpiry = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1_000);
@@ -1605,6 +1810,16 @@ export class AgentCertControlPlane {
     const validUntil = mandateExpiry && mandateExpiry < defaultExpiry ? mandateExpiry.toISOString() : defaultExpiry.toISOString();
     const receipt = createActionAssuranceReceipt({
       action, mandate, policyDecision, approvals, outcome, evidence,
+      enforcementProof: browserSession?.evaluation && browserSession.evidenceBundle ? {
+        level: browserSession.evaluation.enforcementLevel,
+        method: browserSession.evaluation.enforcementLevel === "ENFORCED" ? "CREDENTIAL_BROKER" : "NONE",
+        verified: browserSession.evaluation.enforcementLevel === "ENFORCED",
+        adapterId: browserSession.evidenceBundle.executionSession.payload.adapterId,
+        executionGrantDigest: browserSession.evidenceBundle.executionGrant.payloadSha256,
+        actionEventChainDigest: browserSession.evidenceBundle.eventCheckpoint.payloadSha256,
+        browserEvaluation: browserSession.evaluation,
+        browserEvidence: browserSession.evidenceBundle,
+      } : undefined,
       issuerId: "agentcert-control-plane", signer: this.evidenceSigner, validUntil,
       statusEndpoint: `${this.publicUrl}/v1/projects/${encodeURIComponent(projectId)}/receipts/{receiptId}`,
       now,
@@ -3494,6 +3709,52 @@ function uniqueRecords<T extends { id: string }>(records: T[]): T[] {
 function record(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function optionalRecord(value: unknown): Record<string, unknown> | undefined { const result = record(value); return Object.keys(result).length ? result : undefined; }
 function requiredString(value: Record<string, unknown>, key: string): string { const result = optionalString(value, key); if (!result) throw new ControlPlaneError(`${key} is required.`); return result; }
+
+function requiredDigest(value: Record<string, unknown>, key: string): string {
+  const digest = requiredString(value, key);
+  if (!/^[a-f0-9]{64}$/.test(digest)) throw new ControlPlaneError(`${key} must be a lowercase SHA-256 digest.`);
+  return digest;
+}
+
+function boundedRecord(value: unknown, name: string, maxBytes = 32_768): Record<string, unknown> {
+  const result = record(value);
+  if (Buffer.byteLength(canonicalJson(result)) > maxBytes) throw new ControlPlaneError(`${name} must not exceed ${maxBytes} bytes.`);
+  return structuredClone(result);
+}
+
+function boundedInteger(value: unknown, minimum: number, maximum: number, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < minimum || value > maximum) throw new ControlPlaneError(`Value must be an integer from ${minimum} to ${maximum}.`);
+  return value;
+}
+
+function normalizedOrigin(value: string): string {
+  let url: URL;
+  try { url = new URL(value); } catch { throw new ControlPlaneError(`Invalid allowed origin: ${value}.`); }
+  if (!new Set(["http:", "https:"]).has(url.protocol) || url.username || url.password || url.pathname !== "/" || url.search || url.hash) throw new ControlPlaneError(`Allowed origin must be an http(s) origin without credentials, path, query, or fragment: ${value}.`);
+  return url.origin;
+}
+
+function parseRuntimeClaim(value: unknown): RuntimeSignedObject<RuntimeClaimPayload> {
+  const wrapper = record(value);
+  const payload = record(wrapper.payload);
+  const signature = record(wrapper.signature);
+  const claim = {
+    payload: payload as unknown as RuntimeClaimPayload,
+    payloadSha256: requiredString(wrapper, "payloadSha256"),
+    signature: {
+      algorithm: requiredString(signature, "algorithm") as "Ed25519",
+      keyId: requiredString(signature, "keyId"),
+      signature: requiredString(signature, "signature"),
+    },
+  };
+  if (claim.signature.algorithm !== "Ed25519" || claim.payload.protocolVersion !== BROWSER_ENFORCEMENT_PROTOCOL || claim.payload.objectType !== "RuntimeClaim" || claim.payload.signatureContext !== "onegent.runtime-claim.v0.2") throw new ControlPlaneError("RuntimeClaim protocol fields are invalid.", 400, "runtime_claim_invalid");
+  for (const key of ["runtimeIdentityId", "executionGrantId", "executionGrantDigest", "actionId", "executionSessionId", "claimNonce", "claimedAt", "runtimeKeyId", "idempotencyKey"] as const) {
+    if (typeof claim.payload[key] !== "string" || !claim.payload[key]) throw new ControlPlaneError(`RuntimeClaim ${key} is required.`, 400, "runtime_claim_invalid");
+  }
+  if (Buffer.byteLength(canonicalJson(claim)) > 32_768) throw new ControlPlaneError("RuntimeClaim exceeds 32 KiB.", 413, "runtime_claim_too_large");
+  return claim;
+}
 function optionalString(value: Record<string, unknown>, key: string): string | undefined { return typeof value[key] === "string" && value[key].trim() ? value[key].trim() : undefined; }
 function strictStringList(value: unknown, name: string, fallback?: string[]): string[] {
   if (value === undefined && fallback) return fallback;

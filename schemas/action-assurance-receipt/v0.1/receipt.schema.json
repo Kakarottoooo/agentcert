@@ -99,10 +99,46 @@
           }
         },
         "executionGrantDigest": { "$ref": "#/$defs/sha256" },
+        "executionGrantId": { "type": "string", "format": "uuid" },
         "evidenceStrength": { "enum": ["REPORTED", "RECORDED", "ENFORCED", "OUTCOME_VERIFIED", "INDEPENDENTLY_REVIEWED"] },
         "enforcementLevel": { "enum": ["ENFORCED", "OBSERVED_ONLY", "SELF_REPORTED"] },
         "enforcementMethod": { "enum": ["CREDENTIAL_BROKER", "NETWORK_PROXY", "SIGNED_ADAPTER", "TARGET_SYSTEM_POLICY", "NONE"] },
         "actionEventChainDigest": { "$ref": "#/$defs/sha256" },
+        "executionSessionId": { "type": "string", "format": "uuid" },
+        "executionSessionAttestationDigest": { "$ref": "#/$defs/sha256" },
+        "runtimeIdentity": {
+          "type": "object", "additionalProperties": false, "required": ["id", "keyId"],
+          "properties": { "id": { "type": "string" }, "keyId": { "type": "string" } }
+        },
+        "adapterIdentity": {
+          "type": "object", "additionalProperties": false, "required": ["id", "version"],
+          "properties": { "id": { "type": "string" }, "version": { "type": "string" } }
+        },
+        "credentialIsolationSummary": {
+          "type": "object", "additionalProperties": false, "required": ["mode", "leaseId", "revoked"],
+          "properties": { "mode": { "type": "string" }, "leaseId": { "type": "string" }, "revoked": { "type": "boolean" } }
+        },
+        "eventChainFinalHash": { "$ref": "#/$defs/sha256" },
+        "eventCount": { "type": "integer", "minimum": 1 },
+        "outcomeAttestationDigest": { "$ref": "#/$defs/sha256" },
+        "outcomeObservationMethod": { "type": "string" },
+        "outcomeObservationIndependence": { "type": "string" },
+        "reconciliationReportDigest": { "$ref": "#/$defs/sha256" },
+        "reconciliationResult": { "enum": ["PASSED", "BYPASS_DETECTED", "INCOMPLETE", "NOT_SUPPORTED", "FAILED"] },
+        "enforcementChecks": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["id", "result", "reasonCode", "message"],
+            "properties": {
+              "id": { "type": "string" },
+              "result": { "enum": ["PASS", "FAIL", "WARN", "NOT_CHECKED"] },
+              "reasonCode": { "type": "string" },
+              "message": { "type": "string" }
+            }
+          }
+        },
+        "enforcementReasonCodes": { "type": "array", "items": { "type": "string" } },
+        "assuranceProfile": { "type": "string" },
         "outcomeAttestation": {
           "type": "object", "additionalProperties": false,
           "required": ["outcomeAttestationId", "result", "observationMethod", "observationSource", "actionDigestSha256", "confidence", "collectedAt"],
