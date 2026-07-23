@@ -6,20 +6,29 @@ const DEFAULT_ADAPTER_PATH = "agentcert.browser-adapter.mjs";
 const DEFAULT_REPORT_PATH = ".agentcert/browser-adapter/conformance.json";
 
 interface BrowserAdapterRuntime {
+  createCustomerOwnedBrowserAdapterKit(config: Record<string, unknown>): BrowserAdapterKit;
   runCustomerOwnedBrowserAdapterConformance(input: {
-    kit: BrowserAdapterModule["browserAdapterKit"];
-    fixture: BrowserAdapterModule["browserAdapterFixture"];
+    kit: BrowserAdapterKit;
+    fixture: BrowserAdapterFixture;
   }): Promise<BrowserAdapterReport>;
 }
 
+interface BrowserAdapterKit {
+  name: string;
+  prepareExecution(): Promise<unknown>;
+}
+
+interface BrowserAdapterFixture {
+  action: Record<string, unknown>;
+  expectedObservedState: Record<string, unknown>;
+  expectedAudit: Record<string, unknown>;
+  forbiddenSecrets?: string[];
+}
+
 interface BrowserAdapterModule {
-  browserAdapterKit: { name: string; prepareExecution(): Promise<unknown> };
-  browserAdapterFixture: {
-    action: Record<string, unknown>;
-    expectedObservedState: Record<string, unknown>;
-    expectedAudit: Record<string, unknown>;
-    forbiddenSecrets?: string[];
-  };
+  browserAdapterKit?: BrowserAdapterKit;
+  browserAdapterConfig?: Record<string, unknown>;
+  browserAdapterFixture: BrowserAdapterFixture;
 }
 
 interface BrowserAdapterReport {
@@ -64,8 +73,10 @@ export async function certifyBrowserAdapter(
   const runtime = runtimeOverride ?? await loadRuntime();
   const adapterPath = resolve(flag(args, "--adapter") ?? DEFAULT_ADAPTER_PATH);
   const adapterModule = adapterOverride ?? await loadAdapter(adapterPath);
+  const kit = adapterModule.browserAdapterKit
+    ?? runtime.createCustomerOwnedBrowserAdapterKit(adapterModule.browserAdapterConfig!);
   const report = await runtime.runCustomerOwnedBrowserAdapterConformance({
-    kit: adapterModule.browserAdapterKit,
+    kit,
     fixture: adapterModule.browserAdapterFixture,
   });
   const reportPath = resolve(flag(args, "--out") ?? DEFAULT_REPORT_PATH);
@@ -100,23 +111,22 @@ async function loadAdapter(adapterPath: string): Promise<BrowserAdapterModule> {
   } catch (error) {
     throw new Error(`Could not load browser adapter ${adapterPath}: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (!isRecord(module.browserAdapterKit) || typeof module.browserAdapterKit.prepareExecution !== "function" || !isRecord(module.browserAdapterFixture)) {
-    throw new Error(`${adapterPath} must export browserAdapterKit and browserAdapterFixture.`);
+  const hasKit = isRecord(module.browserAdapterKit) && typeof module.browserAdapterKit.prepareExecution === "function";
+  if ((!hasKit && !isRecord(module.browserAdapterConfig)) || !isRecord(module.browserAdapterFixture)) {
+    throw new Error(`${adapterPath} must export browserAdapterConfig (or a legacy browserAdapterKit) and browserAdapterFixture.`);
   }
   return module as unknown as BrowserAdapterModule;
 }
 
 function browserAdapterTemplate(): string {
-  return `import { createCustomerOwnedBrowserAdapterKit } from "agentcert/browser-adapter-kit";
-
-// Safe starter: local synthetic sandbox state. Never point v0.1 at production.
+  return `// Safe starter: local synthetic sandbox state. Never point v0.1 at production.
 const WRITE_SECRET = process.env.BROWSER_SANDBOX_WRITE_KEY ?? "synthetic-write-credential";
 const READ_SECRET = process.env.BROWSER_SANDBOX_READ_KEY ?? "synthetic-read-credential";
 let state = { status: "DRAFT", reference: "ORDER-DEMO-1" };
 const audit = [];
 const parametersDigest = "fixture-parameters-sha256";
 
-export const browserAdapterKit = createCustomerOwnedBrowserAdapterKit({
+export const browserAdapterConfig = {
   name: "customer-browser-sandbox",
   targetSystem: "CustomerBrowserSandbox",
   allowedOrigins: ["https://sandbox.example.test"],
@@ -150,7 +160,7 @@ export const browserAdapterKit = createCustomerOwnedBrowserAdapterKit({
     return structuredClone(audit);
   },
   revokeWriteCredential() {},
-});
+};
 
 export const browserAdapterFixture = {
   action: {

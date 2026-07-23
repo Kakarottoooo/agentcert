@@ -1,6 +1,6 @@
 {
   "name": "agentcert",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Assurance release gates, runtime evidence, and regression CI for AI agents.",
   "type": "module",
   "license": "Apache-2.0",
