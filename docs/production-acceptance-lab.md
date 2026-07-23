@@ -5,6 +5,9 @@ The weekly lab exercises bounded trust boundaries with ephemeral Postgres and Re
 - 100-tenant concurrent isolation stress;
 - authenticated JSON API fuzzing;
 - Postgres close/reconnect with state recovery;
+- serialized migrations with an immutable SHA-256 ledger through 024;
+- atomic mandate use and concurrent one-time browser execution-grant claims;
+- signed browser enforcement, replay rejection, credential redaction, independent outcome verification, and target-audit reconciliation;
 - Redis close/reconnect with shared idempotency recovery;
 - concurrent idempotency and deterministic rate-limit tests;
 - webhook failure, bounded retry, DLQ, and explicit replay;

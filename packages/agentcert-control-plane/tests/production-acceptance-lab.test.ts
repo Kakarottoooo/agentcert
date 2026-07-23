@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
+import pg from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 import { MemoryArtifactStore } from "../src/artifacts.js";
 import { Authenticator } from "../src/auth.js";
@@ -49,6 +50,32 @@ describe("Production Acceptance Lab", () => {
 });
 
 describe.skipIf(!process.env.AGENTCERT_ACCEPTANCE_DATABASE_URL)("Postgres recovery acceptance", () => {
+  it("serializes concurrent migration starts and records the complete immutable ledger", async () => {
+    const url = process.env.AGENTCERT_ACCEPTANCE_DATABASE_URL!;
+    const first = new PostgresControlPlaneStore(url);
+    const second = new PostgresControlPlaneStore(url);
+    const inspector = new pg.Pool({ connectionString: url });
+    try {
+      await Promise.all([first.migrate(), second.migrate()]);
+      const ledger = await inspector.query("SELECT name,sha256 FROM agentcert_schema_migrations ORDER BY name");
+      expect(ledger.rows).toHaveLength(24);
+      expect(ledger.rows[0]).toMatchObject({ name: "001_initial.sql" });
+      expect(ledger.rows.at(-1)).toMatchObject({ name: "024_browser_enforcement_boundary.sql" });
+      expect(ledger.rows.every((row) => /^[a-f0-9]{64}$/.test(String(row.sha256)))).toBe(true);
+      const relations = await inspector.query(`SELECT
+        to_regclass('public.agentcert_capability_manifests') AS semantics,
+        to_regclass('public.agentcert_action_mandates') AS mandates,
+        to_regclass('public.agentcert_execution_grants') AS grants`);
+      expect(relations.rows[0]).toMatchObject({
+        semantics: "agentcert_capability_manifests",
+        mandates: "agentcert_action_mandates",
+        grants: "agentcert_execution_grants",
+      });
+    } finally {
+      await Promise.all([first.close(), second.close(), inspector.end()]);
+    }
+  });
+
   it("reconnects after a pool shutdown without losing tenant state", async () => {
     const url = process.env.AGENTCERT_ACCEPTANCE_DATABASE_URL!;
     const userId = randomUUID();

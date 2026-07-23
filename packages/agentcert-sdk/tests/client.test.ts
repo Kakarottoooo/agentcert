@@ -84,6 +84,37 @@ describe("AgentCertClient", () => {
     expect(String(request.mock.calls[0]?.[0])).toContain("sourcePath=traces%2Ftrace.json");
   });
 
+  it("exposes browser runtime identity and execution grant administration", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const request = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      requests.push({ url: String(url), init });
+      if (String(url).endsWith("/runtime-identities") && !init?.method) return new Response(JSON.stringify({ runtimeIdentities: [{ runtimeIdentityId: "runtime-1" }] }), { status: 200 });
+      return new Response(JSON.stringify({ id: "grant-1", runtimeIdentityId: "runtime-1" }), { status: 201 });
+    });
+    const client = new AgentCertClient({ baseUrl: "https://agentcert.example", projectId: "project-1", apiKey: "ac_live_test", fetch: request as typeof fetch });
+
+    await client.registerRuntimeIdentity({
+      runtimeInstanceId: "gateway-1", adapterCapabilities: ["customer-browser"], publicKeyPem: "PUBLIC", keyId: "runtime-key-1", validUntil: "2026-08-01T00:00:00.000Z",
+    });
+    await client.listRuntimeIdentities();
+    await client.updateRuntimeIdentityStatus("runtime-1", { status: "SUSPENDED", reason: "rotation rehearsal" });
+    await client.issueExecutionGrant("action-1", {
+      runtimeIdentityId: "runtime-1", adapterId: "customer-browser", allowedOrigins: ["https://sandbox.example.test"],
+      allowedOperation: "order.submit", allowedResource: "order:ORDER-1", approvedParameters: { orderId: "ORDER-1" },
+      outcomePredicate: { status: "SUBMITTED" }, agentBuildId: "build-1", agentBuildDigest: "a".repeat(64),
+    }, "grant:action-1");
+    await client.revokeExecutionGrant("grant-1", "test complete");
+
+    expect(requests.map(({ url }) => url)).toEqual([
+      "https://agentcert.example/v1/projects/project-1/runtime-identities",
+      "https://agentcert.example/v1/projects/project-1/runtime-identities",
+      "https://agentcert.example/v1/projects/project-1/runtime-identities/runtime-1/status",
+      "https://agentcert.example/v1/projects/project-1/actions/action-1/execution-grant",
+      "https://agentcert.example/v1/projects/project-1/execution-grants/grant-1/revoke",
+    ]);
+    expect(requests[3]!.init?.headers).toMatchObject({ "idempotency-key": "grant:action-1" });
+  });
+
   it("sends universal envelopes with an idempotency key and valid trace context", async () => {
     const request = vi.fn(async () => new Response(JSON.stringify({ accepted: true }), { status: 202 }));
     const client = new AgentCertClient({ baseUrl: "https://agentcert.example", projectId: "project-1", apiKey: "ac_live_test", fetch: request as typeof fetch });

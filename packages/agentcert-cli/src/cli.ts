@@ -55,6 +55,7 @@ import {
 import { buildRobustnessLabSnapshot, readRobustnessLabConfig, renderRobustnessLabSummary, writeRobustnessLabSnapshot } from "./lab.js";
 import { renderCommandHelp } from "./command-help.js";
 import { runSandboxCommand } from "./sandbox.js";
+import { runBrowserAdapterCommand } from "./browser-adapter.js";
 import {
   parseAgentTemplate,
   starterAdapter,
@@ -127,6 +128,9 @@ Saved connections are reused by agentcert push and agentcert run --push.
   }
 } else if (command === "sandbox") {
   const result = await runSandboxCommand(process.argv.slice(3));
+  process.exitCode = result.exitCode;
+} else if (command === "browser-adapter") {
+  const result = await runBrowserAdapterCommand(process.argv.slice(3));
   process.exitCode = result.exitCode;
 } else if (command === "report") {
   const config = await loadConfig(readFlag("--config"));
@@ -560,6 +564,8 @@ Saved connections are reused by agentcert push and agentcert run --push.
   agentcert sandbox init
   agentcert sandbox certify --adapter ./agentcert.sandbox.mjs
   agentcert sandbox push --adapter ./agentcert.sandbox.mjs
+  agentcert browser-adapter init
+  agentcert browser-adapter certify --adapter ./agentcert.browser-adapter.mjs
   agentcert init --out agentcert.config.json --tripwire-config tripwire.yml --force
   agentcert init --subject my-browser-agent --github-action
   agentcert report --mcpbench .mcpbench/latest/results.json --tripwire .tripwire/latest/tripwire-result.json --onegent .onegent/procurement/audit-packet.json --out .agentcert/latest --subject my-agent

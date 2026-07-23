@@ -225,6 +225,57 @@ export interface ActionAssuranceReceipt {
   };
 }
 
+export type BrowserRuntimeIdentityStatus = "ACTIVE" | "SUSPENDED" | "REVOKED" | "COMPROMISED" | "EXPIRED";
+
+export interface BrowserRuntimeIdentityInput {
+  runtimeIdentityId?: string;
+  runtimeInstanceId: string;
+  adapterCapabilities: string[];
+  publicKeyPem: string;
+  keyId: string;
+  validUntil: string;
+  metadata?: Record<string, unknown>;
+  developmentFixture?: boolean;
+}
+
+export interface BrowserRuntimeIdentity extends BrowserRuntimeIdentityInput {
+  runtimeIdentityId: string;
+  projectId: string;
+  runtimeType: "ONEGENT_BROWSER_GATEWAY";
+  keyAlgorithm: "Ed25519";
+  status: BrowserRuntimeIdentityStatus;
+  validFrom: string;
+  registeredAt: string;
+  registrationMethod: "PROJECT_ADMIN" | "DEVELOPMENT_FIXTURE";
+  statusChangedAt?: string;
+  statusReason?: string;
+}
+
+export interface BrowserExecutionGrantInput {
+  runtimeIdentityId: string;
+  adapterId: string;
+  adapterVersionConstraint?: string;
+  allowedOrigins: string[];
+  allowedOperation: string;
+  allowedResource: string;
+  approvedParameters: Record<string, unknown>;
+  outcomePredicate: Record<string, unknown>;
+  agentBuildId: string;
+  agentBuildDigest: string;
+  ttlSeconds?: number;
+}
+
+export interface BrowserExecutionGrant {
+  id: string;
+  projectId: string;
+  actionId: string;
+  status: "ISSUED" | "CLAIMED" | "CONSUMED" | "EXPIRED" | "REVOKED" | "ABANDONED" | "FAILED";
+  grant: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  stateReason?: string;
+}
+
 export class AgentCertClient {
   private readonly baseUrl: string;
   private readonly projectId: string;
@@ -289,6 +340,35 @@ export class AgentCertClient {
 
   getActionReceipt(receiptId: string): Promise<ActionAssuranceReceipt> {
     return this.json(`receipts/${encodeURIComponent(receiptId)}`);
+  }
+
+  registerRuntimeIdentity(input: BrowserRuntimeIdentityInput): Promise<BrowserRuntimeIdentity> {
+    return this.json("runtime-identities", { method: "POST", body: JSON.stringify(input) });
+  }
+
+  async listRuntimeIdentities(): Promise<BrowserRuntimeIdentity[]> {
+    const response = await this.json<{ runtimeIdentities: BrowserRuntimeIdentity[] }>("runtime-identities");
+    return response.runtimeIdentities;
+  }
+
+  updateRuntimeIdentityStatus(runtimeIdentityId: string, input: {
+    status: "SUSPENDED" | "REVOKED" | "COMPROMISED";
+    reason: string;
+    effectiveAt?: string;
+  }): Promise<BrowserRuntimeIdentity> {
+    return this.json(`runtime-identities/${encodeURIComponent(runtimeIdentityId)}/status`, { method: "POST", body: JSON.stringify(input) });
+  }
+
+  issueExecutionGrant(actionId: string, input: BrowserExecutionGrantInput, idempotencyKey?: string): Promise<BrowserExecutionGrant> {
+    return this.json(`actions/${encodeURIComponent(actionId)}/execution-grant`, {
+      method: "POST",
+      headers: idempotencyKey ? { "idempotency-key": idempotencyKey } : undefined,
+      body: JSON.stringify(input),
+    });
+  }
+
+  revokeExecutionGrant(executionGrantId: string, reason: string): Promise<BrowserExecutionGrant> {
+    return this.json(`execution-grants/${encodeURIComponent(executionGrantId)}/revoke`, { method: "POST", body: JSON.stringify({ reason }) });
   }
 
   sendEnvelope(input: UniversalEnvelope, idempotencyKey = input.envelopeId): Promise<Record<string, unknown>> {
