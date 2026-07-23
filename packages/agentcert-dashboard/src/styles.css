@@ -3264,6 +3264,24 @@ button {
   font-size: 12px;
 }
 
+.enforcement-evidence-summary {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 2px;
+  padding: 9px 10px;
+  border-left: 3px solid var(--amber);
+  background: var(--surface-2);
+  font-size: 11px;
+}
+
+.enforcement-evidence-summary.verified {
+  border-left-color: var(--accent);
+}
+
+.enforcement-evidence-summary span {
+  color: var(--muted);
+}
+
 .action-list dl {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

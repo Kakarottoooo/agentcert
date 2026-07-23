@@ -487,6 +487,65 @@ paths:
           application/json:
             schema: {$ref: "#/components/schemas/VerificationInput"}
       responses: {"200": {description: Verification result}}
+  /v1/projects/{projectId}/runtime-identities:
+    get:
+      summary: List tenant-bound Onegent Browser runtime identities
+      parameters: [{$ref: "#/components/parameters/ProjectId"}]
+      responses: {"200": {description: Runtime identity list}}
+    post:
+        summary: Register an Ed25519 Onegent Browser runtime identity
+        parameters: [{$ref: "#/components/parameters/ProjectId"}]
+        responses: {"201": {description: Immutable runtime identity registered}}
+  /v1/projects/{projectId}/runtime-identities/{runtimeIdentityId}/status:
+    post:
+      summary: Suspend, revoke, or mark a Browser runtime identity compromised with an effective timestamp
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: path, name: runtimeIdentityId, required: true, schema: {type: string, format: uuid}}
+      responses: {"200": {description: Runtime trust status updated}, "409": {description: Invalid lifecycle transition}}
+  /v1/projects/{projectId}/actions/{actionId}/execution-grant:
+    post:
+      summary: Issue a short-lived, one-use Browser execution grant bound to an approved action
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {$ref: "#/components/parameters/ActionId"}
+        - {$ref: "#/components/parameters/IdempotencyKey"}
+      responses:
+        "201": {description: Hosted-signed ExecutionGrant}
+        "409": {description: Mandate, approval, runtime, adapter, or action binding is not valid}
+  /v1/projects/{projectId}/execution-grants/{grantId}/revoke:
+    post:
+      summary: Revoke an unclaimed Browser execution grant
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: path, name: grantId, required: true, schema: {type: string, format: uuid}}
+      responses: {"200": {description: Grant revoked}, "409": {description: Grant is no longer issuable}}
+  /v1/runtime/projects/{projectId}/execution-grants/{grantId}/claim:
+    post:
+      security: []
+      summary: Atomically claim a one-use grant with a signed RuntimeClaim
+      description: Authentication is the tenant-registered runtime Ed25519 signature, not a normal project API key.
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: path, name: grantId, required: true, schema: {type: string, format: uuid}}
+      responses: {"201": {description: Grant claimed and execution session created}, "409": {description: Replay, expiry, revocation, or binding mismatch}}
+  /v1/runtime/projects/{projectId}/execution-grants/{grantId}/consume:
+    post:
+      security: []
+      summary: Mark a claimed grant consumed using the original signed RuntimeClaim
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: path, name: grantId, required: true, schema: {type: string, format: uuid}}
+      responses: {"200": {description: Grant consumed}, "409": {description: Session or grant transition mismatch}}
+  /v1/runtime/projects/{projectId}/execution-sessions/{sessionId}/evidence:
+    post:
+      security: []
+      summary: Submit the signed Browser session, event chain, outcome, and reconciliation bundle
+      description: Hosted derives the enforcement level centrally; the caller cannot select ENFORCED.
+      parameters:
+        - {$ref: "#/components/parameters/ProjectId"}
+        - {in: path, name: sessionId, required: true, schema: {type: string, format: uuid}}
+      responses: {"202": {description: Evidence classified and session finalized}, "409": {description: Evidence binding or trust verification failed}}
   /v1/projects/{projectId}/incidents:
     get:
       summary: List failed runs and runtime verification incidents

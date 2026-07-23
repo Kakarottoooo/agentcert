@@ -12,3 +12,5 @@ export * from "./semantics.js";
 export * from "./semantic-classifier.js";
 export * from "./semantic-calibration.js";
 export * from "./action-assurance.js";
+export * from "./browser-enforcement.js";
+export * from "./browser-enforcement.js";

@@ -6,6 +6,7 @@ import {
   verifyCanonicalAttestation,
   type ServerAttestation,
 } from "./signing.js";
+import { classifyBrowserEnforcement, type BrowserEnforcementEvaluation, type BrowserEnforcementEvidenceBundle, type RuntimeIdentityRecord } from "./browser-enforcement.js";
 
 export const ACTION_MANDATE_VERSION = "agentcert.action_mandate.v0.2" as const;
 export const ACTION_ASSURANCE_RECEIPT_VERSION = "agentcert.action_assurance_receipt.v0.1" as const;
@@ -115,6 +116,8 @@ export interface EnforcementProof {
   adapterId?: string;
   executionGrantDigest?: string;
   actionEventChainDigest?: string;
+  browserEvaluation?: BrowserEnforcementEvaluation;
+  browserEvidence?: BrowserEnforcementEvidenceBundle;
 }
 
 export interface ActionAssuranceReceiptCore {
@@ -156,10 +159,26 @@ export interface ActionAssuranceReceiptCore {
     createdAt: string;
   }>;
   executionGrantDigest?: string;
+  executionGrantId?: string;
   evidenceStrength: ActionEvidenceStrength;
   enforcementLevel: EnforcementLevel;
   enforcementMethod: EnforcementMethod;
   actionEventChainDigest?: string;
+  executionSessionId?: string;
+  executionSessionAttestationDigest?: string;
+  runtimeIdentity?: { id: string; keyId: string };
+  adapterIdentity?: { id: string; version: string };
+  credentialIsolationSummary?: { mode: string; leaseId: string; revoked: boolean };
+  eventChainFinalHash?: string;
+  eventCount?: number;
+  outcomeAttestationDigest?: string;
+  outcomeObservationMethod?: string;
+  outcomeObservationIndependence?: string;
+  reconciliationReportDigest?: string;
+  reconciliationResult?: string;
+  enforcementChecks?: BrowserEnforcementEvaluation["checks"];
+  enforcementReasonCodes?: string[];
+  assuranceProfile?: string;
   outcomeAttestation?: {
     outcomeAttestationId: string;
     result: OutcomeResult;
@@ -315,27 +334,40 @@ export function createActionAssuranceReceipt(input: {
     createdAt: approval.createdAt,
   }));
   const requestedProof = input.enforcementProof;
-  const enforcementValid = Boolean(requestedProof?.verified && requestedProof.level === "ENFORCED" && requestedProof.method !== "NONE" && requestedProof.executionGrantDigest);
+  const browserEvaluation = requestedProof?.browserEvaluation;
+  const browserEvidence = requestedProof?.browserEvidence;
+  const enforcementValid = Boolean(
+    requestedProof?.verified
+    && requestedProof.level === "ENFORCED"
+    && requestedProof.method !== "NONE"
+    && requestedProof.executionGrantDigest
+    && browserEvaluation?.enforcementLevel === "ENFORCED"
+    && browserEvaluation.assuranceProfile === "BROWSER_ENFORCED_V0_2"
+    && browserEvaluation.checks.every((item) => item.result === "PASS")
+    && browserEvidence,
+  );
   const recordingValid = Boolean(requestedProof?.verified && requestedProof.actionEventChainDigest);
-  const outcomeProvenanceVerified = Boolean(input.outcome?.attestation && input.outcome.observationMethod !== "AGENT_SELF_REPORT");
+  const outcomeProvenanceVerified = Boolean(enforcementValid || (input.outcome?.attestation && input.outcome.observationMethod !== "AGENT_SELF_REPORT"));
   const enforcementLevel: EnforcementLevel = enforcementValid
     ? "ENFORCED"
     : outcomeProvenanceVerified ? "OBSERVED_ONLY" : "SELF_REPORTED";
   const enforcementMethod: EnforcementMethod = enforcementValid ? requestedProof!.method : "NONE";
-  const evidenceStrength: ActionEvidenceStrength = outcomeProvenanceVerified
-    ? "OUTCOME_VERIFIED"
-    : enforcementValid ? "ENFORCED" : recordingValid ? "RECORDED" : "REPORTED";
-  const warnings = [...mandateErrors];
+  const evidenceStrength: ActionEvidenceStrength = enforcementValid
+    ? "ENFORCED"
+    : outcomeProvenanceVerified ? "OUTCOME_VERIFIED" : recordingValid ? "RECORDED" : "REPORTED";
+  const warnings = [...mandateErrors, ...(browserEvaluation?.reasonCodes ?? [])];
   if (!enforcementValid) warnings.push("execution_boundary_not_verified");
   if (approvalBindings.some((approval) => !approval.bindingValid)) warnings.push("approval_not_bound_to_action_digest");
-  if (!input.outcome) warnings.push("outcome_not_observed");
-  else if (input.outcome.actionDigestSha256 !== digest) warnings.push("outcome_action_digest_mismatch");
-  else if (input.outcome.observationMethod === "AGENT_SELF_REPORT") warnings.push("outcome_agent_self_reported");
-  else if (!outcomeProvenanceVerified) warnings.push("outcome_provenance_unverified");
+  if (!enforcementValid) {
+    if (!input.outcome) warnings.push("outcome_not_observed");
+    else if (input.outcome.actionDigestSha256 !== digest) warnings.push("outcome_action_digest_mismatch");
+    else if (input.outcome.observationMethod === "AGENT_SELF_REPORT") warnings.push("outcome_agent_self_reported");
+    else if (!outcomeProvenanceVerified) warnings.push("outcome_provenance_unverified");
+  }
   if (!input.signer) warnings.push("receipt_not_server_attested");
   const principalId = String(input.action.principal.id ?? "unknown-principal");
   const principalAssurance: IdentityAssuranceLevel = "SELF_ASSERTED";
-  const collectorAssurance: IdentityAssuranceLevel = input.outcome?.attestation ? "WORKLOAD_ATTESTED" : "SELF_ASSERTED";
+  const collectorAssurance: IdentityAssuranceLevel = enforcementValid || input.outcome?.attestation ? "WORKLOAD_ATTESTED" : "SELF_ASSERTED";
   const core: ActionAssuranceReceiptCore = {
     receiptSchemaVersion: ACTION_ASSURANCE_RECEIPT_VERSION,
     receiptId: randomUUID(),
@@ -344,7 +376,7 @@ export function createActionAssuranceReceipt(input: {
     principalIdentity: { id: principalId, assuranceLevel: principalAssurance },
     agentIdentity: { id: input.action.agentId ?? principalId, version: optionalString(input.action.principal.version) },
     executorIdentity: { id: requestedProof?.adapterId ?? "unbound-executor", assuranceLevel: enforcementValid ? "WORKLOAD_ATTESTED" : "SELF_ASSERTED" },
-    collectorIdentity: { id: input.outcome?.collectorIdentityId ?? "unbound-collector", assuranceLevel: collectorAssurance },
+    collectorIdentity: { id: enforcementValid ? browserEvidence!.outcomeAttestation.payload.collectorIdentityId : input.outcome?.collectorIdentityId ?? "unbound-collector", assuranceLevel: collectorAssurance },
     issuerIdentity: { id: input.issuerId, keyId: input.signer?.keyId },
     mandateChainDigest: input.mandate?.digestSha256,
     mandateSummary: input.mandate ? {
@@ -367,11 +399,35 @@ export function createActionAssuranceReceipt(input: {
     },
     approvals: approvalBindings,
     executionGrantDigest: enforcementValid ? requestedProof?.executionGrantDigest : undefined,
+    executionGrantId: enforcementValid ? browserEvidence?.executionGrant.payload.executionGrantId : undefined,
     evidenceStrength,
     enforcementLevel,
     enforcementMethod,
     actionEventChainDigest: enforcementValid ? requestedProof?.actionEventChainDigest : undefined,
-    outcomeAttestation: input.outcome ? {
+    executionSessionId: enforcementValid ? browserEvidence?.executionSession.payload.executionSessionId : undefined,
+    executionSessionAttestationDigest: enforcementValid ? browserEvidence?.executionSession.payloadSha256 : undefined,
+    runtimeIdentity: enforcementValid ? { id: browserEvidence!.executionSession.payload.runtimeIdentityId, keyId: browserEvidence!.executionSession.payload.runtimeKeyId } : undefined,
+    adapterIdentity: enforcementValid ? { id: browserEvidence!.executionSession.payload.adapterId, version: browserEvidence!.executionSession.payload.adapterVersion } : undefined,
+    credentialIsolationSummary: enforcementValid ? { mode: browserEvidence!.credentialLease.isolationMode, leaseId: browserEvidence!.credentialLease.credentialLeaseId, revoked: browserEvidence!.credentialLease.status === "REVOKED" } : undefined,
+    eventChainFinalHash: enforcementValid ? browserEvidence?.eventCheckpoint.payload.finalEventHash : undefined,
+    eventCount: enforcementValid ? browserEvidence?.eventCheckpoint.payload.eventCount : undefined,
+    outcomeAttestationDigest: enforcementValid ? browserEvidence?.outcomeAttestation.payloadSha256 : undefined,
+    outcomeObservationMethod: enforcementValid ? browserEvidence?.outcomeAttestation.payload.observationMethod : undefined,
+    outcomeObservationIndependence: enforcementValid ? browserEvidence?.outcomeAttestation.payload.observationIndependence : undefined,
+    reconciliationReportDigest: enforcementValid ? browserEvidence?.reconciliationReport.payloadSha256 : undefined,
+    reconciliationResult: enforcementValid ? browserEvidence?.reconciliationReport.payload.result : undefined,
+    enforcementChecks: browserEvaluation?.checks,
+    enforcementReasonCodes: browserEvaluation?.reasonCodes,
+    assuranceProfile: browserEvaluation?.assuranceProfile,
+    outcomeAttestation: enforcementValid ? {
+      outcomeAttestationId: browserEvidence!.outcomeAttestation.payload.outcomeAttestationId,
+      result: browserEvidence!.outcomeAttestation.payload.result,
+      observationMethod: browserEvidence!.outcomeAttestation.payload.observationMethod,
+      observationSource: browserEvidence!.outcomeAttestation.payload.observationSource,
+      actionDigestSha256: digest,
+      confidence: browserEvidence!.outcomeAttestation.payload.confidence,
+      collectedAt: browserEvidence!.outcomeAttestation.payload.collectedAt,
+    } : input.outcome ? {
       outcomeAttestationId: input.outcome.id,
       result: input.outcome.result,
       observationMethod: input.outcome.observationMethod,
@@ -383,14 +439,14 @@ export function createActionAssuranceReceipt(input: {
     evidenceManifest: input.evidence.map((item) => ({ evidenceId: item.id, kind: item.kind, sha256: item.sha256, sizeBytes: item.sizeBytes })),
     identityAssuranceSummary: { principal: principalAssurance, agent: principalAssurance, executor: enforcementValid ? "WORKLOAD_ATTESTED" : "SELF_ASSERTED", collector: collectorAssurance },
     facts: {
-      directlyObserved: outcomeProvenanceVerified ? ["outcome"] : [],
-      thirdPartySigned: outcomeProvenanceVerified ? ["outcome_attestation"] : [],
+      directlyObserved: outcomeProvenanceVerified ? ["outcome", ...(enforcementValid ? ["execution_event_chain", "target_reconciliation"] : [])] : [],
+      thirdPartySigned: outcomeProvenanceVerified ? ["outcome_attestation", ...(enforcementValid ? ["runtime_claim", "execution_session", "reconciliation_report"] : [])] : [],
       inferred: ["policy_effect", "mandate_scope_match"],
       selfReported: input.outcome && !outcomeProvenanceVerified ? ["outcome"] : [],
     },
     controls: {
-      controlled: enforcementValid ? ["execution_grant", "adapter_boundary"] : ["policy_evaluation", ...(approvalBindings.some((item) => item.bindingValid) ? ["approval_binding"] : [])],
-      notControlled: enforcementValid ? [] : ["target_system_credentials", "alternate_execution_paths", "network_egress"],
+      controlled: enforcementValid ? ["execution_grant", "one_time_claim", "runtime_identity", "credential_isolated_adapter", "bounded_browser_session", "event_chain", "outcome_probe", "sandbox_reconciliation"] : ["policy_evaluation", ...(approvalBindings.some((item) => item.bindingValid) ? ["approval_binding"] : [])],
+      notControlled: enforcementValid ? ["agent_behavior_outside_this_action", "target_paths_outside_reconciled_sandbox_credential"] : ["target_system_credentials", "alternate_execution_paths", "network_egress"],
     },
     issuedAt: now.toISOString(),
     validUntil: new Date(input.validUntil).toISOString(),
@@ -402,7 +458,12 @@ export function createActionAssuranceReceipt(input: {
   return { core, coreSha256, signatureSet: input.signer ? [input.signer.attestCanonical(core, core.issuedAt)] : [] };
 }
 
-export function verifyActionAssuranceReceipt(receipt: ActionAssuranceReceipt, trustBundle: Record<string, string> = {}, at = new Date()): ReceiptVerificationResult {
+export function verifyActionAssuranceReceipt(
+  receipt: ActionAssuranceReceipt,
+  trustBundle: Record<string, string> = {},
+  at = new Date(),
+  browserProof?: { evidence: BrowserEnforcementEvidenceBundle; runtimeIdentity: RuntimeIdentityRecord },
+): ReceiptVerificationResult {
   const checks: ReceiptVerificationCheck[] = [];
   const digestMatches = sha256(canonicalJson(receipt.core)) === receipt.coreSha256;
   checks.push(check("payload_integrity", digestMatches, "receipt_digest_mismatch", "Receipt core digest matches canonical bytes."));
@@ -422,6 +483,16 @@ export function verifyActionAssuranceReceipt(receipt: ActionAssuranceReceipt, tr
     : { id: "approval_binding", result: "PASS", reasonCode: "approval_binding_valid", message: "All included approvals are bound to this action digest." });
   if (receipt.core.enforcementLevel === "ENFORCED") {
     checks.push(check("enforcement_proof", Boolean(receipt.core.executionGrantDigest && receipt.core.enforcementMethod !== "NONE"), "enforcement_proof_missing", "Enforced receipt includes a grant and enforcement method."));
+    if (!browserProof) {
+      checks.push({ id: "browser_enforcement_profile", result: "NOT_CHECKED", reasonCode: "enforcement_evidence_not_provided", message: "Cryptographic receipt verification completed, but the Browser enforcement proof bundle and current runtime trust were not provided." });
+    } else {
+      const evaluation = classifyBrowserEnforcement({ bundle: browserProof.evidence, runtimeIdentity: browserProof.runtimeIdentity, issuerKeys: trustBundle, now: at });
+      checks.push(check("browser_enforcement_profile", evaluation.enforcementLevel === "ENFORCED" && evaluation.assuranceProfile === receipt.core.assuranceProfile, evaluation.reasonCodes[0] ?? "enforcement_profile_invalid", "Browser enforcement proof independently satisfies the claimed profile."));
+      checks.push(check("execution_grant_digest", browserProof.evidence.executionGrant.payloadSha256 === receipt.core.executionGrantDigest, "execution_grant_digest_mismatch", "Receipt references the verified ExecutionGrant digest."));
+      checks.push(check("event_chain_digest", browserProof.evidence.eventCheckpoint.payloadSha256 === receipt.core.actionEventChainDigest, "event_chain_digest_mismatch", "Receipt references the verified event-chain checkpoint."));
+      checks.push(check("outcome_attestation_digest", browserProof.evidence.outcomeAttestation.payloadSha256 === receipt.core.outcomeAttestationDigest, "outcome_attestation_digest_mismatch", "Receipt references the verified outcome attestation."));
+      checks.push(check("reconciliation_digest", browserProof.evidence.reconciliationReport.payloadSha256 === receipt.core.reconciliationReportDigest, "reconciliation_digest_mismatch", "Receipt references the verified reconciliation report."));
+    }
   } else checks.push({ id: "enforcement_proof", result: "WARN", reasonCode: "not_enforced", message: `Execution is classified as ${receipt.core.enforcementLevel}.` });
   if (!receipt.core.outcomeAttestation) checks.push({ id: "outcome", result: "WARN", reasonCode: "outcome_not_observed", message: "No outcome attestation is present." });
   else checks.push(check("outcome_binding", receipt.core.outcomeAttestation.actionDigestSha256 === receipt.core.actionIntentDigest, "outcome_action_mismatch", "Outcome attestation is bound to the action digest."));

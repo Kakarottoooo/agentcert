@@ -33,6 +33,13 @@ visible, webhook/email alerts are durable, and revalidation creates a successor
 case instead of rewriting signed history. See the
 [continuous assurance contract](docs/continuous-assurance.md).
 
+**Browser Enforcement Boundary v0.2** binds one approved high-risk browser
+action to a short-lived signed grant, registered Onegent runtime, isolated
+credential adapter, complete signed event chain, independent outcome probe,
+and target-audit reconciliation. Only the Hosted central classifier can issue
+`BROWSER_ENFORCED_V0_2`; ordinary clients cannot self-assert it. See
+[the protocol and limitations](docs/browser-enforcement-boundary.md).
+
 **Use AgentCert:** [Product site](https://agentcert.app/) |
 [Public evidence](https://agentcert.app/evidence) |
 [Private workspace](https://agentcert.app/app) |

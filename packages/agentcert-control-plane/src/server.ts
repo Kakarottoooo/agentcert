@@ -123,6 +123,36 @@ async function handleRequest(
     sendJson(response, 200, await options.service.signingKeyById(decodeURIComponent(url.pathname.slice("/v1/signing-keys/".length))));
     return;
   }
+  const runtimeGrantRoute = url.pathname.match(/^\/v1\/runtime\/projects\/([^/]+)\/execution-grants\/([^/]+)\/(claim|consume)$/);
+  if (request.method === "POST" && runtimeGrantRoute) {
+    if (options.rateLimiter) {
+      const limit = await options.rateLimiter.consume(`runtime-grant:${rateLimitIdentity(request)}`);
+      setRateLimitHeaders(response, limit);
+      if (!limit.allowed) throw new ControlPlaneError("Runtime grant rate limit exceeded.", 429, "rate_limit_exceeded");
+    }
+    const projectId = decodeURIComponent(runtimeGrantRoute[1]!);
+    const grantId = decodeURIComponent(runtimeGrantRoute[2]!);
+    const operation = runtimeGrantRoute[3];
+    const body = await readJson(request, 262_144);
+    sendJson(response, operation === "claim" ? 201 : 200, operation === "claim"
+      ? await options.service.claimBrowserExecutionGrant(projectId, grantId, body)
+      : await options.service.consumeBrowserExecutionGrant(projectId, grantId, body));
+    return;
+  }
+  const runtimeEvidenceRoute = url.pathname.match(/^\/v1\/runtime\/projects\/([^/]+)\/execution-sessions\/([^/]+)\/evidence$/);
+  if (request.method === "POST" && runtimeEvidenceRoute) {
+    if (options.rateLimiter) {
+      const limit = await options.rateLimiter.consume(`runtime-evidence:${rateLimitIdentity(request)}`);
+      setRateLimitHeaders(response, limit);
+      if (!limit.allowed) throw new ControlPlaneError("Runtime evidence rate limit exceeded.", 429, "rate_limit_exceeded");
+    }
+    sendJson(response, 202, await options.service.submitBrowserEnforcementEvidence(
+      decodeURIComponent(runtimeEvidenceRoute[1]!),
+      decodeURIComponent(runtimeEvidenceRoute[2]!),
+      await readJson(request, 2_097_152),
+    ));
+    return;
+  }
   const publicAssuranceReport = url.pathname.match(/^\/v1\/public\/assurance-reports\/([^/]+)$/);
   if (request.method === "GET" && publicAssuranceReport) {
     sendJson(response, 200, await options.service.publicAssuranceReport(decodeURIComponent(publicAssuranceReport[1]!)));
@@ -343,6 +373,17 @@ async function handleRequest(
     else throw new ControlPlaneError("Mandate route was not found.", 404);
     return;
   }
+  if (collection === "runtime-identities") {
+    if (request.method === "GET" && !entityId) sendJson(response, 200, { runtimeIdentities: await options.service.listBrowserRuntimeIdentities(auth, projectId) });
+    else if (request.method === "POST" && !entityId) sendJson(response, 201, await options.service.registerBrowserRuntimeIdentity(auth, projectId, await readJson(request, 262_144)));
+    else if (request.method === "POST" && entityId && child === "status") sendJson(response, 200, await options.service.updateBrowserRuntimeIdentityStatus(auth, projectId, entityId, await readJson(request)));
+    else throw new ControlPlaneError("Runtime identity route was not found.", 404, "route_not_found");
+    return;
+  }
+  if (collection === "execution-grants" && entityId && child === "revoke" && request.method === "POST") {
+    sendJson(response, 200, await options.service.revokeBrowserExecutionGrant(auth, projectId, entityId, await readJson(request)));
+    return;
+  }
   if (collection === "runs") {
     if (request.method === "GET" && !entityId) sendJson(response, 200, { runs: await options.service.listRuns(auth, projectId) });
     else if (request.method === "POST" && !entityId) await sendIdempotentJson(request, response, options.service, projectId, "runs.create", 201,
@@ -368,6 +409,8 @@ async function handleRequest(
       (body) => options.service.verifyAction(auth, projectId, entityId, body), options.idempotencyCoordinator);
     else if (request.method === "POST" && entityId && child === "receipt") await sendIdempotentJson(request, response, options.service, projectId, `actions.${entityId}.receipt`, 201,
       () => options.service.issueActionAssuranceReceipt(auth, projectId, entityId), options.idempotencyCoordinator);
+    else if (request.method === "POST" && entityId && child === "execution-grant") await sendIdempotentJson(request, response, options.service, projectId, `actions.${entityId}.execution-grant`, 201,
+      (body) => options.service.issueBrowserExecutionGrant(auth, projectId, entityId, body), options.idempotencyCoordinator);
     else if (request.method === "GET" && entityId && child === "receipts") sendJson(response, 200, { receipts: await options.service.listActionAssuranceReceipts(auth, projectId, entityId) });
     else throw new ControlPlaneError("Action route was not found.", 404);
     return;
@@ -493,8 +536,8 @@ async function sendIdempotentJson(
   sendJson(response, lock.value.record.responseStatus, lock.value.record.responseBody);
 }
 
-async function readJson(request: IncomingMessage): Promise<unknown> {
-  const bytes = await readBody(request, 1_048_576);
+async function readJson(request: IncomingMessage, maxBytes = 1_048_576): Promise<unknown> {
+  const bytes = await readBody(request, maxBytes);
   if (bytes.length === 0) return {};
   try {
     return JSON.parse(bytes.toString("utf8"));
