@@ -50,6 +50,12 @@ import type {
   TrustedSourceRecord,
 } from "./types.js";
 import type { CapabilityCorrectionRecord, CapabilityManifestRecord } from "./semantics.js";
+import type {
+  ActionAssuranceReceiptRecord,
+  ActionMandateRecord,
+  ActionPolicyDecisionRecord,
+  OutcomeAttestationRecord,
+} from "./action-assurance.js";
 
 export const CONTROL_PLANE_MIGRATIONS = [
   "001_initial.sql",
@@ -74,6 +80,7 @@ export const CONTROL_PLANE_MIGRATIONS = [
   "020_observability_indexes.sql",
   "021_next_action_audit.sql",
   "022_agent_semantics.sql",
+  "023_action_assurance.sql",
 ] as const;
 
 const DEFAULT_PROJECT_NAME = "Agent assurance project";
@@ -165,6 +172,18 @@ export interface ControlPlaneStore {
   getAction(projectId: string, actionId: string): Promise<ActionRecord | undefined>;
   listActions(projectId: string, limit?: number): Promise<ActionRecord[]>;
   listActionsForTrace(projectId: string, traceId: string): Promise<ActionRecord[]>;
+  insertActionMandate(mandate: ActionMandateRecord): Promise<ActionMandateRecord>;
+  getActionMandate(projectId: string, mandateId: string): Promise<ActionMandateRecord | undefined>;
+  listActionMandates(projectId: string, limit?: number): Promise<ActionMandateRecord[]>;
+  consumeActionMandate(projectId: string, mandateId: string, maxUses: number): Promise<boolean>;
+  transitionActionMandate(mandate: ActionMandateRecord, expectedStatus: ActionMandateRecord["status"]): Promise<ActionMandateRecord | undefined>;
+  insertActionPolicyDecision(decision: ActionPolicyDecisionRecord): Promise<ActionPolicyDecisionRecord>;
+  getLatestActionPolicyDecision(projectId: string, actionId: string): Promise<ActionPolicyDecisionRecord | undefined>;
+  insertOutcomeAttestation(attestation: OutcomeAttestationRecord): Promise<OutcomeAttestationRecord>;
+  getLatestOutcomeAttestation(projectId: string, actionId: string): Promise<OutcomeAttestationRecord | undefined>;
+  insertActionAssuranceReceipt(receipt: ActionAssuranceReceiptRecord): Promise<ActionAssuranceReceiptRecord>;
+  getActionAssuranceReceipt(projectId: string, receiptId: string): Promise<ActionAssuranceReceiptRecord | undefined>;
+  listActionAssuranceReceipts(projectId: string, actionId?: string, limit?: number): Promise<ActionAssuranceReceiptRecord[]>;
   insertApproval(approval: ApprovalRecord): Promise<ApprovalRecord>;
   listApprovals(projectId: string, limit?: number): Promise<ApprovalRecord[]>;
   listApprovalsForActions(projectId: string, actionIds: string[]): Promise<ApprovalRecord[]>;
@@ -271,6 +290,11 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
   private events = new Map<string, EventRecord>();
   private actions = new Map<string, ActionRecord>();
   private approvals = new Map<string, ApprovalRecord>();
+  private actionMandates = new Map<string, ActionMandateRecord>();
+  private actionMandateUseCounts = new Map<string, number>();
+  private actionPolicyDecisions = new Map<string, ActionPolicyDecisionRecord>();
+  private outcomeAttestations = new Map<string, OutcomeAttestationRecord>();
+  private actionAssuranceReceipts = new Map<string, ActionAssuranceReceiptRecord>();
   private evidence = new Map<string, EvidenceRecord>();
   private incidents = new Map<string, IncidentRecord>();
   private incidentTransitions = new Map<string, IncidentTransitionRecord>();
@@ -683,6 +707,72 @@ export class InMemoryControlPlaneStore implements ControlPlaneStore {
 
   async listActionsForTrace(projectId: string, traceId: string): Promise<ActionRecord[]> {
     return newest([...this.actions.values()].filter((item) => item.projectId === projectId && item.traceId === traceId), "createdAt");
+  }
+
+  async insertActionMandate(mandate: ActionMandateRecord): Promise<ActionMandateRecord> {
+    const existing = this.actionMandates.get(mandate.id);
+    if (existing && existing.digestSha256 !== mandate.digestSha256) throw new Error(`Mandate ${mandate.id} is immutable.`);
+    if (!existing) this.actionMandates.set(mandate.id, structuredClone(mandate));
+    return structuredClone(existing ?? mandate);
+  }
+
+  async getActionMandate(projectId: string, mandateId: string): Promise<ActionMandateRecord | undefined> {
+    const mandate = this.actionMandates.get(mandateId);
+    return mandate?.projectId === projectId ? structuredClone(mandate) : undefined;
+  }
+
+  async listActionMandates(projectId: string, limit = 100): Promise<ActionMandateRecord[]> {
+    return newest([...this.actionMandates.values()].filter((item) => item.projectId === projectId), "createdAt").slice(0, limit).map((item) => structuredClone(item));
+  }
+
+  async consumeActionMandate(projectId: string, mandateId: string, maxUses: number): Promise<boolean> {
+    const mandate = this.actionMandates.get(mandateId);
+    if (!mandate || mandate.projectId !== projectId || mandate.status !== "ACTIVE") return false;
+    const count = this.actionMandateUseCounts.get(mandateId) ?? 0;
+    if (count >= maxUses) return false;
+    this.actionMandateUseCounts.set(mandateId, count + 1);
+    return true;
+  }
+
+  async transitionActionMandate(mandate: ActionMandateRecord, expectedStatus: ActionMandateRecord["status"]): Promise<ActionMandateRecord | undefined> {
+    const current = this.actionMandates.get(mandate.id);
+    if (!current || current.projectId !== mandate.projectId || current.status !== expectedStatus) return undefined;
+    this.actionMandates.set(mandate.id, structuredClone(mandate));
+    return structuredClone(mandate);
+  }
+
+  async insertActionPolicyDecision(decision: ActionPolicyDecisionRecord): Promise<ActionPolicyDecisionRecord> {
+    this.actionPolicyDecisions.set(decision.id, structuredClone(decision));
+    return structuredClone(decision);
+  }
+
+  async getLatestActionPolicyDecision(projectId: string, actionId: string): Promise<ActionPolicyDecisionRecord | undefined> {
+    return newest([...this.actionPolicyDecisions.values()].filter((item) => item.projectId === projectId && item.actionId === actionId), "evaluatedAt")[0];
+  }
+
+  async insertOutcomeAttestation(attestation: OutcomeAttestationRecord): Promise<OutcomeAttestationRecord> {
+    this.outcomeAttestations.set(attestation.id, structuredClone(attestation));
+    return structuredClone(attestation);
+  }
+
+  async getLatestOutcomeAttestation(projectId: string, actionId: string): Promise<OutcomeAttestationRecord | undefined> {
+    return newest([...this.outcomeAttestations.values()].filter((item) => item.projectId === projectId && item.actionId === actionId), "collectedAt")[0];
+  }
+
+  async insertActionAssuranceReceipt(record: ActionAssuranceReceiptRecord): Promise<ActionAssuranceReceiptRecord> {
+    const existing = this.actionAssuranceReceipts.get(record.id);
+    if (existing && existing.receipt.coreSha256 !== record.receipt.coreSha256) throw new Error(`Receipt ${record.id} is immutable.`);
+    if (!existing) this.actionAssuranceReceipts.set(record.id, structuredClone(record));
+    return structuredClone(existing ?? record);
+  }
+
+  async getActionAssuranceReceipt(projectId: string, receiptId: string): Promise<ActionAssuranceReceiptRecord | undefined> {
+    const receipt = this.actionAssuranceReceipts.get(receiptId);
+    return receipt?.projectId === projectId ? structuredClone(receipt) : undefined;
+  }
+
+  async listActionAssuranceReceipts(projectId: string, actionId?: string, limit = 100): Promise<ActionAssuranceReceiptRecord[]> {
+    return newest([...this.actionAssuranceReceipts.values()].filter((item) => item.projectId === projectId && (!actionId || item.actionId === actionId)), "createdAt").slice(0, limit).map((item) => structuredClone(item));
   }
 
   async insertApproval(approval: ApprovalRecord): Promise<ApprovalRecord> {
@@ -1969,10 +2059,99 @@ export class PostgresControlPlaneStore implements ControlPlaneStore {
     return many(this.pool.query("SELECT * FROM agentcert_actions WHERE project_id=$1 AND trace_id=$2 ORDER BY created_at", [projectId, traceId]), actionFromRow);
   }
 
+  async insertActionMandate(mandate: ActionMandateRecord): Promise<ActionMandateRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_action_mandates (id,project_id,payload,digest_sha256,status,attestation,created_by,created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO NOTHING RETURNING *`,
+      [mandate.id, mandate.projectId, JSON.stringify(mandate.payload), mandate.digestSha256, mandate.status, jsonOrNull(mandate.attestation), mandate.createdBy, mandate.createdAt],
+    );
+    if (result.rows[0]) return actionMandateFromRow(result.rows[0]);
+    const existing = await this.getActionMandate(mandate.projectId, mandate.id);
+    if (!existing || existing.digestSha256 !== mandate.digestSha256) throw new Error(`Mandate ${mandate.id} is immutable.`);
+    return existing;
+  }
+
+  async getActionMandate(projectId: string, mandateId: string): Promise<ActionMandateRecord | undefined> {
+    return one(this.pool.query("SELECT * FROM agentcert_action_mandates WHERE project_id=$1 AND id=$2", [projectId, mandateId]), actionMandateFromRow);
+  }
+
+  async listActionMandates(projectId: string, limit = 100): Promise<ActionMandateRecord[]> {
+    return many(this.pool.query("SELECT * FROM agentcert_action_mandates WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2", [projectId, limit]), actionMandateFromRow);
+  }
+
+  async consumeActionMandate(projectId: string, mandateId: string, maxUses: number): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE agentcert_action_mandates
+       SET usage_count = usage_count + 1
+       WHERE project_id=$1 AND id=$2 AND status='ACTIVE' AND usage_count < $3
+       RETURNING id`,
+      [projectId, mandateId, maxUses],
+    );
+    return Boolean(result.rows[0]);
+  }
+
+  async transitionActionMandate(mandate: ActionMandateRecord, expectedStatus: ActionMandateRecord["status"]): Promise<ActionMandateRecord | undefined> {
+    return one(this.pool.query(
+      `UPDATE agentcert_action_mandates
+       SET status=$1,status_reason=$2,status_changed_by=$3,status_changed_at=$4
+       WHERE project_id=$5 AND id=$6 AND status=$7
+       RETURNING *`,
+      [mandate.status, mandate.statusReason ?? null, mandate.statusChangedBy ?? null, mandate.statusChangedAt ?? null, mandate.projectId, mandate.id, expectedStatus],
+    ), actionMandateFromRow);
+  }
+
+  async insertActionPolicyDecision(decision: ActionPolicyDecisionRecord): Promise<ActionPolicyDecisionRecord> {
+    await this.pool.query(
+      `INSERT INTO agentcert_action_policy_decisions (id,project_id,action_id,action_digest_sha256,decision,evaluated_at)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [decision.id, decision.projectId, decision.actionId, decision.actionDigestSha256, JSON.stringify(decision), decision.evaluatedAt],
+    );
+    return decision;
+  }
+
+  async getLatestActionPolicyDecision(projectId: string, actionId: string): Promise<ActionPolicyDecisionRecord | undefined> {
+    return one(this.pool.query("SELECT decision FROM agentcert_action_policy_decisions WHERE project_id=$1 AND action_id=$2 ORDER BY evaluated_at DESC LIMIT 1", [projectId, actionId]), (row) => object(row.decision) as unknown as ActionPolicyDecisionRecord);
+  }
+
+  async insertOutcomeAttestation(attestation: OutcomeAttestationRecord): Promise<OutcomeAttestationRecord> {
+    await this.pool.query(
+      `INSERT INTO agentcert_outcome_attestations (id,project_id,action_id,action_digest_sha256,attestation,collected_at)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [attestation.id, attestation.projectId, attestation.actionId, attestation.actionDigestSha256, JSON.stringify(attestation), attestation.collectedAt],
+    );
+    return attestation;
+  }
+
+  async getLatestOutcomeAttestation(projectId: string, actionId: string): Promise<OutcomeAttestationRecord | undefined> {
+    return one(this.pool.query("SELECT attestation FROM agentcert_outcome_attestations WHERE project_id=$1 AND action_id=$2 ORDER BY collected_at DESC LIMIT 1", [projectId, actionId]), (row) => object(row.attestation) as unknown as OutcomeAttestationRecord);
+  }
+
+  async insertActionAssuranceReceipt(record: ActionAssuranceReceiptRecord): Promise<ActionAssuranceReceiptRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO agentcert_action_assurance_receipts (id,project_id,action_id,receipt,core_sha256,current_status,created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING RETURNING *`,
+      [record.id, record.projectId, record.actionId, JSON.stringify(record.receipt), record.receipt.coreSha256, record.currentStatus, record.createdAt],
+    );
+    if (result.rows[0]) return actionAssuranceReceiptFromRow(result.rows[0]);
+    const existing = await this.getActionAssuranceReceipt(record.projectId, record.id);
+    if (!existing || existing.receipt.coreSha256 !== record.receipt.coreSha256) throw new Error(`Receipt ${record.id} is immutable.`);
+    return existing;
+  }
+
+  async getActionAssuranceReceipt(projectId: string, receiptId: string): Promise<ActionAssuranceReceiptRecord | undefined> {
+    return one(this.pool.query("SELECT * FROM agentcert_action_assurance_receipts WHERE project_id=$1 AND id=$2", [projectId, receiptId]), actionAssuranceReceiptFromRow);
+  }
+
+  async listActionAssuranceReceipts(projectId: string, actionId?: string, limit = 100): Promise<ActionAssuranceReceiptRecord[]> {
+    return actionId
+      ? many(this.pool.query("SELECT * FROM agentcert_action_assurance_receipts WHERE project_id=$1 AND action_id=$2 ORDER BY created_at DESC LIMIT $3", [projectId, actionId, limit]), actionAssuranceReceiptFromRow)
+      : many(this.pool.query("SELECT * FROM agentcert_action_assurance_receipts WHERE project_id=$1 ORDER BY created_at DESC LIMIT $2", [projectId, limit]), actionAssuranceReceiptFromRow);
+  }
+
   async insertApproval(approval: ApprovalRecord): Promise<ApprovalRecord> {
     await this.pool.query(
-      "INSERT INTO agentcert_approvals (id,project_id,action_id,reviewer_id,decision,comment,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)",
-      [approval.id, approval.projectId, approval.actionId, approval.reviewerId, approval.decision, approval.comment ?? null, approval.createdAt],
+      "INSERT INTO agentcert_approvals (id,project_id,action_id,reviewer_id,decision,comment,created_at,action_digest_sha256) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+      [approval.id, approval.projectId, approval.actionId, approval.reviewerId, approval.decision, approval.comment ?? null, approval.createdAt, approval.actionDigestSha256 ?? null],
     );
     return approval;
   }
@@ -3051,7 +3230,16 @@ function actionFromRow(row: Record<string, unknown>): ActionRecord {
 }
 function approvalFromRow(row: Record<string, unknown>): ApprovalRecord {
   return { id: text(row.id), projectId: text(row.project_id), actionId: text(row.action_id), reviewerId: text(row.reviewer_id),
-    decision: text(row.decision) as ApprovalRecord["decision"], comment: optionalText(row.comment), createdAt: iso(row.created_at) };
+    decision: text(row.decision) as ApprovalRecord["decision"], actionDigestSha256: optionalText(row.action_digest_sha256), comment: optionalText(row.comment), createdAt: iso(row.created_at) };
+}
+function actionMandateFromRow(row: Record<string, unknown>): ActionMandateRecord {
+  return { id: text(row.id), projectId: text(row.project_id), payload: object(row.payload) as unknown as ActionMandateRecord["payload"], digestSha256: text(row.digest_sha256),
+    status: text(row.status) as ActionMandateRecord["status"], attestation: optionalObject(row.attestation) as unknown as ActionMandateRecord["attestation"], createdBy: text(row.created_by), createdAt: iso(row.created_at),
+    statusReason: optionalText(row.status_reason), statusChangedBy: optionalText(row.status_changed_by), statusChangedAt: optionalIso(row.status_changed_at) };
+}
+function actionAssuranceReceiptFromRow(row: Record<string, unknown>): ActionAssuranceReceiptRecord {
+  return { id: text(row.id), projectId: text(row.project_id), actionId: text(row.action_id), receipt: object(row.receipt) as unknown as ActionAssuranceReceiptRecord["receipt"],
+    currentStatus: text(row.current_status) as ActionAssuranceReceiptRecord["currentStatus"], createdAt: iso(row.created_at) };
 }
 function evidenceFromRow(row: Record<string, unknown>): EvidenceRecord {
   return { id: text(row.id), projectId: text(row.project_id), runId: optionalText(row.run_id), actionId: optionalText(row.action_id), kind: text(row.kind),

@@ -501,6 +501,7 @@ export interface ApprovalRecord {
   actionId: string;
   reviewerId: string;
   decision: "APPROVED" | "REJECTED";
+  actionDigestSha256?: string;
   comment?: string;
   createdAt: string;
 }

@@ -75,7 +75,7 @@ import type {
 } from "./types.js";
 import { DisabledEmailProvider, type EmailProvider } from "./notifications.js";
 import { EnvelopeValidationError, isSpanId, isTraceId, parseUniversalEnvelope, type UniversalEnvelope } from "./protocol.js";
-import { EvidenceSigner, type EvidenceAttestationPayload } from "./signing.js";
+import { EvidenceSigner, canonicalJson, type EvidenceAttestationPayload } from "./signing.js";
 import { buildAssuranceDeliveryPacket, buildAssuranceReport, canTransitionAssuranceCase, evaluationPlanDigest, missingRequiredEvidence } from "./assurance.js";
 import {
   applyContinuousAssuranceObservation,
@@ -129,6 +129,22 @@ import {
   type CapabilitySuggestionProvider,
   type SemanticCoverageSnapshot,
 } from "./semantics.js";
+import {
+  ACTION_MANDATE_VERSION,
+  actionIntentDigest,
+  actionRequestFingerprint,
+  createActionAssuranceReceipt,
+  mandateDigest,
+  validateDelegationAttenuation,
+  validateMandateForAction,
+  type ActionAssuranceReceiptRecord,
+  type ActionMandatePayload,
+  type ActionMandateRecord,
+  type ActionPolicyDecisionRecord,
+  type MandateConstraints,
+  type OutcomeAttestationRecord,
+  type OutcomeMethod,
+} from "./action-assurance.js";
 
 const POLICY_VERSION = "agentcert.default.v1";
 const DEFAULT_WEBHOOK_MAX_ATTEMPTS = 5;
@@ -1360,6 +1376,94 @@ export class AgentCertControlPlane {
     });
   }
 
+  async createActionMandate(auth: AuthContext, projectId: string, input: unknown): Promise<ActionMandateRecord> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    requireUser(auth);
+    if (!this.evidenceSigner) throw new ControlPlaneError("Action mandate signing is not configured.", 503, "mandate_signing_unavailable");
+    const body = record(input);
+    const constraints = mandateConstraints(record(body.constraints));
+    const now = new Date();
+    const validFrom = body.validFrom === undefined ? now.toISOString() : requiredTimestamp(body, "validFrom");
+    const expiresAt = requiredTimestamp(body, "expiresAt");
+    if (Date.parse(expiresAt) <= Date.parse(validFrom) || Date.parse(expiresAt) <= now.getTime() || Date.parse(expiresAt) > now.getTime() + 365 * 24 * 60 * 60 * 1_000) {
+      throw new ControlPlaneError("expiresAt must be after validFrom and no more than 365 days from issuance.", 422, "mandate_validity_invalid");
+    }
+    const id = randomUUID();
+    const parentMandateId = optionalString(body, "parentMandateId");
+    const maxUses = positiveInteger(body.maxUses, "maxUses", 1);
+    const payload: ActionMandatePayload = {
+      schemaVersion: ACTION_MANDATE_VERSION,
+      mandateId: id,
+      tenantId: projectId,
+      issuerIdentityId: auth.userId,
+      granteeIdentityId: requiredString(body, "granteeIdentityId"),
+      parentMandateId,
+      audience: strictStringList(body.audience, "audience"),
+      permittedActionClasses: strictStringList(body.permittedActionClasses, "permittedActionClasses").map(actionTypeValue),
+      permittedOperations: strictStringList(body.permittedOperations, "permittedOperations"),
+      permittedResources: strictStringList(body.permittedResources, "permittedResources"),
+      prohibitedOperations: optionalStringList(body.prohibitedOperations, "prohibitedOperations"),
+      constraints,
+      validFrom,
+      expiresAt,
+      maxUses,
+      maxDelegationDepth: nonNegativeInteger(body.maxDelegationDepth, "maxDelegationDepth", 0),
+      nonce: optionalString(body, "nonce") ?? randomBytes(16).toString("hex"),
+      version: positiveInteger(body.version, "version", 1),
+      createdAt: now.toISOString(),
+    };
+    if (parentMandateId) {
+      const parent = await this.store.getActionMandate(projectId, parentMandateId);
+      if (!parent) throw new ControlPlaneError("Parent mandate was not found.", 404, "parent_mandate_not_found");
+      const errors = validateDelegationAttenuation(parent.payload, payload);
+      if (errors.length) throw new ControlPlaneError(`Delegation would expand authority: ${errors.join(", ")}.`, 422, "delegation_not_attenuated");
+    }
+    const digestSha256 = mandateDigest(payload);
+    return this.store.insertActionMandate({
+      id,
+      projectId,
+      payload,
+      digestSha256,
+      status: "ACTIVE",
+      attestation: this.evidenceSigner.attestCanonical(payload, payload.createdAt),
+      createdBy: auth.userId,
+      createdAt: payload.createdAt,
+    });
+  }
+
+  async listActionMandates(auth: AuthContext, projectId: string): Promise<ActionMandateRecord[]> {
+    await this.authorizeProject(auth, projectId, undefined, "actions:read");
+    return this.store.listActionMandates(projectId);
+  }
+
+  async getActionMandate(auth: AuthContext, projectId: string, mandateId: string): Promise<ActionMandateRecord> {
+    await this.authorizeProject(auth, projectId, undefined, "actions:read");
+    const mandate = await this.store.getActionMandate(projectId, mandateId);
+    if (!mandate) throw new ControlPlaneError("Mandate was not found.", 404, "mandate_not_found");
+    return mandate;
+  }
+
+  async revokeActionMandate(auth: AuthContext, projectId: string, mandateId: string, input: unknown): Promise<ActionMandateRecord> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    requireUser(auth);
+    const mandate = await this.store.getActionMandate(projectId, mandateId);
+    if (!mandate) throw new ControlPlaneError("Mandate was not found.", 404, "mandate_not_found");
+    if (mandate.status === "REVOKED") return mandate;
+    if (mandate.status !== "ACTIVE") throw new ControlPlaneError(`Mandate cannot be revoked from status ${mandate.status}.`, 409, "mandate_status_conflict");
+    const reason = requiredString(record(input), "reason");
+    if (reason.length < 10) throw new ControlPlaneError("reason must contain at least 10 characters.", 422, "mandate_revocation_reason_invalid");
+    const changedAt = new Date().toISOString();
+    const next = await this.store.transitionActionMandate({
+      ...mandate,
+      status: "REVOKED",
+      statusReason: reason,
+      statusChangedBy: auth.userId,
+      statusChangedAt: changedAt,
+    }, "ACTIVE");
+    if (!next) throw new ControlPlaneError("Mandate changed before revocation completed.", 409, "mandate_status_conflict");
+    return next;
+  }
+
   async proposeAction(auth: AuthContext, projectId: string, input: unknown): Promise<ActionRecord> {
     await this.authorizeProject(auth, projectId, undefined, "actions:write");
     const body = record(input);
@@ -1375,15 +1479,57 @@ export class AgentCertControlPlane {
     const parentSpanId = optionalString(body, "parentSpanId")?.toLowerCase();
     validateTraceIds(traceId, spanId, parentSpanId);
     const now = new Date().toISOString();
-    return this.store.insertAction({
+    const suppliedAssurance = actionAssuranceContext(body.assurance);
+    const requestedMandateId = optionalString(body, "mandateId");
+    const mandateId = requestedMandateId ?? suppliedAssurance?.mandateId;
+    const mandate = mandateId ? await this.store.getActionMandate(projectId, mandateId) : undefined;
+    const action: ActionRecord = {
       id: randomUUID(), projectId, agentId, externalId: requiredString(body, "externalId"), principal: record(body.principal), actionType,
       targetSystem: requiredString(body, "targetSystem"), requestedPermissions, amount, currency: optionalString(body, "currency"),
       riskLevel: assessment.riskLevel, riskScore: assessment.riskScore, decision: assessment.decision,
       status: assessment.decision === "ALLOW" ? "ALLOWED" : assessment.decision === "DENY" ? "DENIED" : "PENDING_APPROVAL",
       policyVersion: POLICY_VERSION, reasons: assessment.reasons, expectedState: optionalRecord(body.expectedState), createdAt: now, updatedAt: now,
       traceId, spanId, parentSpanId,
-      assuranceContext: actionAssuranceContext(body.assurance),
-    });
+      assuranceContext: mandate ? { mandateId: mandate.id, mandateDigestSha256: mandate.digestSha256 } : suppliedAssurance,
+    };
+    const mandateErrors = mandate ? validateMandateForAction(mandate, action, new Date(now)) : body.requireMandate === true ? ["mandate_missing"] : [];
+    if ((requestedMandateId || body.requireMandate === true) && mandateId && !mandate) mandateErrors.push("mandate_not_found");
+    if (mandateErrors.length) {
+      action.decision = "DENY";
+      action.status = "DENIED";
+      action.reasons = [...action.reasons, ...mandateErrors];
+    }
+    const inserted = await this.store.insertAction(action);
+    if (inserted.id !== action.id) {
+      if (actionRequestFingerprint(inserted) !== actionRequestFingerprint(action)) {
+        throw new ControlPlaneError("externalId was already used for a different action intent.", 409, "action_idempotency_conflict");
+      }
+      return inserted;
+    }
+    if (mandate && inserted.decision !== "DENY" && !mandateErrors.length && (requestedMandateId || body.requireMandate === true)) {
+      const consumed = await this.store.consumeActionMandate(projectId, mandate.id, mandate.payload.maxUses);
+      if (!consumed) {
+        inserted.decision = "DENY";
+        inserted.status = "DENIED";
+        inserted.reasons = [...inserted.reasons, "mandate_uses_exhausted"];
+        inserted.updatedAt = new Date().toISOString();
+        await this.store.updateAction(inserted);
+      }
+    }
+    const digestSha256 = actionIntentDigest(inserted);
+    const decisionPayload: Omit<ActionPolicyDecisionRecord, "attestation"> = {
+      id: randomUUID(), projectId, actionId: inserted.id, actionDigestSha256: digestSha256,
+      policyId: POLICY_VERSION, policyVersion: POLICY_VERSION,
+      result: inserted.decision === "ALLOW" ? "ALLOW" : inserted.decision === "DENY" ? "DENY" : "NEEDS_APPROVAL",
+      reasonCodes: inserted.reasons.map(policyReasonCode),
+      humanReadableExplanation: inserted.reasons.join(" "),
+      obligations: inserted.decision === "REQUIRE_APPROVAL" ? ["human_approval"] : [],
+      requiredApprovers: inserted.decision === "REQUIRE_APPROVAL" ? ["project_operator_or_above"] : [],
+      evaluatedContextDigest: createHash("sha256").update(canonicalJson({ riskLevel: inserted.riskLevel, riskScore: inserted.riskScore, mandateDigestSha256: mandate?.digestSha256 })).digest("hex"),
+      evaluatedAt: now, evaluatorIdentity: "agentcert-control-plane",
+    };
+    await this.store.insertActionPolicyDecision({ ...decisionPayload, attestation: this.evidenceSigner?.attestCanonical(decisionPayload, now) });
+    return inserted;
   }
 
   async reviewAction(auth: AuthContext, projectId: string, actionId: string, approved: boolean, input: unknown): Promise<ActionRecord> {
@@ -1395,7 +1541,7 @@ export class AgentCertControlPlane {
     const body = record(input);
     const decision = approved ? "APPROVED" : "REJECTED";
     const approval: ApprovalRecord = {
-      id: randomUUID(), projectId, actionId, reviewerId: auth.userId, decision, comment: optionalString(body, "comment"), createdAt: new Date().toISOString(),
+      id: randomUUID(), projectId, actionId, reviewerId: auth.userId, decision, actionDigestSha256: actionIntentDigest(action), comment: optionalString(body, "comment"), createdAt: new Date().toISOString(),
     };
     await this.store.insertApproval(approval);
     const next = await this.store.updateAction({ ...action, decision: approved ? "ALLOW" : "DENY", status: decision, reasons: [...action.reasons, `Human reviewer ${decision.toLowerCase()} the action.`], updatedAt: approval.createdAt });
@@ -1411,6 +1557,19 @@ export class AgentCertControlPlane {
     const body = record(input);
     const observedState = record(body.observedState);
     const success = action.expectedState ? matchesExpected(action.expectedState, observedState) : false;
+    const observationMethod = outcomeMethod(body.observationMethod);
+    const outcome: OutcomeAttestationRecord = {
+      id: randomUUID(), projectId, actionId, actionDigestSha256: actionIntentDigest(action),
+      predicateId: optionalString(body, "predicateId") ?? "expected_state_subset",
+      predicateVersion: optionalString(body, "predicateVersion") ?? "1",
+      expectedState: action.expectedState ?? {}, observedState,
+      result: action.expectedState ? (success ? "SATISFIED" : "NOT_SATISFIED") : "INCONCLUSIVE",
+      observationMethod, observationSource: optionalString(body, "observationSource") ?? "agentcert-hosted-api",
+      collectorIdentityId: optionalString(body, "collectorIdentityId"), collectedAt: new Date().toISOString(),
+      evidenceReferences: optionalStringList(body.evidenceReferences, "evidenceReferences"),
+      confidence: boundedConfidence(body.confidence, observationMethod === "AGENT_SELF_REPORT" ? 0.25 : 0.5),
+    };
+    await this.store.insertOutcomeAttestation(outcome);
     const next = await this.store.updateAction({
       ...action, observedState, verificationSuccess: success, status: success ? "VERIFIED" : "VERIFICATION_FAILED",
       reasons: success ? action.reasons : [...action.reasons, "Observed state did not match expected state."], updatedAt: new Date().toISOString(),
@@ -1424,6 +1583,46 @@ export class AgentCertControlPlane {
     }
     await this.emitWebhook(projectId, "action.verified", next.id, next);
     return next;
+  }
+
+  async issueActionAssuranceReceipt(auth: AuthContext, projectId: string, actionId: string): Promise<ActionAssuranceReceiptRecord> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin"]);
+    requireUser(auth);
+    if (!this.evidenceSigner) throw new ControlPlaneError("Receipt signing is not configured.", 503, "receipt_signing_unavailable");
+    const action = await this.store.getAction(projectId, actionId);
+    if (!action) throw new ControlPlaneError("Action was not found.", 404);
+    const policyDecision = await this.store.getLatestActionPolicyDecision(projectId, actionId);
+    if (!policyDecision) throw new ControlPlaneError("Action has no append-only policy decision.", 409, "policy_decision_missing");
+    const mandate = action.assuranceContext?.mandateId ? await this.store.getActionMandate(projectId, action.assuranceContext.mandateId) : undefined;
+    const [approvals, outcome, evidence] = await Promise.all([
+      this.store.listApprovalsForActions(projectId, [actionId]),
+      this.store.getLatestOutcomeAttestation(projectId, actionId),
+      this.store.listEvidenceForActions(projectId, [actionId]),
+    ]);
+    const now = new Date();
+    const defaultExpiry = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1_000);
+    const mandateExpiry = mandate ? new Date(mandate.payload.expiresAt) : undefined;
+    const validUntil = mandateExpiry && mandateExpiry < defaultExpiry ? mandateExpiry.toISOString() : defaultExpiry.toISOString();
+    const receipt = createActionAssuranceReceipt({
+      action, mandate, policyDecision, approvals, outcome, evidence,
+      issuerId: "agentcert-control-plane", signer: this.evidenceSigner, validUntil,
+      statusEndpoint: `${this.publicUrl}/v1/projects/${encodeURIComponent(projectId)}/receipts/{receiptId}`,
+      now,
+    });
+    const record: ActionAssuranceReceiptRecord = { id: receipt.core.receiptId, projectId, actionId, receipt, currentStatus: receipt.core.currentStatus, createdAt: receipt.core.issuedAt };
+    return this.store.insertActionAssuranceReceipt(record);
+  }
+
+  async listActionAssuranceReceipts(auth: AuthContext, projectId: string, actionId?: string): Promise<ActionAssuranceReceiptRecord[]> {
+    await this.authorizeProject(auth, projectId, undefined, "evidence:read");
+    return this.store.listActionAssuranceReceipts(projectId, actionId);
+  }
+
+  async getActionAssuranceReceipt(auth: AuthContext, projectId: string, receiptId: string): Promise<ActionAssuranceReceiptRecord> {
+    await this.authorizeProject(auth, projectId, undefined, "evidence:read");
+    const receipt = await this.store.getActionAssuranceReceipt(projectId, receiptId);
+    if (!receipt) throw new ControlPlaneError("Action assurance receipt was not found.", 404, "receipt_not_found");
+    return receipt;
   }
 
   async listActions(auth: AuthContext, projectId: string): Promise<ActionRecord[]> {
@@ -3521,6 +3720,52 @@ function requiredTimestamp(value: Record<string, unknown>, key: string): string 
   const result = requiredString(value, key);
   if (!Number.isFinite(Date.parse(result))) throw new ControlPlaneError(`${key} must be a valid timestamp.`);
   return new Date(result).toISOString();
+}
+function positiveInteger(value: unknown, key: string, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (!Number.isSafeInteger(value) || Number(value) <= 0) throw new ControlPlaneError(`${key} must be a positive integer.`, 422);
+  return Number(value);
+}
+function nonNegativeInteger(value: unknown, key: string, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (!Number.isSafeInteger(value) || Number(value) < 0) throw new ControlPlaneError(`${key} must be a non-negative integer.`, 422);
+  return Number(value);
+}
+function mandateConstraints(value: Record<string, unknown>): MandateConstraints {
+  const monetaryLimit = optionalNumber(value, "monetaryLimit");
+  if (monetaryLimit !== undefined && monetaryLimit < 0) throw new ControlPlaneError("constraints.monetaryLimit must be non-negative.", 422);
+  const approvalRequirement = value.approvalRequirement;
+  if (approvalRequirement !== undefined && approvalRequirement !== "NONE" && approvalRequirement !== "HUMAN" && approvalRequirement !== "MULTI_PARTY") {
+    throw new ControlPlaneError("constraints.approvalRequirement is not supported.", 422);
+  }
+  return {
+    monetaryLimit,
+    valueBand: optionalString(value, "valueBand"),
+    geographicLimit: optionalStringList(value.geographicLimit, "constraints.geographicLimit"),
+    counterpartyAllowlist: optionalStringList(value.counterpartyAllowlist, "constraints.counterpartyAllowlist"),
+    counterpartyDenylist: optionalStringList(value.counterpartyDenylist, "constraints.counterpartyDenylist"),
+    resourceLimit: optionalStringList(value.resourceLimit, "constraints.resourceLimit"),
+    approvalRequirement: approvalRequirement as MandateConstraints["approvalRequirement"],
+    allowedAdapter: optionalStringList(value.allowedAdapter, "constraints.allowedAdapter"),
+    allowedEnvironment: optionalStringList(value.allowedEnvironment, "constraints.allowedEnvironment"),
+    dataClassificationLimit: optionalString(value, "dataClassificationLimit"),
+    rollbackRequired: typeof value.rollbackRequired === "boolean" ? value.rollbackRequired : undefined,
+    outcomePredicateRequirement: optionalString(value, "outcomePredicateRequirement"),
+  };
+}
+function policyReasonCode(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 80) || "policy_reason";
+}
+function outcomeMethod(value: unknown): OutcomeMethod {
+  const allowed = new Set<OutcomeMethod>(["TARGET_API", "TARGET_UI", "TARGET_AUDIT_LOG", "WEBHOOK", "DATABASE_QUERY", "THIRD_PARTY_CONFIRMATION", "AGENT_SELF_REPORT"]);
+  if (value === undefined) return "AGENT_SELF_REPORT";
+  if (typeof value === "string" && allowed.has(value as OutcomeMethod)) return value as OutcomeMethod;
+  throw new ControlPlaneError("observationMethod is not supported.", 422);
+}
+function boundedConfidence(value: unknown, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) throw new ControlPlaneError("confidence must be between 0 and 1.", 422);
+  return value;
 }
 function optionalNumber(value: Record<string, unknown>, key: string): number | undefined { return typeof value[key] === "number" && Number.isFinite(value[key]) ? value[key] : undefined; }
 function databaseErrorCode(error: unknown): string | undefined { return error && typeof error === "object" && "code" in error ? String(error.code) : undefined; }

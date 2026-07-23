@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentcert.app/schemas/action-assurance-receipt/v0.1/receipt.schema.json",
+  "title": "AgentCert Action Assurance Receipt v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["core", "coreSha256", "signatureSet"],
+  "properties": {
+    "core": { "$ref": "#/$defs/core" },
+    "coreSha256": { "$ref": "#/$defs/sha256" },
+    "signatureSet": { "type": "array", "items": { "$ref": "#/$defs/attestation" } }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "identityAssurance": { "enum": ["SELF_ASSERTED", "EMAIL_VERIFIED", "OIDC_VERIFIED", "ORGANIZATION_ATTESTED", "WORKLOAD_ATTESTED", "HARDWARE_ATTESTED"] },
+    "status": { "enum": ["ACTIVE", "SUSPENDED", "REVOKED", "EXPIRED", "SUPERSEDED", "COMPROMISED", "DISPUTED"] },
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "algorithm", "keyId", "signedAt", "payloadSha256", "signature"],
+      "properties": {
+        "schemaVersion": { "const": "agentcert.server_attestation.v0.1" },
+        "algorithm": { "const": "Ed25519" },
+        "keyId": { "type": "string", "minLength": 1 },
+        "signedAt": { "type": "string", "format": "date-time" },
+        "payloadSha256": { "$ref": "#/$defs/sha256" },
+        "signature": { "type": "string", "minLength": 1 }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "assuranceLevel"],
+      "properties": { "id": { "type": "string", "minLength": 1 }, "assuranceLevel": { "$ref": "#/$defs/identityAssurance" } }
+    },
+    "core": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receiptSchemaVersion", "receiptId", "actionId", "tenantReference",
+        "principalIdentity", "agentIdentity", "executorIdentity", "collectorIdentity",
+        "issuerIdentity", "actionIntentDigest", "policyDecision", "approvals",
+        "evidenceStrength", "enforcementLevel", "enforcementMethod", "evidenceManifest",
+        "identityAssuranceSummary", "facts", "controls", "issuedAt", "validUntil",
+        "currentStatus", "warnings"
+      ],
+      "properties": {
+        "receiptSchemaVersion": { "const": "agentcert.action_assurance_receipt.v0.1" },
+        "receiptId": { "type": "string", "format": "uuid" },
+        "actionId": { "type": "string", "minLength": 1 },
+        "tenantReference": { "type": "string", "minLength": 1 },
+        "principalIdentity": { "$ref": "#/$defs/identity" },
+        "agentIdentity": {
+          "type": "object", "additionalProperties": false, "required": ["id"],
+          "properties": { "id": { "type": "string", "minLength": 1 }, "version": { "type": "string" } }
+        },
+        "agentBuildIdentity": {
+          "type": "object", "additionalProperties": false, "required": ["buildId"],
+          "properties": { "buildId": { "type": "string" }, "scopeFingerprintSha256": { "$ref": "#/$defs/sha256" } }
+        },
+        "executorIdentity": { "$ref": "#/$defs/identity" },
+        "collectorIdentity": { "$ref": "#/$defs/identity" },
+        "issuerIdentity": {
+          "type": "object", "additionalProperties": false, "required": ["id"],
+          "properties": { "id": { "type": "string" }, "keyId": { "type": "string" } }
+        },
+        "mandateChainDigest": { "$ref": "#/$defs/sha256" },
+        "mandateSummary": {
+          "type": "object", "additionalProperties": false,
+          "required": ["mandateId", "issuerIdentityId", "granteeIdentityId", "permittedActionClasses", "permittedResources", "expiresAt", "status"],
+          "properties": {
+            "mandateId": { "type": "string" }, "issuerIdentityId": { "type": "string" }, "granteeIdentityId": { "type": "string" },
+            "permittedActionClasses": { "type": "array", "items": { "enum": ["SUBMIT", "PAY", "SEND", "UPDATE"] } },
+            "permittedResources": { "type": "array", "items": { "type": "string" } },
+            "expiresAt": { "type": "string", "format": "date-time" }, "status": { "$ref": "#/$defs/status" }
+          }
+        },
+        "actionIntentDigest": { "$ref": "#/$defs/sha256" },
+        "policyDecision": {
+          "type": "object", "additionalProperties": false,
+          "required": ["decisionId", "result", "policyId", "policyVersion", "reasonCodes", "actionDigestSha256"],
+          "properties": {
+            "decisionId": { "type": "string" },
+            "result": { "enum": ["ALLOW", "DENY", "NEEDS_APPROVAL", "NEEDS_ADDITIONAL_ATTESTATION", "NEEDS_REDUCED_SCOPE"] },
+            "policyId": { "type": "string" }, "policyVersion": { "type": "string" },
+            "reasonCodes": { "type": "array", "items": { "type": "string" } }, "actionDigestSha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "approvals": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["approvalId", "approverIdentityId", "decision", "bindingValid", "createdAt"],
+            "properties": {
+              "approvalId": { "type": "string" }, "approverIdentityId": { "type": "string" },
+              "decision": { "enum": ["APPROVED", "REJECTED"] }, "actionDigestSha256": { "$ref": "#/$defs/sha256" },
+              "bindingValid": { "type": "boolean" }, "createdAt": { "type": "string", "format": "date-time" }
+            }
+          }
+        },
+        "executionGrantDigest": { "$ref": "#/$defs/sha256" },
+        "evidenceStrength": { "enum": ["REPORTED", "RECORDED", "ENFORCED", "OUTCOME_VERIFIED", "INDEPENDENTLY_REVIEWED"] },
+        "enforcementLevel": { "enum": ["ENFORCED", "OBSERVED_ONLY", "SELF_REPORTED"] },
+        "enforcementMethod": { "enum": ["CREDENTIAL_BROKER", "NETWORK_PROXY", "SIGNED_ADAPTER", "TARGET_SYSTEM_POLICY", "NONE"] },
+        "actionEventChainDigest": { "$ref": "#/$defs/sha256" },
+        "outcomeAttestation": {
+          "type": "object", "additionalProperties": false,
+          "required": ["outcomeAttestationId", "result", "observationMethod", "observationSource", "actionDigestSha256", "confidence", "collectedAt"],
+          "properties": {
+            "outcomeAttestationId": { "type": "string" },
+            "result": { "enum": ["SATISFIED", "NOT_SATISFIED", "PARTIALLY_SATISFIED", "INCONCLUSIVE", "NOT_OBSERVED"] },
+            "observationMethod": { "enum": ["TARGET_API", "TARGET_UI", "TARGET_AUDIT_LOG", "WEBHOOK", "DATABASE_QUERY", "THIRD_PARTY_CONFIRMATION", "AGENT_SELF_REPORT"] },
+            "observationSource": { "type": "string" }, "actionDigestSha256": { "$ref": "#/$defs/sha256" },
+            "confidence": { "type": "number", "minimum": 0, "maximum": 1 }, "collectedAt": { "type": "string", "format": "date-time" }
+          }
+        },
+        "evidenceManifest": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["evidenceId", "kind", "sha256", "sizeBytes"],
+            "properties": { "evidenceId": { "type": "string" }, "kind": { "type": "string" }, "sha256": { "$ref": "#/$defs/sha256" }, "sizeBytes": { "type": "integer", "minimum": 0 } }
+          }
+        },
+        "identityAssuranceSummary": {
+          "type": "object", "additionalProperties": false, "required": ["principal", "agent", "executor", "collector"],
+          "properties": { "principal": { "$ref": "#/$defs/identityAssurance" }, "agent": { "$ref": "#/$defs/identityAssurance" }, "executor": { "$ref": "#/$defs/identityAssurance" }, "collector": { "$ref": "#/$defs/identityAssurance" } }
+        },
+        "facts": { "$ref": "#/$defs/stringGroups" },
+        "controls": {
+          "type": "object", "additionalProperties": false, "required": ["controlled", "notControlled"],
+          "properties": { "controlled": { "type": "array", "items": { "type": "string" } }, "notControlled": { "type": "array", "items": { "type": "string" } } }
+        },
+        "issuedAt": { "type": "string", "format": "date-time" },
+        "validUntil": { "type": "string", "format": "date-time" },
+        "currentStatus": { "$ref": "#/$defs/status" },
+        "statusEndpoint": { "type": "string", "format": "uri" },
+        "warnings": { "type": "array", "uniqueItems": true, "items": { "type": "string" } }
+      }
+    },
+    "stringGroups": {
+      "type": "object", "additionalProperties": false, "required": ["directlyObserved", "thirdPartySigned", "inferred", "selfReported"],
+      "properties": {
+        "directlyObserved": { "type": "array", "items": { "type": "string" } },
+        "thirdPartySigned": { "type": "array", "items": { "type": "string" } },
+        "inferred": { "type": "array", "items": { "type": "string" } },
+        "selfReported": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}
