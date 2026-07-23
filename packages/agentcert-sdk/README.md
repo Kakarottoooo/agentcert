@@ -133,6 +133,33 @@ The recorder does not execute actions or become a general-purpose APM agent.
 See [`docs/observability.md`](../../docs/observability.md) for event limits,
 query semantics, trust boundaries, and non-claims.
 
+## Universal tool semantics
+
+Wrap a tool once to emit redacted, invocation-linked semantic events:
+
+```ts
+import { instrumentTool } from "agentcert-sdk";
+
+const sendMessage = instrumentTool({
+  recorder,
+  capability: {
+    schemaVersion: "agentcert.capability_manifest.v0.1",
+    id: "messaging.send", version: "0.1.0", name: "Send message",
+    domain: "messaging", operations: ["send"], sideEffect: "external",
+    resourceTypes: ["message"], requiredPermissions: ["messages:send"],
+    risk: "high", idempotency: "required", reversibility: "irreversible",
+    enforcement: "gateway", verification: "independent_probe",
+  },
+  toolName: "send_email",
+  execute: async (input) => mailSandbox.send(input),
+});
+```
+
+The wrapper records bounded hashes and shapes, not raw secrets. Producer events
+establish observed/recorded coverage only; controlled Action records and
+independent probes establish enforced/verified coverage. See
+[`docs/universal-agent-semantics.md`](../../docs/universal-agent-semantics.md).
+
 ## Customer-owned collector gateway
 
 `agentcert-sdk` includes a customer-owned process that holds the source

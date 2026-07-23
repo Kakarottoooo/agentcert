@@ -12,6 +12,7 @@ import { EvidenceSigner } from "./signing.js";
 import { FixedWindowRateLimiter, WebhookSecretVault } from "./security.js";
 import { LocalIdempotencyCoordinator, createRedisCoordination, type CoordinationRuntime } from "./coordination.js";
 import { DisabledEmailProvider, ResendEmailProvider } from "./notifications.js";
+import { OpenAICompatibleCapabilityClassifier } from "./semantic-classifier.js";
 
 const host = process.env.HOST ?? "127.0.0.1";
 const port = integerEnv("PORT", 8787);
@@ -58,7 +59,16 @@ const publicUrl = process.env.AGENTCERT_PUBLIC_URL ?? `http://${host}:${port}`;
 const emailProvider = process.env.RESEND_API_KEY && process.env.AGENTCERT_ALERT_FROM_EMAIL
   ? new ResendEmailProvider(process.env.RESEND_API_KEY, process.env.AGENTCERT_ALERT_FROM_EMAIL)
   : new DisabledEmailProvider();
-const service = new AgentCertControlPlane(store, artifacts, evidencePolicy, platformAdminEmails, evidenceSigner, webhookVault, fetch, emailProvider, publicUrl);
+const classifierApiKey = process.env.AGENTCERT_SEMANTIC_CLASSIFIER_API_KEY?.trim();
+const classifierModel = process.env.AGENTCERT_SEMANTIC_CLASSIFIER_MODEL?.trim();
+if (Boolean(classifierApiKey) !== Boolean(classifierModel)) throw new Error("AGENTCERT_SEMANTIC_CLASSIFIER_API_KEY and AGENTCERT_SEMANTIC_CLASSIFIER_MODEL must be configured together.");
+const capabilityClassifier = classifierApiKey && classifierModel ? new OpenAICompatibleCapabilityClassifier({
+  apiKey: classifierApiKey,
+  model: classifierModel,
+  endpoint: process.env.AGENTCERT_SEMANTIC_CLASSIFIER_URL,
+  timeoutMs: integerEnv("AGENTCERT_SEMANTIC_CLASSIFIER_TIMEOUT_MS", 15_000),
+}) : undefined;
+const service = new AgentCertControlPlane(store, artifacts, evidencePolicy, platformAdminEmails, evidenceSigner, webhookVault, fetch, emailProvider, publicUrl, capabilityClassifier);
 await service.activateSigningKey();
 const authenticator = new Authenticator({ store, supabaseUrl, supabasePublishableKey, devMode });
 const publicConfig: PublicConfig = {

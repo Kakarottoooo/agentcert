@@ -72,3 +72,20 @@ recorder.complete(status="passed")
 The recorder allocates an ordered sequence and trace-linked spans, sends
 bounded batches, and keeps a failed batch pending for an explicit retry. It is
 a thin assurance collector, not a general OpenTelemetry backend.
+
+## Universal tool semantics
+
+```python
+from agentcert_sdk import instrument_async_tool
+
+query = instrument_async_tool(
+    recorder,
+    {"schemaVersion": "agentcert.capability_manifest.v0.1", "id": "data.query"},
+    database_sandbox.query,
+    tool_name="sql_query",
+)
+```
+
+The wrapper links started/completed/failed phases with one invocation ID and
+uploads only redacted descriptors. See
+[`docs/universal-agent-semantics.md`](../../docs/universal-agent-semantics.md).

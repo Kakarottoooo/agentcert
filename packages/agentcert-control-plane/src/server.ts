@@ -274,6 +274,27 @@ async function handleRequest(
     sendJson(response, 200, await options.service.observability(auth, projectId, Number(url.searchParams.get("days") ?? "30")));
     return;
   }
+  if (collection === "semantics" && entityId === "coverage" && request.method === "GET") {
+    sendJson(response, 200, await options.service.semanticCoverage(auth, projectId, Number(url.searchParams.get("days") ?? "30")));
+    return;
+  }
+  if (collection === "semantics" && entityId === "manifests" && !child) {
+    if (request.method === "GET") sendJson(response, 200, await options.service.listCapabilityManifests(auth, projectId));
+    else if (request.method === "POST") sendJson(response, 200, await options.service.upsertCapabilityManifest(auth, projectId, await readJson(request)));
+    else throw new ControlPlaneError("Capability manifest route was not found.", 404, "route_not_found");
+    return;
+  }
+  if (collection === "semantics" && entityId === "corrections" && !child && request.method === "GET") {
+    sendJson(response, 200, await options.service.listCapabilityCorrections(auth, projectId));
+    return;
+  }
+  if (collection === "semantics" && entityId === "unknown" && child) {
+    const operation = segments[6];
+    if (request.method === "POST" && operation === "review") sendJson(response, 200, await options.service.reviewUnknownCapability(auth, projectId, child, await readJson(request)));
+    else if (request.method === "POST" && operation === "suggest") sendJson(response, 200, await options.service.suggestUnknownCapability(auth, projectId, child));
+    else throw new ControlPlaneError("Unknown capability route was not found.", 404, "route_not_found");
+    return;
+  }
   if (collection === "operations" && entityId === "smoke-runs" && request.method === "POST") {
     sendJson(response, 201, await options.service.recordTrustHealthSample(auth, projectId, await readJson(request)));
     return;

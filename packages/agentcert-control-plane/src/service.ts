@@ -120,6 +120,15 @@ import {
   verifyTrustedRunReceiptInput,
   verifyTrustedSourceRecord,
 } from "./trusted-collector.js";
+import {
+  BUILTIN_CAPABILITY_MANIFESTS,
+  buildSemanticCoverage,
+  createCapabilityManifestRecord,
+  parseCapabilityManifest,
+  type CapabilityCorrectionRecord,
+  type CapabilitySuggestionProvider,
+  type SemanticCoverageSnapshot,
+} from "./semantics.js";
 
 const POLICY_VERSION = "agentcert.default.v1";
 const DEFAULT_WEBHOOK_MAX_ATTEMPTS = 5;
@@ -180,6 +189,7 @@ export class AgentCertControlPlane {
     readonly webhookFetch: typeof fetch = fetch,
     readonly emailProvider: EmailProvider = new DisabledEmailProvider(),
     readonly publicUrl = "http://127.0.0.1:8787",
+    readonly capabilitySuggestionProvider?: CapabilitySuggestionProvider,
   ) {
     this.platformAdminEmails = new Set([...platformAdminEmails].map((email) => email.trim().toLowerCase()).filter(Boolean));
   }
@@ -1207,6 +1217,108 @@ export class AgentCertControlPlane {
     });
   }
 
+  async semanticCoverage(auth: AuthContext, projectId: string, days: number): Promise<SemanticCoverageSnapshot> {
+    await this.authorizeProject(auth, projectId, undefined, "runs:read");
+    await this.authorizeProject(auth, projectId, undefined, "actions:read");
+    if (days !== 7 && days !== 30 && days !== 90) throw new ControlPlaneError("days must be 7, 30, or 90.", 422, "invalid_semantic_coverage_period");
+    const generatedAt = new Date();
+    const since = new Date(generatedAt.getTime() - days * 86_400_000).toISOString();
+    const limit = 10_000;
+    const [allRuns, allEvents, allActions, customManifests, corrections, assuranceCases] = await Promise.all([
+      this.store.listRuns(projectId, limit + 1),
+      this.store.listEventsForProject(projectId, since, limit + 1),
+      this.store.listActions(projectId, limit + 1),
+      this.store.listCapabilityManifests(projectId),
+      this.store.listCapabilityCorrections(projectId),
+      this.store.listAssuranceCases(projectId),
+    ]);
+    const runs = allRuns.filter((run) => run.startedAt >= since).slice(0, limit);
+    const events = allEvents.slice(0, limit);
+    const windowActions = allActions.filter((action) => action.createdAt >= since);
+    const independentlyReviewed = semanticWindowIndependentlyReviewed(assuranceCases, events, windowActions);
+    return buildSemanticCoverage({
+      projectId, runs, events, actions: windowActions.slice(0, limit), customManifests, corrections,
+      periodDays: days, generatedAt: generatedAt.toISOString(), since, independentlyReviewed,
+      truncated: { events: allEvents.length > limit, actions: windowActions.length > limit, limitPerEntity: limit },
+    });
+  }
+
+  async listCapabilityManifests(auth: AuthContext, projectId: string) {
+    await this.authorizeProject(auth, projectId, undefined, "runs:read");
+    return {
+      schemaVersion: "agentcert.capability_registry.v0.1",
+      builtin: BUILTIN_CAPABILITY_MANIFESTS,
+      custom: await this.store.listCapabilityManifests(projectId),
+    };
+  }
+
+  async upsertCapabilityManifest(auth: AuthContext, projectId: string, input: unknown) {
+    await this.authorizeProject(auth, projectId, ["owner", "admin", "operator"]);
+    requireUser(auth);
+    let manifest;
+    try { manifest = parseCapabilityManifest(input); }
+    catch (error) { throw new ControlPlaneError(error instanceof Error ? error.message : "Capability manifest is invalid.", 422, "capability_manifest_invalid"); }
+    if (BUILTIN_CAPABILITY_MANIFESTS.some((item) => item.id === manifest.id)) throw new ControlPlaneError(
+      "Built-in capability IDs cannot be replaced by a project manifest.", 409, "builtin_capability_immutable",
+      "Use a project-specific custom capability ID and add the built-in name as an alias if needed.",
+    );
+    return this.store.upsertCapabilityManifest(createCapabilityManifestRecord(projectId, manifest, auth.userId));
+  }
+
+  async listCapabilityCorrections(auth: AuthContext, projectId: string) {
+    await this.authorizeProject(auth, projectId, undefined, "runs:read");
+    return { schemaVersion: "agentcert.capability_corrections.v0.1", corrections: await this.store.listCapabilityCorrections(projectId) };
+  }
+
+  async reviewUnknownCapability(auth: AuthContext, projectId: string, unknownKey: string, input: unknown): Promise<CapabilityCorrectionRecord> {
+    await this.authorizeProject(auth, projectId, ["owner", "admin", "operator"]);
+    requireUser(auth);
+    const body = record(input);
+    const coverage = await this.semanticCoverage(auth, projectId, 30);
+    const unknown = coverage.unknown.find((item) => item.key === unknownKey);
+    if (!unknown) throw new ControlPlaneError("Unknown capability was not found in the current 30-day queue.", 404, "unknown_capability_not_found");
+    const custom = await this.store.listCapabilityManifests(projectId);
+    const capabilityId = requiredString(body, "capabilityId");
+    if (![...BUILTIN_CAPABILITY_MANIFESTS, ...custom.map((item) => item.manifest)].some((item) => item.id === capabilityId)) {
+      throw new ControlPlaneError("capabilityId is not registered for this project.", 422, "capability_not_registered");
+    }
+    const confidence = optionalNumber(body, "confidence") ?? 1;
+    if (confidence < 0 || confidence > 1) throw new ControlPlaneError("confidence must be between 0 and 1.", 422, "capability_confidence_invalid");
+    const now = new Date().toISOString();
+    return this.store.upsertCapabilityCorrection({
+      id: randomUUID(), projectId, unknownKey, observedName: unknown.observedName, framework: unknown.framework,
+      eventType: unknown.eventType, capabilityId, rationale: requiredString(body, "rationale"), confidence,
+      reviewerId: auth.userId, reviewerEmail: auth.email,
+      // The reviewer owns the persisted classification. Advisory model output is
+      // intentionally not accepted from the client as provenance.
+      source: "human",
+      createdAt: now, updatedAt: now,
+    });
+  }
+
+  async suggestUnknownCapability(auth: AuthContext, projectId: string, unknownKey: string) {
+    await this.authorizeProject(auth, projectId, ["owner", "admin", "operator"]);
+    if (!this.capabilitySuggestionProvider) throw new ControlPlaneError(
+      "Optional semantic classifier is not configured.", 409, "semantic_classifier_disabled",
+      "Classify the capability manually or configure a server-side suggestion provider. Suggestions never authorize actions.",
+    );
+    const coverage = await this.semanticCoverage(auth, projectId, 30);
+    const unknown = coverage.unknown.find((item) => item.key === unknownKey);
+    if (!unknown) throw new ControlPlaneError("Unknown capability was not found in the current 30-day queue.", 404, "unknown_capability_not_found");
+    const custom = await this.store.listCapabilityManifests(projectId);
+    const manifests = [...BUILTIN_CAPABILITY_MANIFESTS, ...custom.map((item) => item.manifest)];
+    const suggested = await this.capabilitySuggestionProvider.suggest({
+      observedName: unknown.observedName, framework: unknown.framework, eventType: unknown.eventType,
+      redactedSample: unknown.sample,
+      candidates: manifests.map(({ id, name, domain, operations, sideEffect }) => ({ id, name, domain, operations, sideEffect })),
+    });
+    if (!suggested) return { suggestion: null, advisory: true };
+    if (!manifests.some((item) => item.id === suggested.capabilityId) || suggested.confidence < 0 || suggested.confidence > 1 || !suggested.rationale.trim()) {
+      throw new ControlPlaneError("Semantic classifier returned an invalid capability suggestion.", 502, "semantic_classifier_invalid_response");
+    }
+    return { suggestion: { ...suggested, provider: this.capabilitySuggestionProvider.provider, model: this.capabilitySuggestionProvider.model }, advisory: true };
+  }
+
   async reviewFailure(auth: AuthContext, projectId: string, runId: string, input: unknown): Promise<FailureReviewRecord> {
     await this.authorizeProject(auth, projectId, ["owner", "admin", "operator"]);
     requireUser(auth);
@@ -1842,7 +1954,9 @@ export class AgentCertControlPlane {
 
   async overview(auth: AuthContext, projectId: string) {
     await this.authorizeProject(auth, projectId, undefined, "runs:read");
-    const [agents, runs, actions, incidents, evidence, storageUsage, legalHolds, reviews, deletions, qualityRuns, qualityEvidence, rawAssuranceCases, actorRole, approvedLegalHold] = await Promise.all([
+    const overviewGeneratedAt = new Date();
+    const semanticSince = new Date(overviewGeneratedAt.getTime() - 30 * 86_400_000).toISOString();
+    const [agents, runs, actions, incidents, evidence, storageUsage, legalHolds, reviews, deletions, qualityRuns, qualityEvidence, rawAssuranceCases, actorRole, approvedLegalHold, semanticEvents, semanticActions, semanticManifests, semanticCorrections] = await Promise.all([
       this.store.listAgents(projectId), this.store.listRuns(projectId, 20), this.store.listActions(projectId, 20),
       this.store.listIncidents(projectId, 20), this.store.listEvidence(projectId, 20), this.store.evidenceUsage(projectId),
       this.store.listLegalHoldRequests(projectId, 1),
@@ -1853,10 +1967,22 @@ export class AgentCertControlPlane {
       this.store.listAssuranceCases(projectId, 500),
       auth.kind === "user" ? this.store.roleForProject(auth.userId!, projectId) : Promise.resolve(undefined),
       this.store.getApprovedLegalHold(projectId),
+      this.store.listEventsForProject(projectId, semanticSince, 10_001),
+      this.store.listActions(projectId, 10_001),
+      this.store.listCapabilityManifests(projectId),
+      this.store.listCapabilityCorrections(projectId),
     ]);
     if (auth.kind === "user" && !actorRole) throw new ControlPlaneError("Project access denied.", 403, "project_access_denied");
     const assuranceCases = await Promise.all(rawAssuranceCases.map((item) => this.expireAssuranceCaseIfNeeded(item)));
     const assurance = resolveCurrentAssurance(assuranceCases);
+    const semanticWindowActions = semanticActions.filter((item) => item.createdAt >= semanticSince);
+    const semanticCoverage = buildSemanticCoverage({
+      projectId, runs: qualityRuns.filter((item) => item.startedAt >= semanticSince), events: semanticEvents.slice(0, 10_000),
+      actions: semanticWindowActions.slice(0, 10_000), customManifests: semanticManifests, corrections: semanticCorrections,
+      periodDays: 30, generatedAt: overviewGeneratedAt.toISOString(), since: semanticSince,
+      independentlyReviewed: semanticWindowIndependentlyReviewed(assuranceCases, semanticEvents.slice(0, 10_000), semanticWindowActions.slice(0, 10_000)),
+      truncated: { events: semanticEvents.length > 10_000, actions: semanticWindowActions.length > 10_000, limitPerEntity: 10_000 },
+    });
     const evidenceRunId = preferredEvidenceRunId(assuranceCases, runs.find((item) => item.status !== "running")?.id);
     const evidenceRun = evidenceRunId ? runs.find((item) => item.id === evidenceRunId) ?? await this.store.getRun(projectId, evidenceRunId) : undefined;
     const evidenceAssessment = evidenceRun && evidenceRun.status !== "running"
@@ -1877,6 +2003,7 @@ export class AgentCertControlPlane {
       actions,
       incidents,
       evidence: evidenceAssessment,
+      semantics: semanticCoverage,
     } as const;
     const nextAction = resolveProjectNextAction(nextActionInput);
     const occurredAt = new Date().toISOString();
@@ -1919,6 +2046,7 @@ export class AgentCertControlPlane {
     return {
       projectId,
       currentAssurance: assurance,
+      semanticCoverage,
       nextAction,
       nextActionHistory,
       storage: {
@@ -1937,6 +2065,7 @@ export class AgentCertControlPlane {
         pendingApprovals: actions.filter((item) => item.status === "PENDING_APPROVAL").length,
         openIncidents: incidents.filter((item) => item.status !== "resolved").length,
         evidence: evidence.length,
+        unknownCapabilities: semanticCoverage.unknown.length,
         taxonomyQuality: quality,
       },
       recentRuns: runs.slice(0, 8),
@@ -3375,6 +3504,18 @@ function median(values: number[]): number | undefined {
   const sorted = [...values].sort((left, right) => left - right);
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[middle] : Math.round((sorted[middle - 1]! + sorted[middle]!) / 2);
+}
+function semanticWindowIndependentlyReviewed(
+  assuranceCases: AssuranceCaseRecord[],
+  events: EventRecord[],
+  actions: ActionRecord[],
+): boolean {
+  if (events.length === 0 || actions.length > 0) return false;
+  const reviewedRunIds = new Set(assuranceCases
+    .filter((item) => item.status === "issued" && item.continuousAssurance?.freshness.status === "CURRENT")
+    .map((item) => item.continuousAssurance?.lastRunId)
+    .filter((value): value is string => Boolean(value)));
+  return reviewedRunIds.size > 0 && events.every((event) => reviewedRunIds.has(event.runId));
 }
 function requiredTimestamp(value: Record<string, unknown>, key: string): string {
   const result = requiredString(value, key);

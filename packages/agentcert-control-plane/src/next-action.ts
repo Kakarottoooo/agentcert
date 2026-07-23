@@ -17,6 +17,7 @@ import type {
   ProjectNextActionPriority,
   ProjectNextActionView,
 } from "./types.js";
+import type { SemanticCoverageSnapshot } from "./semantics.js";
 
 export type NextActionActor =
   | { kind: "user"; role: MemberRole }
@@ -34,6 +35,7 @@ export interface ResolveProjectNextActionInput {
   actions: ActionRecord[];
   incidents: IncidentRecord[];
   evidence?: NextActionEvidenceAssessment;
+  semantics?: SemanticCoverageSnapshot;
 }
 
 const ALL_ROLES: readonly MemberRole[] = ["owner", "admin", "operator", "viewer"];
@@ -101,6 +103,14 @@ export function summarizeProjectNextActionInputs(input: ResolveProjectNextAction
         runId: input.evidence.runId,
         status: input.evidence.completeness.status,
         reasons: [...input.evidence.completeness.reasons],
+      },
+    } : {}),
+    ...(input.semantics ? {
+      semantics: {
+        unknownCount: input.semantics.unknown.length,
+        bypassStatus: input.semantics.bypassRisk.status,
+        ...(input.semantics.unknown[0] ? { selectedKey: input.semantics.unknown[0].key } : {}),
+        evidenceStrength: input.semantics.evidenceStrength,
       },
     } : {}),
   };
@@ -171,6 +181,25 @@ export function resolveProjectNextAction(input: ResolveProjectNextActionInput): 
       requiredScope: "evidence:write",
       permissionNote: "An owner, admin, operator, or evidence-writer credential must upload corrected evidence.",
       context: { runId: input.evidence.runId, evidenceStatus: completeness.status },
+    });
+  }
+
+  if (input.semantics && (input.semantics.unknown.length > 0 || input.semantics.bypassRisk.status === "critical")) {
+    const selected = input.semantics.unknown[0];
+    return candidate(input.actor, {
+      rule: "semantic_coverage_gap",
+      kind: selected ? "CLASSIFY_CAPABILITY" : "CLOSE_COVERAGE_GAP",
+      priority: input.semantics.bypassRisk.status === "critical" ? "high" : "medium",
+      title: selected ? `Classify ${selected.observedName}` : "Resolve action coverage gaps",
+      reason: selected
+        ? `${selected.occurrences} observed executions are not mapped to a capability contract; AgentCert cannot make a complete semantic claim until they are reviewed.`
+        : input.semantics.bypassRisk.reasons[0] ?? "Observed side effects do not meet the declared enforcement boundary.",
+      performLabel: selected ? "Review unknown capability" : "Inspect coverage boundary",
+      inspectLabel: "Inspect semantic coverage",
+      view: "overview",
+      requiredRoles: WRITE_ROLES,
+      permissionNote: "An owner, admin, or operator must confirm the capability mapping.",
+      context: { ...(selected ? { unknownCapabilityKey: selected.key } : {}) },
     });
   }
 

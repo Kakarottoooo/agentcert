@@ -28,3 +28,8 @@ Tools:
 
 The API key is project-scoped. Approval tools are intentionally absent because
 an agent credential must not approve its own high-risk action.
+
+For an existing MCP client, wrap outbound tool calls with
+`AgentCertMcpToolRecorder`. It emits ordered semantic start/completion/failure
+events and can bind a tool to an `agentcert.capability_manifest.v0.1` ID. Unknown
+tools remain in the Hosted review queue until a human confirms their mapping.

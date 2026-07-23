@@ -22,6 +22,7 @@ import {
   loadHostedTeam,
   loadHostedCapabilities,
   loadHostedCollectorStatus,
+  loadHostedCapabilityRegistry,
   loadHostedOnboarding,
   loadProjects,
   loadAdminLegalHolds,
@@ -37,6 +38,7 @@ import {
   resendSignUpConfirmation,
   resolveHostedIncident,
   reviewHostedAction,
+  reviewHostedUnknownCapability,
   reviewAdminLegalHold,
   revokeHostedApiKey,
   revokeHostedTeamInvitation,
@@ -55,6 +57,7 @@ import {
   type HostedConfig,
   type HostedCapabilities,
   type HostedCollectorStatus,
+  type HostedCapabilityRegistry,
   type HostedEvidence,
   type HostedAssuranceCase,
   type HostedIncident,
@@ -108,6 +111,7 @@ interface ConsoleData {
   evidence: HostedEvidence[];
   assuranceCases: HostedAssuranceCase[];
   observability: HostedObservability;
+  capabilityRegistry: HostedCapabilityRegistry;
 }
 
 export default function HostedApp({ config }: { config: HostedConfig }) {
@@ -254,12 +258,13 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
     if (!project || !memberRole) return;
     setLoading(true); setError(undefined);
     try {
-      const [overview, operations, observability, agents, runs, actions, incidents, evidence, assuranceCases, nextOnboarding] = await Promise.all([
+      const [overview, operations, observability, agents, runs, actions, incidents, evidence, assuranceCases, capabilityRegistry, nextOnboarding] = await Promise.all([
         loadOverview(session, project.id), loadHostedOperations(session, project.id), loadHostedObservability(session, project.id), loadHostedAgents(session, project.id),
         loadHostedRuns(session, project.id), loadHostedActions(session, project.id), loadHostedIncidents(session, project.id), loadHostedEvidence(session, project.id), loadHostedAssuranceCases(session, project.id),
+        loadHostedCapabilityRegistry(session, project.id),
         canManageHostedProjects(memberRole) ? loadHostedOnboarding(session, project.id) : Promise.resolve(undefined),
       ]);
-      setData({ overview, operations, observability, agents, runs, actions, incidents, evidence, assuranceCases });
+      setData({ overview, operations, observability, agents, runs, actions, incidents, evidence, assuranceCases, capabilityRegistry });
       setOnboarding(nextOnboarding);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setLoading(false); }
@@ -430,7 +435,7 @@ function AccountView({ config, session, project, context, onSignOut }: { config:
 }
 
 function HostedViewContent({ view, data, project, projects, session, role, onboarding, refresh, onNavigate }: { view: HostedView; data: ConsoleData; project: HostedProject; projects: HostedProject[]; session: HostedSession; role?: HostedMemberRole; onboarding?: HostedOnboardingStatus; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
-  if (view === "overview") return <HostedOverviewView data={data} project={project} refresh={refresh} onNavigate={onNavigate} />;
+  if (view === "overview") return <HostedOverviewView data={data} project={project} session={session} role={role} refresh={refresh} onNavigate={onNavigate} />;
   if (view === "agents") return <AgentsView agents={data.agents} project={project} session={session} refresh={refresh} />;
   if (view === "runs") return <HostedRunsView runs={data.runs} project={project} session={session} />;
   if (view === "assurance") return <HostedAssuranceView cases={data.assuranceCases} evidence={data.evidence} project={project} session={session} role={role} refresh={refresh} />;
@@ -444,7 +449,7 @@ function HostedViewContent({ view, data, project, projects, session, role, onboa
   return <>{onboarding ? <HostedOnboarding status={onboarding} project={project} session={session} refresh={refresh} onReviewRuns={() => onNavigate("runs")} /> : null}<IntegrationsView project={project} session={session} operations={data.operations} refresh={refresh} /></>;
 }
 
-function HostedOverviewView({ data, project, refresh, onNavigate }: { data: ConsoleData; project: HostedProject; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
+function HostedOverviewView({ data, project, session, role, refresh, onNavigate }: { data: ConsoleData; project: HostedProject; session: HostedSession; role?: HostedMemberRole; refresh: () => Promise<void>; onNavigate: (view: HostedView) => void }) {
   const summary = data.overview.summary;
   const assurance = data.overview.currentAssurance;
   const nextAction = data.overview.nextAction;
@@ -470,11 +475,7 @@ function HostedOverviewView({ data, project, refresh, onNavigate }: { data: Cons
       </div>
       <div className="role-aware-next-action"><span className="eyebrow">Most important next action</span><strong>{nextAction.title}</strong><p>{nextAction.reason}</p>{nextAction.permission.note ? <small>{nextAction.permission.note}</small> : null}<a className="primary-action compact" href={nextActionHref}>{nextAction.actionLabel}</a></div>
     </section>
-    <section className="assurance-task-grid" aria-label="Assurance workflow summary">
-      <article><span>Release assurance</span><strong>{assurance.status.replaceAll("_", " ")}</strong><p>{data.assuranceCases.length} scoped review{data.assuranceCases.length === 1 ? "" : "s"}; {data.runs.filter((run) => run.kind === "release_gate").length} release gate run{data.runs.filter((run) => run.kind === "release_gate").length === 1 ? "" : "s"}.</p></article>
-      <article className={pendingActions.length || activeIncidents.length ? "attention" : ""}><span>Runtime assurance</span><strong>{pendingActions.length + activeIncidents.length} need attention</strong><p>{pendingActions.length} action{pendingActions.length === 1 ? "" : "s"} awaiting a decision; {activeIncidents.length} active incident{activeIncidents.length === 1 ? "" : "s"}.</p></article>
-      <article><span>Evidence & audit</span><strong>{summary.evidence} retained object{summary.evidence === 1 ? "" : "s"}</strong><p>{compactBytes(data.overview.storage.usedBytes)} used; {data.overview.storage.retentionDays}-day retention; manifest integrity stays explicit.</p></article>
-    </section>
+    <SemanticCoveragePanel coverage={data.overview.semanticCoverage} registry={data.capabilityRegistry} project={project} session={session} role={role} refresh={refresh} />
 
     {(pendingActions.length > 0 || activeIncidents.length > 0) ? <section className="operations-band attention-queue"><div><SectionTitle title="Actions requiring a decision" caption="Policy has paused these actions for a human reviewer" /><ActionRows actions={pendingActions.slice(0, 5)} /></div><div><SectionTitle title="Active incidents" caption="Open, investigating, and recovered incidents" /><IncidentRows incidents={activeIncidents.slice(0, 5)} /></div></section> : null}
     <section className="data-section current-activity"><div className="section-actions"><SectionTitle title="Recent assurance activity" caption="The latest release, runtime, and custom checks" /><button onClick={() => onNavigate("runs")}>Inspect traces</button></div><RunsTable runs={data.runs.slice(0, 6)} /></section>
@@ -509,6 +510,68 @@ function HostedOverviewView({ data, project, refresh, onNavigate }: { data: Cons
       </div>
     </details>
   </>;
+}
+
+function SemanticCoveragePanel({ coverage, registry, project, session, role, refresh }: {
+  coverage: HostedOverview["semanticCoverage"];
+  registry: HostedCapabilityRegistry;
+  project: HostedProject;
+  session: HostedSession;
+  role?: HostedMemberRole;
+  refresh: () => Promise<void>;
+}) {
+  const [selectedKey, setSelectedKey] = useState(coverage.unknown[0]?.key ?? "");
+  const manifests = [...registry.builtin, ...registry.custom.map((item) => item.manifest)]
+    .sort((left, right) => left.domain.localeCompare(right.domain) || left.name.localeCompare(right.name));
+  const [capabilityId, setCapabilityId] = useState(manifests[0]?.id ?? "");
+  const [rationale, setRationale] = useState("");
+  const [confidence, setConfidence] = useState("1");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const canReview = role === "owner" || role === "admin" || role === "operator";
+  useEffect(() => {
+    if (!coverage.unknown.some((item) => item.key === selectedKey)) setSelectedKey(coverage.unknown[0]?.key ?? "");
+  }, [coverage.unknown, selectedKey]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true); setError(undefined);
+    try {
+      await reviewHostedUnknownCapability(session, project.id, selectedKey, {
+        capabilityId,
+        rationale,
+        confidence: Number(confidence),
+      });
+      setRationale("");
+      await refresh();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  }
+
+  return <section className={`semantic-coverage ${coverage.bypassRisk.status}`} aria-label="Universal agent semantic coverage">
+    <div className="semantic-coverage-heading">
+      <div><span className="eyebrow">30-day universal agent coverage</span><h2>What AgentCert can prove about this agent</h2></div>
+      <div className="semantic-strength"><span>Evidence strength</span><Status value={coverage.evidenceStrength} /></div>
+    </div>
+    <div className="semantic-coverage-metrics">
+      {(["observed", "semantic", "enforced", "verified"] as const).map((key) => <div key={key} title={coverage.coverage[key].claim}>
+        <span>{key === "semantic" ? "Understood" : key}</span>
+        <strong>{coverage.coverage[key].percent === undefined ? "No data" : `${Math.round(coverage.coverage[key].percent)}%`}</strong>
+        <small>{coverage.coverage[key].numerator}/{coverage.coverage[key].denominator}</small>
+      </div>)}
+    </div>
+    <div className="semantic-risk-line"><Status value={coverage.bypassRisk.status} /><p>{coverage.bypassRisk.reasons[0] ?? "No declared event gaps, unknown capabilities, or unenforced side effects were detected in this window."}</p></div>
+    {coverage.unknown.length ? <div className="unknown-capability-workflow">
+      <div className="unknown-capability-list"><strong>{coverage.unknown.length} unknown {coverage.unknown.length === 1 ? "capability" : "capabilities"}</strong>{coverage.unknown.slice(0, 8).map((item) => <button type="button" className={selectedKey === item.key ? "active" : ""} key={item.key} onClick={() => setSelectedKey(item.key)}><span>{item.observedName}</span><small>{item.framework ?? "custom"} / {item.occurrences} execution{item.occurrences === 1 ? "" : "s"}</small></button>)}</div>
+      {canReview ? <form className="unknown-capability-review" onSubmit={submit}>
+        <label>Map to capability<select required value={capabilityId} onChange={(event) => setCapabilityId(event.target.value)}>{manifests.map((manifest) => <option key={manifest.id} value={manifest.id}>{manifest.domain}: {manifest.name}</option>)}</select></label>
+        <label>Reviewer confidence<select value={confidence} onChange={(event) => setConfidence(event.target.value)}><option value="1">High</option><option value="0.75">Medium</option><option value="0.5">Low</option></select></label>
+        <label className="wide">Why this label<textarea required minLength={10} maxLength={1000} value={rationale} onChange={(event) => setRationale(event.target.value)} placeholder="Explain the observed behavior and why this capability is the correct classification." /></label>
+        {error ? <div className="form-error wide">{error}</div> : null}
+        <button className="primary-action compact" disabled={busy || !selectedKey || !capabilityId}>{busy ? "Saving..." : "Confirm classification"}</button>
+      </form> : <p className="semantic-review-note">An owner, admin, or operator must classify unknown capabilities.</p>}
+    </div> : null}
+  </section>;
 }
 
 function AssuranceObservability({ snapshot, onReviewRuns }: { snapshot: HostedObservability; onReviewRuns: () => void }) {
@@ -618,7 +681,7 @@ function EvidenceView({ evidence, overview, project, session, refresh }: {
     finally { setBusy(false); }
   }
   return <div className="evidence-registry-layout">
-    <section className="data-section next-action-audit"><SectionTitle title="Next action decision history" caption="Append-only material recommendation changes, matched rules, actor roles, and decision inputs" /><div className="next-action-timeline">{overview.nextActionHistory.map((entry) => { const target = targetForNextAction(entry.decision); const href = buildHostedWorkspaceUrl(window.location.origin, { view: entry.decision.destination.view, projectId: project.id, ...(target ? { target } : {}) }); return <article key={entry.id}><div className="next-action-transition"><span>{compactTime(entry.occurredAt)}</span><strong>{entry.previous?.decision.title ?? "Initial recommendation"} <b>to</b> {entry.decision.title}</strong><Status value={entry.decision.priority} /></div><p>{entry.decision.reason}</p><dl><div><dt>Matched rule</dt><dd>{entry.decision.rule.replaceAll("_", " ")}</dd></div><div><dt>Actor</dt><dd>{entry.actor.role}</dd></div><div><dt>Assurance</dt><dd>{entry.inputs.assurance.status}</dd></div><div><dt>Runtime</dt><dd>{entry.inputs.approvals.pendingCount} approvals, {entry.inputs.incidents.activeCount} incidents</dd></div><div><dt>Evidence</dt><dd>{entry.inputs.evidence?.status ?? "not selected"}</dd></div><div><dt>Fingerprint</dt><dd><code>{entry.fingerprint.slice(0, 12)}</code></dd></div></dl><a href={href}>Open exact record</a></article>; })}{overview.nextActionHistory.length === 0 ? <EmptyHosted text="The first material next-action decision will appear after the project overview is evaluated." /> : null}</div></section>
+    <section className="data-section next-action-audit"><SectionTitle title="Next action decision history" caption="Append-only material recommendation changes, matched rules, actor roles, and decision inputs" /><div className="next-action-timeline">{overview.nextActionHistory.map((entry) => { const target = targetForNextAction(entry.decision); const href = buildHostedWorkspaceUrl(window.location.origin, { view: entry.decision.destination.view, projectId: project.id, ...(target ? { target } : {}) }); return <article key={entry.id}><div className="next-action-transition"><span>{compactTime(entry.occurredAt)}</span><strong>{entry.previous?.decision.title ?? "Initial recommendation"} <b>to</b> {entry.decision.title}</strong><Status value={entry.decision.priority} /></div><p>{entry.decision.reason}</p><dl><div><dt>Matched rule</dt><dd>{entry.decision.rule.replaceAll("_", " ")}</dd></div><div><dt>Actor</dt><dd>{entry.actor.role}</dd></div><div><dt>Assurance</dt><dd>{entry.inputs.assurance.status}</dd></div><div><dt>Runtime</dt><dd>{entry.inputs.approvals.pendingCount} approvals, {entry.inputs.incidents.activeCount} incidents</dd></div><div><dt>Evidence</dt><dd>{entry.inputs.evidence?.status ?? "not selected"}</dd></div><div><dt>Semantics</dt><dd>{entry.inputs.semantics ? `${entry.inputs.semantics.unknownCount} unknown / ${entry.inputs.semantics.evidenceStrength.replaceAll("_", " ")}` : "not evaluated"}</dd></div><div><dt>Fingerprint</dt><dd><code>{entry.fingerprint.slice(0, 12)}</code></dd></div></dl><a href={href}>Open exact record</a></article>; })}{overview.nextActionHistory.length === 0 ? <EmptyHosted text="The first material next-action decision will appear after the project overview is evaluated." /> : null}</div></section>
     <section className={`legal-hold-panel ${legalHold?.status ?? "none"}`}>
       <div><span className="eyebrow">Retention control</span><h2>{legalHold?.status === "approved" ? "Legal hold active" : `${overview.storage.retentionDays}-day default retention`}</h2>
         <p>{legalHold?.status === "approved" ? "Automatic evidence deletion is paused for this project until a platform administrator releases the hold." : legalHold?.status === "requested" ? "The application is awaiting platform review. Normal retention continues until approval." : "Evidence is deleted after the retention window. Enterprise projects may apply for a reviewed legal hold."}</p></div>

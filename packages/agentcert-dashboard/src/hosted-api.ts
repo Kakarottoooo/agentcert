@@ -661,19 +661,20 @@ export type HostedNextActionRule =
   | "assurance_revalidation"
   | "baseline_missing"
   | "evidence_incomplete"
+  | "semantic_coverage_gap"
   | "assurance_current";
 
 export interface HostedNextAction {
   schemaVersion: "agentcert.next_action.v0.2";
   rule: HostedNextActionRule;
-  kind: "ACKNOWLEDGE_INCIDENT" | "INVESTIGATE_INCIDENT" | "RESOLVE_INCIDENT" | "REVIEW_PENDING_ACTION" | "REVALIDATE_ASSURANCE" | "ESTABLISH_BASELINE" | "COMPLETE_EVIDENCE" | "MONITOR_ASSURANCE";
+  kind: "ACKNOWLEDGE_INCIDENT" | "INVESTIGATE_INCIDENT" | "RESOLVE_INCIDENT" | "REVIEW_PENDING_ACTION" | "REVALIDATE_ASSURANCE" | "ESTABLISH_BASELINE" | "COMPLETE_EVIDENCE" | "CLASSIFY_CAPABILITY" | "CLOSE_COVERAGE_GAP" | "MONITOR_ASSURANCE";
   priority: "critical" | "high" | "medium" | "normal";
   title: string;
   reason: string;
   actionLabel: string;
-  destination: { view: "assurance" | "actions" | "incidents" | "runs" | "evidence" };
+  destination: { view: "overview" | "assurance" | "actions" | "incidents" | "runs" | "evidence" };
   permission: { canPerform: boolean; actor: HostedMemberRole | "api_key"; requiredRoles: HostedMemberRole[]; note?: string };
-  context: { assuranceCaseId?: string; actionId?: string; incidentId?: string; runId?: string; evidenceStatus?: "complete" | "partial" | "rejected" };
+  context: { assuranceCaseId?: string; actionId?: string; incidentId?: string; runId?: string; evidenceStatus?: "complete" | "partial" | "rejected"; unknownCapabilityKey?: string };
 }
 
 export type HostedNextActionDecisionSnapshot = Pick<
@@ -692,6 +693,58 @@ export interface HostedNextActionInputSummary {
     selected?: { id: string; riskLevel: HostedAction["riskLevel"] };
   };
   evidence?: { runId: string; status: "complete" | "partial" | "rejected"; reasons: string[] };
+  semantics?: { unknownCount: number; bypassStatus: "none_declared" | "attention" | "critical"; selectedKey?: string; evidenceStrength: HostedEvidenceStrength };
+}
+
+export type HostedEvidenceStrength = "reported" | "recorded" | "enforced" | "outcome_verified" | "independently_reviewed";
+
+export interface HostedCapabilityManifest {
+  schemaVersion: "agentcert.capability_manifest.v0.1";
+  id: string;
+  version: string;
+  name: string;
+  domain: "browser" | "coding" | "data" | "messaging" | "finance" | "custom";
+  operations: string[];
+  sideEffect: "none" | "read" | "write" | "external" | "destructive";
+  resourceTypes: string[];
+  requiredPermissions: string[];
+  risk: "low" | "medium" | "high" | "critical";
+  idempotency: "not_applicable" | "optional" | "required" | "unsupported";
+  reversibility: "reversible" | "compensatable" | "irreversible" | "unknown";
+  enforcement: "observe_only" | "gateway" | "isolated_adapter";
+  verification: "none" | "reported" | "independent_probe";
+  aliases?: string[];
+}
+
+export interface HostedSemanticCoverage {
+  schemaVersion: "agentcert.semantic_coverage.v0.1";
+  projectId: string;
+  generatedAt: string;
+  periodDays: 7 | 30 | 90;
+  since: string;
+  totals: {
+    candidateEvents: number;
+    declaredDroppedEvents: number;
+    recognizedEvents: number;
+    unknownEvents: number;
+    sideEffectingExecutions: number;
+    enforcedExecutions: number;
+    outcomeVerifiedExecutions: number;
+  };
+  coverage: Record<"observed" | "semantic" | "enforced" | "verified", { numerator: number; denominator: number; percent?: number; claim: string }>;
+  evidenceStrength: HostedEvidenceStrength;
+  bypassRisk: { status: "none_declared" | "attention" | "critical"; reasons: string[] };
+  domains: Array<{ domain: HostedCapabilityManifest["domain"]; observed: number; recognized: number; enforced: number; verified: number }>;
+  unknown: Array<{ key: string; observedName: string; framework?: string; eventType: string; occurrences: number; runIds: string[]; firstSeenAt: string; lastSeenAt: string; sample: Record<string, unknown> }>;
+  manifests: { builtin: number; custom: number; corrections: number };
+  limitations: string[];
+  truncated: { events: boolean; actions: boolean; limitPerEntity: number };
+}
+
+export interface HostedCapabilityRegistry {
+  schemaVersion: "agentcert.capability_registry.v0.1";
+  builtin: HostedCapabilityManifest[];
+  custom: Array<{ id: string; projectId: string; manifest: HostedCapabilityManifest; createdBy: string; createdAt: string; updatedAt: string }>;
 }
 
 export interface HostedNextActionDecisionRecord {
@@ -715,6 +768,7 @@ export interface HostedOverview {
   currentAssurance: { status: "CURRENT" | "REVALIDATION_REQUIRED" | "SUSPENDED" | "EXPIRED" | "NOT_CONFIGURED"; title: string; reason: string; assuranceCaseId?: string; assuranceCaseName?: string; expiresAt?: string };
   nextAction: HostedNextAction;
   nextActionHistory: HostedNextActionDecisionRecord[];
+  semanticCoverage: HostedSemanticCoverage;
   storage: {
     usedBytes: number;
     limitBytes: number;
@@ -731,6 +785,7 @@ export interface HostedOverview {
     pendingApprovals: number;
     openIncidents: number;
     evidence: number;
+    unknownCapabilities: number;
     taxonomyQuality: {
       schemaVersion: "agentcert.failure_quality_metrics.v0.1";
       totalFailures: number;
@@ -970,6 +1025,22 @@ export async function loadHostedRunAnalysis(session: HostedSession, projectId: s
 
 export async function loadHostedObservability(session: HostedSession, projectId: string, days: 7 | 30 | 90 = 30): Promise<HostedObservability> {
   return apiRequest(session, `${path(projectId, "observability")}?days=${days}`);
+}
+
+export async function loadHostedCapabilityRegistry(session: HostedSession, projectId: string): Promise<HostedCapabilityRegistry> {
+  return apiRequest(session, path(projectId, "semantics/manifests"));
+}
+
+export async function reviewHostedUnknownCapability(
+  session: HostedSession,
+  projectId: string,
+  unknownKey: string,
+  input: { capabilityId: string; rationale: string; confidence: number },
+): Promise<void> {
+  await apiRequest(session, path(projectId, `semantics/unknown/${encodeURIComponent(unknownKey)}/review`), {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export async function reviewHostedFailure(

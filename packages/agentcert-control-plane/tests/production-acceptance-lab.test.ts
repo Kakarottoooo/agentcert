@@ -60,6 +60,51 @@ describe.skipIf(!process.env.AGENTCERT_ACCEPTANCE_DATABASE_URL)("Postgres recove
     await expect(recovered.getProject(project.id)).resolves.toMatchObject({ id: project.id });
     await recovered.close();
   });
+
+  it("persists semantic corrections across a hosted restart without crossing tenants", async () => {
+    const url = process.env.AGENTCERT_ACCEPTANCE_DATABASE_URL!;
+    const ownerId = randomUUID();
+    const owner = { kind: "user", userId: ownerId, email: `${ownerId}@example.test` } as const;
+    const outsider = { kind: "user", userId: randomUUID(), email: `${randomUUID()}@example.test` } as const;
+    const firstStore = new PostgresControlPlaneStore(url);
+    await firstStore.migrate();
+    const firstService = new AgentCertControlPlane(firstStore, new MemoryArtifactStore());
+    const projectId = (await firstService.bootstrap(owner)).project.id;
+    const outsiderProjectId = (await firstService.bootstrap(outsider)).project.id;
+    const run = await firstService.startRun(owner, projectId, { externalId: `semantic-postgres-${randomUUID()}`, kind: "custom", metadata: { framework: "private-agent" } });
+    await firstService.appendEvents(owner, projectId, run.id, { events: [{
+      sequence: 0, type: "tool.completed", payload: { toolName: "customer_inventory_lookup" },
+    }] });
+    const before = await firstService.semanticCoverage(owner, projectId, 30);
+    expect(before).toMatchObject({ totals: { recognizedEvents: 0, unknownEvents: 1 } });
+    await firstService.reviewUnknownCapability(owner, projectId, before.unknown[0]!.key, {
+      capabilityId: "data.query", confidence: 1, rationale: "Customer-reviewed inventory lookup reads structured data.",
+    });
+    const apiKey = await firstService.createApiKey(owner, projectId, { name: "Semantic Postgres E2E" });
+    await firstStore.close();
+
+    const recoveredStore = new PostgresControlPlaneStore(url);
+    const recoveredService = new AgentCertControlPlane(recoveredStore, new MemoryArtifactStore());
+    const server = createControlPlaneHttpServer({
+      service: recoveredService, authenticator: new Authenticator({ store: recoveredStore }), publicConfig: {
+        kind: "agentcert.control_plane_config", hosted: true, publicUrl: "http://127.0.0.1", auth: { provider: "development", registrationOpen: true },
+      }, host: "127.0.0.1", port: 0, dashboardDir: ".", maxArtifactBytes: 1024, rateLimiter: new FixedWindowRateLimiter(100, 60_000),
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    const response = await fetch(`http://127.0.0.1:${port}/v1/projects/${projectId}/semantics/coverage?days=30`, {
+      headers: { authorization: `Bearer ${apiKey.secret}` },
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      projectId, totals: { recognizedEvents: 1, unknownEvents: 0 },
+      coverage: { semantic: { numerator: 1, denominator: 1, percent: 100 } },
+      manifests: { corrections: 1 },
+    });
+    await expect(recoveredService.semanticCoverage(owner, outsiderProjectId, 30)).rejects.toMatchObject({ status: 403 });
+    await recoveredStore.close();
+  });
 });
 
 describe.skipIf(!process.env.AGENTCERT_ACCEPTANCE_REDIS_URL)("Redis recovery acceptance", () => {
