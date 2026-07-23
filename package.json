@@ -48,6 +48,7 @@
     "production-smoke": "node scripts/production-smoke.mjs",
     "production-smoke:test": "node --test scripts/production-smoke.test.mjs scripts/production-smoke-incident.test.mjs",
     "production-acceptance": "node scripts/production-acceptance-lab.mjs",
+    "action-assurance:e2e": "npm --prefix packages/onegent-runtime run build && npm --prefix packages/agentcert-control-plane run build && node --test scripts/action-assurance-browser-e2e.test.mjs",
     "adapter-compatibility": "node scripts/adapter-compatibility.mjs",
     "semantic-calibration": "npm --prefix packages/agentcert-control-plane run build && node packages/agentcert-control-plane/dist/semantic-calibration-cli.js --dataset datasets/agent-semantics/golden-v0.1.json --out .agentcert/compatibility/semantic-adapter-matrix.json",
     "reference-repos:scaffold": "node scripts/scaffold-reference-repos.mjs",

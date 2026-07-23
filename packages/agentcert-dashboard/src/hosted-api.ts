@@ -190,6 +190,33 @@ export interface HostedAction {
   traceId?: string;
   spanId?: string;
   parentSpanId?: string;
+  assuranceContext?: {
+    mandateId?: string;
+    mandateDigestSha256?: string;
+    evidenceStrength?: string;
+  };
+}
+
+export interface HostedActionReceipt {
+  id: string;
+  projectId: string;
+  actionId: string;
+  currentStatus: string;
+  createdAt: string;
+  receipt: {
+    core: {
+      receiptSchemaVersion: string;
+      evidenceStrength: "REPORTED" | "RECORDED" | "ENFORCED" | "OUTCOME_VERIFIED" | "INDEPENDENTLY_REVIEWED";
+      enforcementLevel: "ENFORCED" | "OBSERVED_ONLY" | "SELF_REPORTED";
+      mandateSummary?: { mandateId: string };
+      controls: { controlled: string[]; notControlled: string[] };
+      warnings: string[];
+      issuedAt: string;
+      validUntil: string;
+    };
+    coreSha256: string;
+    signatureSet: Array<{ keyId: string }>;
+  };
 }
 
 export interface HostedApproval {
@@ -1057,6 +1084,14 @@ export async function reviewHostedFailure(
 
 export async function loadHostedActions(session: HostedSession, projectId: string): Promise<HostedAction[]> {
   return (await apiRequest<{ actions: HostedAction[] }>(session, path(projectId, "actions"))).actions;
+}
+
+export async function loadHostedActionReceipts(session: HostedSession, projectId: string): Promise<HostedActionReceipt[]> {
+  return (await apiRequest<{ receipts: HostedActionReceipt[] }>(session, path(projectId, "receipts"))).receipts;
+}
+
+export async function issueHostedActionReceipt(session: HostedSession, projectId: string, actionId: string): Promise<HostedActionReceipt> {
+  return apiRequest(session, path(projectId, `actions/${encodeURIComponent(actionId)}/receipt`), { method: "POST" });
 }
 
 export async function reviewHostedAction(session: HostedSession, projectId: string, actionId: string, decision: "approve" | "reject", comment?: string): Promise<HostedAction> {

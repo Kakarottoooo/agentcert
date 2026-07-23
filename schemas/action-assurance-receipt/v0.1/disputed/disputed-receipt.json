@@ -1,0 +1,95 @@
+{
+  "core": {
+    "receiptSchemaVersion": "agentcert.action_assurance_receipt.v0.1",
+    "receiptId": "659d4db8-77ee-4dd6-8ea1-f1a1847fcb6c",
+    "actionId": "5938ae22-bd09-408a-bc2b-0d4fd8df4976",
+    "tenantReference": "ab222d5c-e9d0-472b-96b7-04b06394d44c",
+    "principalIdentity": {
+      "id": "claims-agent",
+      "assuranceLevel": "SELF_ASSERTED"
+    },
+    "agentIdentity": {
+      "id": "claims-agent",
+      "version": "1.0.0"
+    },
+    "executorIdentity": {
+      "id": "sandbox-claims-gateway",
+      "assuranceLevel": "WORKLOAD_ATTESTED"
+    },
+    "collectorIdentity": {
+      "id": "unbound-collector",
+      "assuranceLevel": "SELF_ASSERTED"
+    },
+    "issuerIdentity": {
+      "id": "agentcert-control-plane",
+      "keyId": "agentcert-action-receipt-example"
+    },
+    "actionIntentDigest": "c3f424903b31a99a096173cdc253e47d9a23b7f5a1c3a37018274746c6bc5cc4",
+    "policyDecision": {
+      "decisionId": "7f982c72-a416-4624-9877-ab0273894d79",
+      "result": "ALLOW",
+      "policyId": "agentcert.default.v1",
+      "policyVersion": "agentcert.default.v1",
+      "reasonCodes": [
+        "human_approval_satisfied"
+      ],
+      "actionDigestSha256": "c3f424903b31a99a096173cdc253e47d9a23b7f5a1c3a37018274746c6bc5cc4"
+    },
+    "approvals": [
+      {
+        "approvalId": "9c96efac-4c41-4c2e-b77d-6801df90c7fe",
+        "approverIdentityId": "claims-manager",
+        "decision": "APPROVED",
+        "actionDigestSha256": "c3f424903b31a99a096173cdc253e47d9a23b7f5a1c3a37018274746c6bc5cc4",
+        "bindingValid": true,
+        "createdAt": "2026-07-22T12:01:00.000Z"
+      }
+    ],
+    "executionGrantDigest": "3585dcb59976ad25751aa7752ddbf257dfb1c3770e3cf3aaed845786ffbfa827",
+    "evidenceStrength": "ENFORCED",
+    "enforcementLevel": "ENFORCED",
+    "enforcementMethod": "SIGNED_ADAPTER",
+    "actionEventChainDigest": "74ef5a8ec102d4546c5ea54e394ce86977971fb6abed607af70e384435ec3e5b",
+    "evidenceManifest": [],
+    "identityAssuranceSummary": {
+      "principal": "SELF_ASSERTED",
+      "agent": "SELF_ASSERTED",
+      "executor": "WORKLOAD_ATTESTED",
+      "collector": "SELF_ASSERTED"
+    },
+    "facts": {
+      "directlyObserved": [],
+      "thirdPartySigned": [],
+      "inferred": [
+        "policy_effect",
+        "mandate_scope_match"
+      ],
+      "selfReported": []
+    },
+    "controls": {
+      "controlled": [
+        "execution_grant",
+        "adapter_boundary"
+      ],
+      "notControlled": []
+    },
+    "issuedAt": "2026-07-22T12:02:00.000Z",
+    "validUntil": "2026-08-22T12:00:00.000Z",
+    "currentStatus": "DISPUTED",
+    "warnings": [
+      "mandate_missing",
+      "outcome_not_observed"
+    ]
+  },
+  "coreSha256": "eac4c1bb6bb0cadd6d5f57bd2308f923bd5baf1b80785ac75c5e1ab28fbd3d95",
+  "signatureSet": [
+    {
+      "schemaVersion": "agentcert.server_attestation.v0.1",
+      "algorithm": "Ed25519",
+      "keyId": "agentcert-action-receipt-example",
+      "signedAt": "2026-07-22T12:02:00.000Z",
+      "payloadSha256": "eac4c1bb6bb0cadd6d5f57bd2308f923bd5baf1b80785ac75c5e1ab28fbd3d95",
+      "signature": "cSjSntGpdlOvcYNkEFxaMAyssMQ0-INYkYDdOwabV2YqnfQSKrFv_OEv6BtHFlKv5udDThbCvJUOAEHJcMEfAg"
+    }
+  ]
+}

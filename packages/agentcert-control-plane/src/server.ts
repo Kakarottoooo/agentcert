@@ -333,6 +333,16 @@ async function handleRequest(
     else throw new ControlPlaneError("Agent route was not found.", 404);
     return;
   }
+  if (collection === "mandates") {
+    if (request.method === "GET" && !entityId) sendJson(response, 200, { mandates: await options.service.listActionMandates(auth, projectId) });
+    else if (request.method === "GET" && entityId && !child) sendJson(response, 200, await options.service.getActionMandate(auth, projectId, entityId));
+    else if (request.method === "POST" && !entityId) await sendIdempotentJson(request, response, options.service, projectId, "mandates.create", 201,
+      (body) => options.service.createActionMandate(auth, projectId, body), options.idempotencyCoordinator);
+    else if (request.method === "POST" && entityId && child === "revoke") await sendIdempotentJson(request, response, options.service, projectId, `mandates.${entityId}.revoke`, 200,
+      (body) => options.service.revokeActionMandate(auth, projectId, entityId, body), options.idempotencyCoordinator);
+    else throw new ControlPlaneError("Mandate route was not found.", 404);
+    return;
+  }
   if (collection === "runs") {
     if (request.method === "GET" && !entityId) sendJson(response, 200, { runs: await options.service.listRuns(auth, projectId) });
     else if (request.method === "POST" && !entityId) await sendIdempotentJson(request, response, options.service, projectId, "runs.create", 201,
@@ -356,7 +366,16 @@ async function handleRequest(
     else if (request.method === "POST" && entityId && child === "reject") sendJson(response, 200, await options.service.reviewAction(auth, projectId, entityId, false, await readJson(request)));
     else if (request.method === "POST" && entityId && child === "verify") await sendIdempotentJson(request, response, options.service, projectId, `actions.${entityId}.verify`, 200,
       (body) => options.service.verifyAction(auth, projectId, entityId, body), options.idempotencyCoordinator);
+    else if (request.method === "POST" && entityId && child === "receipt") await sendIdempotentJson(request, response, options.service, projectId, `actions.${entityId}.receipt`, 201,
+      () => options.service.issueActionAssuranceReceipt(auth, projectId, entityId), options.idempotencyCoordinator);
+    else if (request.method === "GET" && entityId && child === "receipts") sendJson(response, 200, { receipts: await options.service.listActionAssuranceReceipts(auth, projectId, entityId) });
     else throw new ControlPlaneError("Action route was not found.", 404);
+    return;
+  }
+  if (collection === "receipts") {
+    if (request.method === "GET" && !entityId) sendJson(response, 200, { receipts: await options.service.listActionAssuranceReceipts(auth, projectId) });
+    else if (request.method === "GET" && entityId && !child) sendJson(response, 200, await options.service.getActionAssuranceReceipt(auth, projectId, entityId));
+    else throw new ControlPlaneError("Receipt route was not found.", 404);
     return;
   }
   if (collection === "incidents" && request.method === "GET") {

@@ -43,6 +43,37 @@ describe("AgentCertClient", () => {
     await expect(client.getAction("action-1")).rejects.toThrow("Project access denied.");
   });
 
+  it("uses the action assurance mandate and receipt endpoints", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const request = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      requests.push({ url: String(url), init });
+      if (String(url).endsWith("/mandates")) {
+        return new Response(JSON.stringify({ id: "mandate-1", digestSha256: "a".repeat(64), status: "active" }), { status: 201 });
+      }
+      return new Response(JSON.stringify({ id: "receipt-1", actionId: "action-1", currentStatus: "valid" }), { status: 201 });
+    });
+    const client = new AgentCertClient({ baseUrl: "https://agentcert.example", projectId: "project-1", apiKey: "ac_live_test", fetch: request as typeof fetch });
+
+    await client.createMandate({
+      granteeIdentityId: "procurement-agent",
+      audience: ["mock-erp"],
+      permittedActionClasses: ["SUBMIT"],
+      permittedOperations: ["purchase_order.submit"],
+      permittedResources: ["purchase-order:PO-1001"],
+      expiresAt: "2026-08-01T00:00:00.000Z",
+    });
+    await client.issueActionReceipt("action-1");
+
+    expect(requests.map((item) => item.url)).toEqual([
+      "https://agentcert.example/v1/projects/project-1/mandates",
+      "https://agentcert.example/v1/projects/project-1/actions/action-1/receipt",
+    ]);
+    expect(JSON.parse(String(requests[0]!.init!.body))).toMatchObject({
+      granteeIdentityId: "procurement-agent",
+      permittedActionClasses: ["SUBMIT"],
+    });
+  });
+
   it("sends the manifest source path for companion evidence reconciliation", async () => {
     const request = vi.fn(async () => new Response(JSON.stringify({ id: "evidence-1" }), { status: 201 }));
     const client = new AgentCertClient({ baseUrl: "https://agentcert.example", projectId: "project-1", apiKey: "ac_live_test", fetch: request as typeof fetch });

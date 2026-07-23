@@ -13,6 +13,7 @@ import {
   downloadAdminLegalHoldReport,
   evidenceContentUrl,
   loadHostedActions,
+  loadHostedActionReceipts,
   loadHostedApiKeys,
   loadHostedAgents,
   loadHostedEvidence,
@@ -38,6 +39,7 @@ import {
   resendSignUpConfirmation,
   resolveHostedIncident,
   reviewHostedAction,
+  issueHostedActionReceipt,
   reviewHostedUnknownCapability,
   reviewAdminLegalHold,
   revokeHostedApiKey,
@@ -52,6 +54,7 @@ import {
   updateHostedTeamMember,
   removeHostedTeamMember,
   type HostedAction,
+  type HostedActionReceipt,
   type HostedAgent,
   type HostedApiKey,
   type HostedConfig,
@@ -107,6 +110,7 @@ interface ConsoleData {
   agents: HostedAgent[];
   runs: HostedRun[];
   actions: HostedAction[];
+  actionReceipts: HostedActionReceipt[];
   incidents: HostedIncident[];
   evidence: HostedEvidence[];
   assuranceCases: HostedAssuranceCase[];
@@ -258,13 +262,13 @@ function HostedConsole({ config, session, onSignOut }: { config: HostedConfig; s
     if (!project || !memberRole) return;
     setLoading(true); setError(undefined);
     try {
-      const [overview, operations, observability, agents, runs, actions, incidents, evidence, assuranceCases, capabilityRegistry, nextOnboarding] = await Promise.all([
+      const [overview, operations, observability, agents, runs, actions, actionReceipts, incidents, evidence, assuranceCases, capabilityRegistry, nextOnboarding] = await Promise.all([
         loadOverview(session, project.id), loadHostedOperations(session, project.id), loadHostedObservability(session, project.id), loadHostedAgents(session, project.id),
-        loadHostedRuns(session, project.id), loadHostedActions(session, project.id), loadHostedIncidents(session, project.id), loadHostedEvidence(session, project.id), loadHostedAssuranceCases(session, project.id),
+        loadHostedRuns(session, project.id), loadHostedActions(session, project.id), loadHostedActionReceipts(session, project.id), loadHostedIncidents(session, project.id), loadHostedEvidence(session, project.id), loadHostedAssuranceCases(session, project.id),
         loadHostedCapabilityRegistry(session, project.id),
         canManageHostedProjects(memberRole) ? loadHostedOnboarding(session, project.id) : Promise.resolve(undefined),
       ]);
-      setData({ overview, operations, observability, agents, runs, actions, incidents, evidence, assuranceCases, capabilityRegistry });
+      setData({ overview, operations, observability, agents, runs, actions, actionReceipts, incidents, evidence, assuranceCases, capabilityRegistry });
       setOnboarding(nextOnboarding);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setLoading(false); }
@@ -441,7 +445,7 @@ function HostedViewContent({ view, data, project, projects, session, role, onboa
   if (view === "assurance") return <HostedAssuranceView cases={data.assuranceCases} evidence={data.evidence} project={project} session={session} role={role} refresh={refresh} />;
   if (view === "sandbox") return <HostedSandboxView runs={data.runs.filter(isSandboxCertificationRun)} project={project} session={session} />;
   if (view === "gates") return <RunsTable runs={data.runs.filter((run) => run.kind === "release_gate")} empty="No release-gate runs have been ingested." />;
-  if (view === "actions") return <ActionsView actions={data.actions} project={project} session={session} refresh={refresh} />;
+  if (view === "actions") return <ActionsView actions={data.actions} receipts={data.actionReceipts} project={project} session={session} role={role} refresh={refresh} />;
   if (view === "incidents") return <IncidentsView incidents={data.incidents} operations={data.operations} project={project} session={session} refresh={refresh} />;
   if (view === "evidence") return <EvidenceView evidence={data.evidence} overview={data.overview} project={project} session={session} refresh={refresh} />;
   if (view === "team") return <TeamView project={project} projects={projects.filter((item) => item.organizationId === project.organizationId)} session={session} />;
@@ -610,12 +614,13 @@ function RunsTable({ runs, empty = "No runs recorded yet." }: { runs: HostedRun[
   return <div className="ops-table"><div className="ops-row head"><span>Run</span><span>Kind</span><span>Status</span><span>Score</span><span>Started</span></div>{runs.map((run) => <div className="ops-row" key={run.id}><strong>{run.externalId}</strong><span>{run.kind.replace("_", " ")}</span><Status value={run.status} /><span>{run.score ?? "-"}</span><span>{compactTime(run.startedAt)}</span></div>)}</div>;
 }
 
-function ActionsView({ actions, project, session, refresh }: { actions: HostedAction[]; project: HostedProject; session: HostedSession; refresh: () => Promise<void> }) {
+function ActionsView({ actions, receipts, project, session, role, refresh }: { actions: HostedAction[]; receipts: HostedActionReceipt[]; project: HostedProject; session: HostedSession; role?: HostedMemberRole; refresh: () => Promise<void> }) {
   const [busy, setBusy] = useState<string>(); const [error, setError] = useState<string>();
   const targetActionId = new URLSearchParams(window.location.search).get("actionId");
   const orderedActions = targetActionId ? [...actions].sort((left, right) => Number(right.id === targetActionId) - Number(left.id === targetActionId)) : actions;
   async function review(actionId: string, decision: "approve" | "reject") { setBusy(actionId); setError(undefined); try { await reviewHostedAction(session, project.id, actionId, decision); await refresh(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } finally { setBusy(undefined); } }
-  return <section className="data-section"><SectionTitle title="Runtime actions" caption="Policy decisions, human approvals, and observed-state verification" />{error ? <div className="console-error">{error}</div> : null}<div className="action-list">{orderedActions.map((action) => <article className={action.id === targetActionId ? "targeted-record" : undefined} key={action.id}><div className="action-main"><div><span className="eyebrow">{action.actionType} · {action.targetSystem}</span><strong>{action.externalId}</strong></div><Status value={action.status} /><p>{action.reasons.join(" ")}</p></div><dl><div><dt>Risk</dt><dd>{action.riskLevel} ({action.riskScore})</dd></div><div><dt>Decision</dt><dd>{action.decision}</dd></div><div><dt>Verification</dt><dd>{action.verificationSuccess === undefined ? "Not submitted" : action.verificationSuccess ? "Matched" : "Mismatch"}</dd></div></dl>{action.status === "PENDING_APPROVAL" ? <div className="approval-actions"><button disabled={busy === action.id} onClick={() => void review(action.id, "reject")}>Reject</button><button className="primary-action compact" disabled={busy === action.id} onClick={() => void review(action.id, "approve")}>Approve</button></div> : null}</article>)}{actions.length === 0 ? <EmptyHosted text="No runtime actions have been proposed." /> : null}</div></section>;
+  async function issueReceipt(actionId: string) { setBusy(actionId); setError(undefined); try { await issueHostedActionReceipt(session, project.id, actionId); await refresh(); } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); } finally { setBusy(undefined); } }
+  return <section className="data-section"><SectionTitle title="Runtime actions" caption="Mandate binding, policy decisions, approvals, observed outcomes, and signed receipts" />{error ? <div className="console-error">{error}</div> : null}<div className="action-list">{orderedActions.map((action) => { const receipt = receipts.find((item) => item.actionId === action.id); return <article className={action.id === targetActionId ? "targeted-record" : undefined} key={action.id}><div className="action-main"><div><span className="eyebrow">{action.actionType} · {action.targetSystem}</span><strong>{action.externalId}</strong></div><Status value={action.status} /><p>{action.reasons.join(" ")}</p></div><dl><div><dt>Risk</dt><dd>{action.riskLevel} ({action.riskScore})</dd></div><div><dt>Mandate</dt><dd>{action.assuranceContext?.mandateId ? "Bound" : "Not bound"}</dd></div><div><dt>Evidence strength</dt><dd>{receipt?.receipt.core.evidenceStrength.replaceAll("_", " ") ?? "No receipt"}</dd></div><div><dt>Execution boundary</dt><dd>{receipt?.receipt.core.enforcementLevel.replaceAll("_", " ") ?? "Not attested"}</dd></div><div><dt>Verification</dt><dd>{action.verificationSuccess === undefined ? "Not submitted" : action.verificationSuccess ? "Matched" : "Mismatch"}</dd></div></dl>{receipt?.receipt.core.controls.notControlled.length ? <p>Not controlled: {receipt.receipt.core.controls.notControlled.join(", ")}</p> : null}{action.status === "PENDING_APPROVAL" ? <div className="approval-actions"><button disabled={busy === action.id} onClick={() => void review(action.id, "reject")}>Reject</button><button className="primary-action compact" disabled={busy === action.id} onClick={() => void review(action.id, "approve")}>Approve</button></div> : null}{action.status === "VERIFIED" && !receipt && (role === "owner" || role === "admin") ? <button className="primary-action compact" disabled={busy === action.id} onClick={() => void issueReceipt(action.id)}>Issue signed receipt</button> : null}</article>; })}{actions.length === 0 ? <EmptyHosted text="No runtime actions have been proposed." /> : null}</div></section>;
 }
 
 function IncidentsView({ incidents, operations, project, session, refresh }: {

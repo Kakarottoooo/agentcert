@@ -118,6 +118,8 @@ export interface ActionInput {
   externalRecipient?: boolean;
   sensitive?: boolean;
   expectedState?: Record<string, unknown>;
+  mandateId?: string;
+  requireMandate?: boolean;
   assurance?: {
     mandateId: string;
     mandateDigestSha256: string;
@@ -137,6 +139,90 @@ export interface ActionDecision {
   policyVersion: string;
   reasons: string[];
   verificationSuccess?: boolean;
+  assuranceContext?: {
+    mandateId?: string;
+    mandateDigestSha256?: string;
+    sourceReceiptSha256?: string;
+    sourceKeyId?: string;
+    evidenceStrength?: "reported" | "recorded" | "enforced" | "outcome_verified";
+  };
+}
+
+export interface ActionMandateInput {
+  granteeIdentityId: string;
+  parentMandateId?: string;
+  audience: string[];
+  permittedActionClasses: ActionInput["actionType"][];
+  permittedOperations: string[];
+  permittedResources: string[];
+  prohibitedOperations?: string[];
+  constraints?: {
+    maxAmount?: number;
+    currency?: string;
+    allowedRecipients?: string[];
+    allowedRegions?: string[];
+    requiresApproval?: boolean;
+    requiresIndependentOutcome?: boolean;
+  };
+  validFrom?: string;
+  expiresAt: string;
+  maxUses?: number;
+  maxDelegationDepth?: number;
+  nonce?: string;
+  version?: number;
+}
+
+export interface ActionMandate {
+  id: string;
+  projectId: string;
+  digestSha256: string;
+  status: "ACTIVE" | "SUSPENDED" | "REVOKED" | "EXPIRED" | "SUPERSEDED" | "COMPROMISED" | "DISPUTED";
+  payload: Record<string, unknown>;
+  attestation?: ServerAttestation;
+  createdBy: string;
+  createdAt: string;
+  statusReason?: string;
+  statusChangedBy?: string;
+  statusChangedAt?: string;
+}
+
+export type ActionEvidenceStrength =
+  | "REPORTED"
+  | "RECORDED"
+  | "ENFORCED"
+  | "OUTCOME_VERIFIED"
+  | "INDEPENDENTLY_REVIEWED";
+
+export interface ActionAssuranceReceipt {
+  id: string;
+  projectId: string;
+  actionId: string;
+  currentStatus: "ACTIVE" | "SUSPENDED" | "REVOKED" | "EXPIRED" | "SUPERSEDED" | "COMPROMISED" | "DISPUTED";
+  createdAt: string;
+  receipt: {
+    core: {
+      receiptSchemaVersion: "agentcert.action_assurance_receipt.v0.1";
+      receiptId: string;
+      actionId: string;
+      mandateSummary?: { mandateId: string; [key: string]: unknown };
+      evidenceStrength: ActionEvidenceStrength;
+      enforcementLevel: "ENFORCED" | "OBSERVED_ONLY" | "SELF_REPORTED";
+      issuedAt: string;
+      validUntil: string;
+      facts: {
+        directlyObserved: string[];
+        thirdPartySigned: string[];
+        inferred: string[];
+        selfReported: string[];
+      };
+      controls: { controlled: string[]; notControlled: string[] };
+      warnings: string[];
+      currentStatus: ActionAssuranceReceipt["currentStatus"];
+      [key: string]: unknown;
+    };
+    coreSha256: string;
+    signatureSet: ServerAttestation[];
+  };
 }
 
 export class AgentCertClient {
@@ -173,12 +259,36 @@ export class AgentCertClient {
     return this.json("actions", { method: "POST", body: JSON.stringify(input) });
   }
 
+  createMandate(input: ActionMandateInput): Promise<ActionMandate> {
+    return this.json("mandates", { method: "POST", body: JSON.stringify(input) });
+  }
+
+  listMandates(): Promise<ActionMandate[]> {
+    return this.json("mandates");
+  }
+
+  revokeMandate(mandateId: string, reason: string): Promise<ActionMandate> {
+    return this.json(`mandates/${encodeURIComponent(mandateId)}/revoke`, { method: "POST", body: JSON.stringify({ reason }) });
+  }
+
   getAction(actionId: string): Promise<ActionDecision> {
     return this.json(`actions/${encodeURIComponent(actionId)}`);
   }
 
   verifyAction(actionId: string, observedState: Record<string, unknown>): Promise<ActionDecision> {
     return this.json(`actions/${encodeURIComponent(actionId)}/verify`, { method: "POST", body: JSON.stringify({ observedState }) });
+  }
+
+  issueActionReceipt(actionId: string): Promise<ActionAssuranceReceipt> {
+    return this.json(`actions/${encodeURIComponent(actionId)}/receipt`, { method: "POST" });
+  }
+
+  listActionReceipts(actionId?: string): Promise<ActionAssuranceReceipt[]> {
+    return this.json(actionId ? `actions/${encodeURIComponent(actionId)}/receipts` : "receipts");
+  }
+
+  getActionReceipt(receiptId: string): Promise<ActionAssuranceReceipt> {
+    return this.json(`receipts/${encodeURIComponent(receiptId)}`);
   }
 
   sendEnvelope(input: UniversalEnvelope, idempotencyKey = input.envelopeId): Promise<Record<string, unknown>> {
